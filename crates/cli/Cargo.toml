@@ -1,0 +1,19 @@
+[package]
+name = "idma-cli"
+description = "`dm` command-line front end for the download engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "dm"
+path = "src/main.rs"
+
+[dependencies]
+idma-engine = { path = "../engine" }
+anyhow.workspace = true
+clap.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,23 @@
+# Rust
+/target/
+
+# Node / frontend
+node_modules/
+dist/
+.svelte-kit/
+
+# Downloads produced while testing
+/downloads/
+*.idma-state
+*.idma-part
+
+# Benchmark raw output (summaries are committed separately)
+/bench/results/raw/
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+.DS_Store
+Thumbs.db
