@@ -1,0 +1,84 @@
+# Benchmark configuration for `cargo run --release -p idma-bench`.
+#
+# Placeholders in `args`: {url}, {dir}, {file}, {path}.
+# `${VAR}` in `program` expands environment variables.
+# Write downloads to an SSD (`--out-dir`): on an HDD, many connections writing one file
+# measure seek time, not the client.
+# Every run gets a unique URL, so server-side counters never mix between runs.
+
+repeat = 1 # use --repeat 3 for published results
+timeout_secs = 300
+
+# ---------------------------------------------------------------- clients
+
+[[client]]
+name = "curl"
+program = "curl.exe"
+args = ["-s", "-f", "-o", "{path}", "{url}"]
+
+[[client]]
+name = "aria2 x16"
+program = "aria2c"
+args = [
+  "-x16", "-s16", "-k1M", "--file-allocation=falloc",
+  "--allow-overwrite=true", "--auto-file-renaming=false",
+  "--console-log-level=error", "--summary-interval=0", "--download-result=hide",
+  "-d", "{dir}", "-o", "{file}", "{url}",
+]
+
+[[client]]
+name = "dm"
+program = "${CARGO_TARGET_DIR}/release/dm.exe"
+args = ["get", "{url}", "-o", "{path}"]
+enabled = false
+
+# IDM: /n = silent, /q = exit when done.
+[[client]]
+name = "IDM"
+program = "C:/Program Files (x86)/Internet Download Manager/IDMan.exe"
+args = ["/d", "{url}", "/p", "{dir}", "/f", "{file}", "/n", "/q"]
+enabled = false
+
+# ---------------------------------------------------------------- scenarios
+# `query` is appended to `size` and `seed`; see crates/testserver/README.md.
+
+[[scenario]]
+name = "clean"
+description = "Fast local server, no limits: raw engine and disk throughput"
+size = "1G"
+
+[[scenario]]
+name = "per-conn-limit"
+description = "Each connection capped at 4 MiB/s: rewards parallelism"
+size = "256M"
+query = "rate=4M"
+
+[[scenario]]
+name = "slow-tail"
+description = "One connection crawls at 64 KiB/s: does the client rescue its range?"
+size = "256M"
+query = "rate=8M&slow_conn=3:64K"
+
+[[scenario]]
+name = "conn-cap"
+description = "Server allows 4 connections and answers 503 beyond that"
+size = "256M"
+query = "rate=8M&max_conns=4"
+
+[[scenario]]
+name = "flaky"
+description = "Every response is reset after 4 MiB: retry and resume"
+size = "256M"
+query = "rate=16M&drop_after=4M"
+
+[[scenario]]
+name = "no-ranges"
+description = "Server has no range support: single connection only"
+size = "128M"
+query = "ranges=off&rate=16M"
+
+[[scenario]]
+name = "fake-ranges"
+description = "Advertises ranges but always returns 200 + full file"
+size = "128M"
+query = "range_as_200=1&rate=16M"

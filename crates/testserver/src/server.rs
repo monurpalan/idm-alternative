@@ -372,7 +372,6 @@ struct ConnGuard {
 impl Drop for ConnGuard {
     fn drop(&mut self) {
         self.url.active.fetch_sub(1, Ordering::AcqRel);
-        self.url.bytes_sent.fetch_add(self.sent, Ordering::Relaxed);
         let secs = self.started.elapsed().as_secs_f64();
         tracing::info!(
             conn = self.id,
@@ -432,6 +431,8 @@ impl BodyState {
             content::fill(s.seed, s.pos, &mut buf);
             s.pos += len;
             s.guard.sent += len;
+            // Counted live (not on completion) so `/_stats` can be sampled mid-download.
+            s.guard.url.bytes_sent.fetch_add(len, Ordering::Relaxed);
 
             if let Some(rate) = s.rate {
                 let due =
