@@ -1,6 +1,8 @@
 //! Transport: HTTPS with HTTP/2, browser fingerprints, proxies.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use idma_engine::{Browser, CancellationToken, Error, Options, Outcome, Request, download};
@@ -172,4 +174,73 @@ async fn downloads_through_a_proxy() {
     assert_eq!(verify_file(&out, 6, 8 * MB).expect("verify"), Verdict::Ok);
     let s = stats(&proxy).await;
     assert!(s["gets"].as_u64() >= Some(2), "{s}");
+}
+
+/// A minimal SOCKS5 proxy (no authentication, CONNECT only) that resolves every host name
+/// to `target`, and counts the tunnels it opened.
+async fn start_socks5(target: std::net::SocketAddr) -> (String, Arc<AtomicUsize>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let tunnels = Arc::new(AtomicUsize::new(0));
+    let count = Arc::clone(&tunnels);
+    tokio::spawn(async move {
+        while let Ok((mut client, _)) = listener.accept().await {
+            let count = Arc::clone(&count);
+            tokio::spawn(async move {
+                // Greeting: version 5, n methods; answer "no authentication".
+                let mut head = [0u8; 2];
+                client.read_exact(&mut head).await?;
+                let mut methods = vec![0u8; head[1] as usize];
+                client.read_exact(&mut methods).await?;
+                client.write_all(&[5, 0]).await?;
+                // Request: 5, CONNECT, reserved, address type, address, port.
+                let mut req = [0u8; 4];
+                client.read_exact(&mut req).await?;
+                let skip = match req[3] {
+                    1 => 4,
+                    4 => 16,
+                    _ => usize::from(client.read_u8().await?),
+                };
+                let mut rest = vec![0u8; skip + 2];
+                client.read_exact(&mut rest).await?;
+                let mut upstream = tokio::net::TcpStream::connect(target).await?;
+                count.fetch_add(1, Ordering::Relaxed);
+                client.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).await?;
+                tokio::io::copy_bidirectional(&mut client, &mut upstream).await?;
+                std::io::Result::Ok(())
+            });
+        }
+    });
+    (format!("socks5h://{addr}"), tunnels)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn downloads_through_a_socks5_proxy() {
+    let base = start_plain().await;
+    let target: std::net::SocketAddr = base
+        .trim_start_matches("http://")
+        .parse()
+        .expect("server address");
+    let (proxy, tunnels) = start_socks5(target).await;
+    let out = workdir("socks5").join("f.bin");
+    let o = Options {
+        proxy: Some(proxy),
+        connections: 4,
+        ..Options::default()
+    };
+    // Only the proxy can resolve this host (socks5h: names are resolved by the proxy).
+    let url = format!(
+        "http://download.invalid/file/f.bin?size={}&seed=7&rate=4M",
+        8 * MB
+    );
+    get(url, &out, &o).await.expect("download");
+    assert_eq!(verify_file(&out, 7, 8 * MB).expect("verify"), Verdict::Ok);
+    assert!(
+        tunnels.load(Ordering::Relaxed) >= 2,
+        "segments must use separate tunnels"
+    );
 }
