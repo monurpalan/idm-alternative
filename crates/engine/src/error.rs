@@ -8,6 +8,13 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("server returned HTTP {0}")]
     Status(u16),
+    /// The link stopped working (HTTP 401, 403 or 410), even after following the original
+    /// URL's redirects again. Progress is kept: downloading from a fresh link of the same
+    /// file resumes (see [`crate::patch_url`]).
+    #[error(
+        "the link has expired or access was denied (HTTP {0}); a fresh link resumes the download"
+    )]
+    LinkExpired(u16),
     #[error("server is busy (HTTP {0})")]
     Busy(u16),
     #[error("the file on the server changed since the download started")]
@@ -35,7 +42,11 @@ impl Error {
     pub(crate) fn is_fatal(&self) -> bool {
         matches!(
             self,
-            Error::FileChanged | Error::HtmlResponse | Error::Io(_) | Error::Cancelled
+            Error::FileChanged
+                | Error::HtmlResponse
+                | Error::Io(_)
+                | Error::Cancelled
+                | Error::LinkExpired(_)
         )
     }
 }

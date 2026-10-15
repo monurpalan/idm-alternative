@@ -45,6 +45,7 @@ struct UrlState {
 struct AppState {
     urls: Mutex<HashMap<String, Arc<UrlState>>>,
     next_conn_id: AtomicU64,
+    next_hop: AtomicU64,
 }
 
 impl AppState {
@@ -132,8 +133,9 @@ async fn serve_file(
 
     if sc.redirect > 0 {
         let query = uri.query().unwrap_or_default();
-        let next: Vec<String> = query
+        let mut next: Vec<String> = query
             .split('&')
+            .filter(|kv| !kv.starts_with("hop="))
             .map(|kv| {
                 if kv.starts_with("redirect=") {
                     format!("redirect={}", sc.redirect - 1)
@@ -142,6 +144,12 @@ async fn serve_file(
                 }
             })
             .collect();
+        if sc.redirect_unique {
+            next.push(format!(
+                "hop={}",
+                app.next_hop.fetch_add(1, Ordering::Relaxed)
+            ));
+        }
         let location = format!("/file/{name}?{}", next.join("&"));
         return (StatusCode::FOUND, [(header::LOCATION, location)]).into_response();
     }

@@ -42,6 +42,14 @@ impl OutputFile {
             .map_err(io::Error::other)?
     }
 
+    /// Reads `len` bytes at `offset` on a blocking thread.
+    pub async fn read_at(&self, offset: u64, len: usize) -> io::Result<Vec<u8>> {
+        let file = Arc::clone(&self.file);
+        tokio::task::spawn_blocking(move || read_exact_at(&file, len, offset))
+            .await
+            .map_err(io::Error::other)?
+    }
+
     /// Flushes written data to disk.
     pub async fn sync(&self) -> io::Result<()> {
         let file = Arc::clone(&self.file);
@@ -74,6 +82,30 @@ fn write_all_at(file: &File, mut buf: &[u8], mut offset: u64) -> io::Result<()> 
 fn write_all_at(file: &File, buf: &[u8], offset: u64) -> io::Result<()> {
     use std::os::unix::fs::FileExt;
     file.write_all_at(buf, offset)
+}
+
+#[cfg(windows)]
+pub(crate) fn read_exact_at(file: &File, len: usize, mut offset: u64) -> io::Result<Vec<u8>> {
+    use std::os::windows::fs::FileExt;
+    let mut buf = vec![0u8; len];
+    let mut filled = 0;
+    while filled < len {
+        let n = file.seek_read(&mut buf[filled..], offset)?;
+        if n == 0 {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+        filled += n;
+        offset += n as u64;
+    }
+    Ok(buf)
+}
+
+#[cfg(unix)]
+pub(crate) fn read_exact_at(file: &File, len: usize, offset: u64) -> io::Result<Vec<u8>> {
+    use std::os::unix::fs::FileExt;
+    let mut buf = vec![0u8; len];
+    file.read_exact_at(&mut buf, offset)?;
+    Ok(buf)
 }
 
 /// Marks the file sparse. Best effort: filesystems without sparse support (FAT, exFAT)

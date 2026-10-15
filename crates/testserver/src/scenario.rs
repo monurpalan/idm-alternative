@@ -105,6 +105,10 @@ pub struct Scenario {
     pub no_length: bool,
     /// Redirect this many times before serving.
     pub redirect: u32,
+    /// Every redirect leads to a new URL (a `hop` parameter is added), like a CDN that
+    /// signs each link it hands out: with `ttl`, each resolved link expires on its own.
+    #[serde(deserialize_with = "flag")]
+    pub redirect_unique: bool,
     /// Send `Content-Disposition` with this filename.
     pub cd: Option<String>,
     /// Delay before the response headers, in milliseconds.
@@ -128,6 +132,7 @@ impl Default for Scenario {
             html_error_after: None,
             no_length: false,
             redirect: 0,
+            redirect_unique: false,
             cd: None,
             latency_ms: 0,
         }

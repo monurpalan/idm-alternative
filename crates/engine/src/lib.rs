@@ -13,6 +13,7 @@ mod download;
 pub mod error;
 mod file;
 mod limit;
+mod relink;
 mod remote;
 pub mod segments;
 mod state;
@@ -20,6 +21,7 @@ mod state;
 pub use download::{Options, Outcome, Progress, Request, SegmentView, download};
 pub use error::{Error, Result};
 pub use limit::Limiter;
+pub use relink::patch_url;
 pub use remote::Browser;
 pub use tokio_util::sync::CancellationToken;
 

@@ -305,8 +305,19 @@ impl Http {
     }
 }
 
+impl Http {
+    /// Downloads `[start, end)` whole; for small checks, not for file data.
+    pub async fn fetch(&self, remote: &Remote, start: u64, end: u64, slot: u64) -> Result<Vec<u8>> {
+        let resp = self.range(remote, start, Some(end), slot).await?;
+        Ok(resp.bytes().await?.to_vec())
+    }
+}
+
 fn status_error(s: StatusCode) -> Error {
     match s {
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::GONE => {
+            Error::LinkExpired(s.as_u16())
+        }
         StatusCode::TOO_MANY_REQUESTS | StatusCode::SERVICE_UNAVAILABLE => Error::Busy(s.as_u16()),
         s => Error::Status(s.as_u16()),
     }

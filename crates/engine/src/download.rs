@@ -2,7 +2,8 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
@@ -117,14 +118,7 @@ pub async fn download(
     cancel: &CancellationToken,
 ) -> Result<Outcome> {
     let started = Instant::now();
-    let http = Http::new(&HttpConfig {
-        user_agent: opts.user_agent.clone(),
-        browser: opts.browser,
-        proxy: opts.proxy.clone(),
-        insecure: opts.insecure,
-        http1_only: opts.http1_only,
-        headers: req.headers.clone(),
-    })?;
+    let http = Http::new(&http_config(req, opts))?;
     let part = sibling(&req.output, ".idma-part");
     let state_path = sibling(&req.output, ".idma-state");
     let mut force_single = false;
@@ -161,6 +155,17 @@ pub async fn download(
     }
 }
 
+pub(crate) fn http_config(req: &Request, opts: &Options) -> HttpConfig {
+    HttpConfig {
+        user_agent: opts.user_agent.clone(),
+        browser: opts.browser,
+        proxy: opts.proxy.clone(),
+        insecure: opts.insecure,
+        http1_only: opts.http1_only,
+        headers: req.headers.clone(),
+    }
+}
+
 fn discard(part: &Path, state: &Path) {
     std::fs::remove_file(part).ok();
     std::fs::remove_file(state).ok();
@@ -178,7 +183,17 @@ struct Job<'a> {
 /// Shared by the controller and every connection.
 struct Ctx {
     http: Http,
-    remote: Remote,
+    /// Where requests go now; replaced when an expired redirect target is resolved again.
+    remote: RwLock<Remote>,
+    /// Bumped on every replacement of `remote`.
+    generation: AtomicU64,
+    /// Held while resolving the original URL again, so connections that fail together
+    /// trigger it once.
+    relinking: tokio::sync::Mutex<()>,
+    /// The URL the user asked for, before redirects.
+    original_url: String,
+    size: Option<u64>,
+    ranges: bool,
     file: OutputFile,
     table: Mutex<Table>,
     read_timeout: Duration,
@@ -194,6 +209,52 @@ impl Ctx {
     /// The lowest active speed limit, if any.
     fn tightest_limit(&self) -> Option<u64> {
         self.limiters.iter().filter_map(Limiter::rate).min()
+    }
+
+    /// Where requests go now, and the generation of that answer.
+    fn remote(&self) -> (Remote, u64) {
+        let remote = self.remote.read().unwrap_or_else(PoisonError::into_inner);
+        (remote.clone(), self.generation.load(Ordering::Acquire))
+    }
+
+    /// A request to the current URL was refused with `code` (401/403/410). If that URL is a
+    /// redirect target, resolves the original URL again — redirect targets are often signed
+    /// links that expire while the original stays valid — and switches to the new target
+    /// once it is shown to serve the same file. `seen` is the generation the failed request
+    /// used: when another connection already switched, there is nothing to do.
+    async fn relink(&self, seen: u64, code: u16, slot: u64) -> Result<()> {
+        let _one_at_a_time = self.relinking.lock().await;
+        if self.generation.load(Ordering::Acquire) != seen {
+            return Ok(());
+        }
+        let (current, _) = self.remote();
+        if current.url == self.original_url {
+            return Err(Error::LinkExpired(code));
+        }
+        tracing::info!(expired = %current.url, "redirect target refused; resolving the original URL again");
+        let (fresh, resp) = self.http.probe(&self.original_url, 0, None, slot).await?;
+        drop(resp);
+        let size = self.size.unwrap_or_default();
+        let saved = self.table().saved();
+        let sample = match crate::relink::sample_region(&saved) {
+            Some((start, end)) => Some((
+                start,
+                self.file.read_at(start, (end - start) as usize).await?,
+            )),
+            None => None,
+        };
+        if fresh.url == current.url
+            || !crate::relink::same_content(&self.http, &fresh, size, &sample, slot).await?
+        {
+            // The original leads back to the refused link, or to a different file.
+            return Err(Error::LinkExpired(code));
+        }
+        tracing::info!(url = %fresh.url, "continuing with the new redirect target");
+        let mut remote = self.remote.write().unwrap_or_else(PoisonError::into_inner);
+        remote.url = fresh.url;
+        remote.validators = fresh.validators;
+        self.generation.fetch_add(1, Ordering::AcqRel);
+        Ok(())
     }
 }
 
@@ -230,7 +291,12 @@ impl Job<'_> {
         let ctx = Arc::new(Ctx {
             file: OutputFile::open(self.part, remote.size)?,
             http: self.http.clone(),
-            remote,
+            size: remote.size,
+            ranges: remote.ranges,
+            remote: RwLock::new(remote),
+            generation: AtomicU64::new(0),
+            relinking: tokio::sync::Mutex::new(()),
+            original_url: self.req.url.clone(),
             table: Mutex::new(table),
             read_timeout: self.opts.read_timeout,
             limiters: self.opts.limiters.clone(),
@@ -354,7 +420,7 @@ impl Job<'_> {
                             stop.cancel();
                         }
                         if let Some(p) = progress {
-                            p.send_replace(snapshot(&t, ctx.remote.size));
+                            p.send_replace(snapshot(&t, ctx.size));
                         }
                     }
                     last_tick = now;
@@ -393,7 +459,7 @@ impl Job<'_> {
         }
 
         let received = ctx.table().received_total();
-        if ctx.remote.size.is_none() {
+        if ctx.size.is_none() {
             ctx.file.set_len(received)?;
         }
         if let Some(p) = progress {
@@ -410,10 +476,13 @@ impl Job<'_> {
         if self.force_single || !self.part.exists() {
             return Ok(None);
         }
-        let Some(state) = State::load(self.state_path).filter(|s| s.url == self.req.url) else {
+        let Some(state) = State::load(self.state_path) else {
             return Ok(None);
         };
         let table = Table::from_saved(&state.segments);
+        if state.url != self.req.url {
+            return self.adopt_link(&state, table).await;
+        }
         let Some(idx) = table.segs.iter().position(|s| !s.is_done()) else {
             // Every byte was already on disk when the last attempt stopped.
             return Ok(Some(Resume::Complete(state.size)));
@@ -441,20 +510,47 @@ impl Job<'_> {
         }
     }
 
+    /// The interrupted attempt used another URL: continue with this one if it serves the same
+    /// file (a refreshed link), otherwise start over.
+    async fn adopt_link(&self, state: &State, table: Table) -> Result<Option<Resume>> {
+        let idx = table.segs.iter().position(|s| !s.is_done());
+        let start = idx.map_or(0, |i| table.segs[i].written);
+        let (remote, resp) = self.http.probe(&self.req.url, start, None, 0).await?;
+        let sample = crate::relink::read_sample(self.part, &state.segments)?;
+        if !crate::relink::same_content(self.http, &remote, state.size, &sample, 1).await? {
+            tracing::info!("the new link serves a different file; starting over");
+            return Ok(None);
+        }
+        let Some(idx) = idx else {
+            return Ok(Some(Resume::Complete(state.size)));
+        };
+        let resumed = table.received_total();
+        tracing::info!(
+            resumed,
+            "continuing the interrupted download with the new link"
+        );
+        Ok(Some(Resume::Partial(Box::new((
+            remote,
+            (idx, resp),
+            table,
+            resumed,
+        )))))
+    }
+
     /// Saves progress. Positions are captured before the state is written, so the state
     /// never claims bytes that were not yet handed to the OS: that survives the process
     /// crashing or being killed. With `durable`, the file is also flushed to the disk first,
     /// which additionally survives power loss — but on Windows a flush stalls every write
     /// to the file for seconds, so it is only done when stopping (see ADR 0002).
     async fn checkpoint(&self, ctx: &Ctx, durable: bool) -> Result<()> {
-        let Some(size) = ctx.remote.size.filter(|_| ctx.remote.ranges) else {
+        let Some(size) = ctx.size.filter(|_| ctx.ranges) else {
             return Ok(()); // without ranges there is nothing to resume from
         };
         let segments = ctx.table().saved();
         if durable {
             ctx.file.sync().await?;
         }
-        State::new(&self.req.url, size, ctx.remote.validators.clone(), segments)
+        State::new(&self.req.url, size, ctx.remote().0.validators, segments)
             .save(self.state_path)?;
         Ok(())
     }
@@ -509,9 +605,20 @@ async fn connection(
         Some(r) => r,
         None => {
             let end = (end != u64::MAX).then_some(end);
-            tokio::select! {
-                r = ctx.http.range(&ctx.remote, start, end, slot) => r?,
-                () = stop.cancelled() => return Err(Error::Cancelled),
+            let mut relinked = false;
+            loop {
+                let (remote, generation) = ctx.remote();
+                let r = tokio::select! {
+                    r = ctx.http.range(&remote, start, end, slot) => r,
+                    () = stop.cancelled() => return Err(Error::Cancelled),
+                };
+                match r {
+                    Err(Error::LinkExpired(code)) if !relinked => {
+                        ctx.relink(generation, code, slot).await?;
+                        relinked = true;
+                    }
+                    r => break r?,
+                }
             }
         }
     };

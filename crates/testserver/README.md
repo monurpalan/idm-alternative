@@ -39,6 +39,7 @@ Sizes and rates accept `K`, `M`, `G` suffixes (binary units). Flags accept `1/0`
 | `html_error_after` | — | GETs after the first n return `200 text/html` |
 | `no_length` | `off` | No `Content-Length`, chunked, no range support |
 | `redirect` | `0` | Redirect this many times before serving |
+| `redirect_unique` | `off` | Each redirect leads to a new URL (adds `hop=n`), like a CDN signing every link; with `ttl`, each one expires on its own |
 | `cd` | — | `Content-Disposition` filename (ASCII fallback + `filename*` UTF-8) |
 | `latency_ms` | `0` | Delay before response headers |
 
