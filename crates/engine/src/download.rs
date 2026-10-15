@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::{Error, Result};
 use crate::file::OutputFile;
+use crate::limit::Limiter;
 use crate::remote::{Http, Remote};
 use crate::segments::{SplitPolicy, Table};
 use crate::state::{State, sibling};
@@ -21,6 +22,9 @@ const WRITE_CHUNK: usize = 1 << 20;
 /// A connection's buffer is written at least this often, so checkpoints keep moving.
 const WRITE_EVERY: Duration = Duration::from_secs(1);
 const TICK: Duration = Duration::from_millis(100);
+/// Under a speed limit, at most one connection per this many bytes/s: connections that
+/// trickle are more likely to be dropped by servers and gain nothing.
+const MIN_LIMITED_CONN_RATE: u64 = 32 << 10;
 
 pub struct Request {
     pub url: String,
@@ -42,6 +46,9 @@ pub struct Options {
     pub max_failures: u32,
     pub user_agent: String,
     pub split: SplitPolicy,
+    /// Speed limits this download obeys, typically the app's global limiter and the
+    /// download's own. Every connection pays each of them for every byte.
+    pub limiters: Vec<Limiter>,
 }
 
 impl Default for Options {
@@ -53,6 +60,7 @@ impl Default for Options {
             max_failures: 8,
             user_agent: format!("idm-alternative/{}", crate::VERSION),
             split: SplitPolicy::default(),
+            limiters: Vec::new(),
         }
     }
 }
@@ -153,12 +161,18 @@ struct Ctx {
     file: OutputFile,
     table: Mutex<Table>,
     read_timeout: Duration,
+    limiters: Vec<Limiter>,
     cancel: CancellationToken,
 }
 
 impl Ctx {
     fn table(&self) -> MutexGuard<'_, Table> {
         self.table.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The lowest active speed limit, if any.
+    fn tightest_limit(&self) -> Option<u64> {
+        self.limiters.iter().filter_map(Limiter::rate).min()
     }
 }
 
@@ -198,6 +212,7 @@ impl Job<'_> {
             remote,
             table: Mutex::new(table),
             read_timeout: self.opts.read_timeout,
+            limiters: self.opts.limiters.clone(),
             cancel: cancel.child_token(),
         });
 
@@ -273,9 +288,26 @@ impl Job<'_> {
                     {
                         let mut t = ctx.table();
                         t.sample_speeds(now - last_tick);
+                        // A saturated limit sets the speed by itself: stealing would only waste
+                        // what the victims' abandoned responses buffered. Crawlers are still
+                        // replaced: that fixes the server, at the cost of one response.
+                        // Under an unsaturated limit, only as many connections are added as the
+                        // missing speed needs at the typical per-connection speed: every extra
+                        // one throttled later fills socket buffers that a steal throws away.
+                        let saturated = ctx.limiters.iter().any(Limiter::is_saturated);
+                        let limit = ctx.tightest_limit();
+                        let allowed = limit.map_or(conn_limit, |r| {
+                            conn_limit.min(usize::try_from(r / MIN_LIMITED_CONN_RATE).unwrap_or(usize::MAX).max(1))
+                        });
+                        let mut budget = match (limit, t.typical_speed()) {
+                            (Some(r), Some(per)) => ((r as f64 - t.total_speed()) / per).ceil().max(1.0) as usize,
+                            (Some(_), None) => 1,
+                            (None, _) => usize::MAX,
+                        };
                         if fatal.is_none() {
-                            while t.active() < conn_limit {
-                                match t.assign(next_id, now, &self.opts.split) {
+                            while t.active() < allowed && budget > 0 {
+                                budget -= 1;
+                                match t.assign(next_id, now, &self.opts.split, !saturated) {
                                     Some(idx) => {
                                         next_id += 1;
                                         to_start.push(idx);
@@ -489,6 +521,12 @@ async fn connection(
         };
         w.buf.extend_from_slice(&chunk[..take]);
         pos += take as u64;
+        for limiter in &ctx.limiters {
+            tokio::select! {
+                () = stop.cancelled() => break,
+                () = limiter.acquire(take) => {}
+            }
+        }
         let finished = pos >= seg_end;
         if (finished || w.buf.len() >= WRITE_CHUNK || w.last.elapsed() >= WRITE_EVERY)
             && let Err(e) = w.flush(ctx, idx).await

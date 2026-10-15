@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use idma_engine::{CancellationToken, Error, Options, Progress, Request};
+use idma_engine::{CancellationToken, Error, Limiter, Options, Progress, Request};
 
 /// Command-line front end for the idm-alternative download engine.
 #[derive(Parser)]
@@ -25,6 +25,9 @@ enum Command {
         /// Maximum simultaneous connections.
         #[arg(short, long, default_value_t = 16)]
         connections: usize,
+        /// Speed limit in bytes per second; `K`, `M`, `G` suffixes (binary units), e.g. `2M`.
+        #[arg(short, long, value_parser = parse_rate)]
+        limit: Option<u64>,
         /// Extra request header, `Name: value` (repeatable).
         #[arg(short = 'H', long = "header")]
         headers: Vec<String>,
@@ -47,6 +50,7 @@ async fn main() -> ExitCode {
         url,
         output,
         connections,
+        limit,
         headers,
         quiet,
     } = Cli::parse().command;
@@ -73,6 +77,7 @@ async fn main() -> ExitCode {
     };
     let opts = Options {
         connections,
+        limiters: limit.map(|r| Limiter::new(Some(r))).into_iter().collect(),
         ..Options::default()
     };
     let cancel = CancellationToken::new();
@@ -148,6 +153,32 @@ async fn print_progress(mut rx: tokio::sync::watch::Receiver<Progress>) {
     }
 }
 
+fn parse_rate(s: &str) -> Result<u64, String> {
+    let s = s.trim();
+    let (digits, shift) = match s.char_indices().last() {
+        Some((i, c)) if c.is_ascii_alphabetic() => (
+            &s[..i],
+            match c.to_ascii_uppercase() {
+                'K' => 10,
+                'M' => 20,
+                'G' => 30,
+                _ => return Err(format!("unknown unit `{c}` (use K, M or G)")),
+            },
+        ),
+        _ => (s, 0),
+    };
+    let n: f64 = digits
+        .trim()
+        .parse()
+        .map_err(|_| format!("not a rate: `{s}`"))?;
+    let rate = (n * f64::from(1u32 << shift)) as u64;
+    if n.is_finite() && rate > 0 {
+        Ok(rate)
+    } else {
+        Err(format!("rate must be positive: `{s}`"))
+    }
+}
+
 fn human(b: f64) -> String {
     const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
     let mut v = b;
@@ -160,5 +191,21 @@ fn human(b: f64) -> String {
         format!("{v:.0} B")
     } else {
         format!("{v:.1} {}", UNITS[i])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_rate;
+
+    #[test]
+    fn rates() {
+        assert_eq!(parse_rate("1000"), Ok(1000));
+        assert_eq!(parse_rate("64K"), Ok(64 << 10));
+        assert_eq!(parse_rate("1.5m"), Ok(3 << 19));
+        assert_eq!(parse_rate("2G"), Ok(2 << 30));
+        assert!(parse_rate("0").is_err());
+        assert!(parse_rate("5x").is_err());
+        assert!(parse_rate("fast").is_err());
     }
 }

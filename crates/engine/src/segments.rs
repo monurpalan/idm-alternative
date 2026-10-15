@@ -167,6 +167,18 @@ impl Table {
         }
     }
 
+    /// Median speed of the active connections that have been measured.
+    pub fn typical_speed(&self) -> Option<f64> {
+        let mut speeds: Vec<f64> = self
+            .segs
+            .iter()
+            .filter(|s| s.owner.is_some() && s.speed > 0.0)
+            .map(|s| s.speed)
+            .collect();
+        speeds.sort_by(f64::total_cmp);
+        speeds.get(speeds.len() / 2).copied()
+    }
+
     pub fn total_speed(&self) -> f64 {
         self.segs.iter().map(|s| s.speed).sum()
     }
@@ -184,8 +196,14 @@ impl Table {
     }
 
     /// Gives worker `id` something to do: an unowned unfinished segment whose retry delay
-    /// has passed, or a piece stolen from the slowest-to-finish segment.
-    pub fn assign(&mut self, id: WorkerId, now: Instant, policy: &SplitPolicy) -> Option<usize> {
+    /// has passed, or (with `steal`) a piece stolen from the slowest-to-finish segment.
+    pub fn assign(
+        &mut self,
+        id: WorkerId,
+        now: Instant,
+        policy: &SplitPolicy,
+        steal: bool,
+    ) -> Option<usize> {
         if let Some(idx) = self
             .segs
             .iter()
@@ -197,6 +215,9 @@ impl Table {
             .map(|(i, _)| i)
         {
             return Some(self.claim(idx, id, now));
+        }
+        if !steal {
+            return None;
         }
         self.steal(id, now, policy)
     }
@@ -341,10 +362,13 @@ mod tests {
         let now = Instant::now();
         let mut t = Table::new(100 * MB);
         let policy = SplitPolicy::default();
-        assert_eq!(t.assign(1, now, &policy), Some(0));
-        assert_eq!(t.assign(2, now, &policy), Some(1));
+        assert_eq!(t.assign(1, now, &policy, true), Some(0));
+        assert_eq!(t.assign(2, now, &policy, true), Some(1));
         assert_eq!((t.segs[0].start, t.segs[0].end), (0, 50 * MB));
         assert_eq!((t.segs[1].start, t.segs[1].end), (50 * MB, 100 * MB));
+        // Without stealing, only unowned segments are handed out.
+        assert_eq!(t.assign(3, now, &policy, false), None);
+        assert_eq!(t.segs.len(), 2);
     }
 
     #[test]
@@ -352,14 +376,14 @@ mod tests {
         let now = Instant::now();
         let policy = SplitPolicy::default();
         let mut t = Table::new(100 * MB);
-        t.assign(1, now, &policy);
-        t.assign(2, now, &policy);
+        t.assign(1, now, &policy, true);
+        t.assign(2, now, &policy, true);
         // Segment 0 crawls at 64 KiB/s; segment 1 is healthy at 8 MiB/s.
         t.segs[0].speed = 64.0 * 1024.0;
         t.segs[0].received = 10 * MB;
         t.segs[1].speed = 8.0 * MB as f64;
         t.segs[1].received = 60 * MB;
-        assert_eq!(t.assign(3, now, &policy), Some(2));
+        assert_eq!(t.assign(3, now, &policy, true), Some(2));
         let stolen = &t.segs[2];
         assert_eq!(stolen.end, 50 * MB);
         assert_eq!(t.segs[0].end, stolen.start);
@@ -376,7 +400,7 @@ mod tests {
         let now = start + Duration::from_secs(3);
         let policy = SplitPolicy::default();
         let mut t = Table::new(100 * MB);
-        t.assign(1, start, &policy);
+        t.assign(1, start, &policy, true);
         t.segs[0].received = 100 * MB - (64 << 10);
         t.best_speed = 8.0 * MB as f64;
         // Alone, crawling at 64 KiB/s with 64 KiB left: one second for it, ~0 for a new one.
@@ -394,7 +418,7 @@ mod tests {
         let policy = SplitPolicy::default();
         let mut t = Table::new(100 * MB);
         for id in 1..=4 {
-            t.assign(id, start, &policy);
+            t.assign(id, start, &policy, true);
         }
         t.best_speed = 8.0 * MB as f64;
         for s in &mut t.segs {
@@ -408,11 +432,14 @@ mod tests {
         let now = Instant::now();
         let policy = SplitPolicy::default();
         let mut t = Table::new(10 * MB);
-        t.assign(1, now, &policy);
+        t.assign(1, now, &policy, true);
         t.release(0, true, now);
         // Not yet retryable: the only option is stealing, which needs an owned segment.
-        assert_eq!(t.assign(2, now, &policy), None);
-        assert_eq!(t.assign(2, now + Duration::from_secs(1), &policy), Some(0));
+        assert_eq!(t.assign(2, now, &policy, true), None);
+        assert_eq!(
+            t.assign(2, now + Duration::from_secs(1), &policy, true),
+            Some(0)
+        );
     }
 
     #[test]
@@ -420,8 +447,8 @@ mod tests {
         let now = Instant::now();
         let policy = SplitPolicy::default();
         let mut t = Table::new(300 << 10);
-        t.assign(1, now, &policy);
-        assert_eq!(t.assign(2, now, &policy), None);
+        t.assign(1, now, &policy, true);
+        assert_eq!(t.assign(2, now, &policy, true), None);
     }
 
     #[test]
