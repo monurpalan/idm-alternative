@@ -11,8 +11,13 @@ cargo run --release -p idma-testserver -- serve --bind 127.0.0.1:8787
 cargo run --release -p idma-testserver -- verify downloads/test.bin --size 100M --seed 1
 ```
 
-Serves HTTP/1.1 and h2c (HTTP/2 with prior knowledge). Every finished response is logged with
-its range, bytes sent, duration and whether it completed.
+Serves HTTP/1.1 and h2c (HTTP/2 with prior knowledge), or with `--tls` HTTPS on a fresh self-signed
+certificate offering HTTP/2 and HTTP/1.1 through ALPN (the PEM is printed on start). In tests, use
+`serve_tls` / `serve_plain` from the library. Every finished response is logged with its range,
+bytes sent, duration and whether it completed.
+
+Requests in absolute form (`GET http://any.host/file/...`) are served too, so the server can stand
+in for a forward proxy.
 
 ## `GET /file/{name}?<params>`
 
@@ -45,5 +50,7 @@ so each distinct URL is an independent scenario.
 
 ## `GET /_stats` · `POST /_reset`
 
-`/_stats` returns, per URL: GET count, current and peak concurrent responses, and bytes sent.
+`/_stats` returns, per URL: GET count, current and peak concurrent responses, bytes sent, how many
+GETs came over HTTP/2, how many TCP connections they came on (when started through `serve_plain`,
+`serve_tls` or the binary), and the last User-Agent.
 The benchmark runner uses it to see how many connections a client opened. `/_reset` clears it.

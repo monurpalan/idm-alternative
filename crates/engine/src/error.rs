@@ -3,7 +3,7 @@ use std::time::Duration;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("network: {0}")]
-    Http(#[from] reqwest::Error),
+    Http(#[from] wreq::Error),
     #[error("disk: {0}")]
     Io(#[from] std::io::Error),
     #[error("server returned HTTP {0}")]

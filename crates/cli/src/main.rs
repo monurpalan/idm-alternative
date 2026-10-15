@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use idma_engine::{CancellationToken, Error, Limiter, Options, Progress, Request};
+use idma_engine::{Browser, CancellationToken, Error, Limiter, Options, Progress, Request};
 
 /// Command-line front end for the idm-alternative download engine.
 #[derive(Parser)]
@@ -31,6 +31,23 @@ enum Command {
         /// Extra request header, `Name: value` (repeatable).
         #[arg(short = 'H', long = "header")]
         headers: Vec<String>,
+        /// Browser fingerprint (TLS, HTTP/2, headers): chrome, edge, firefox, safari or none.
+        // Fully qualified so clap does not treat it as an optional argument: the parser
+        // itself returns `None` for "none".
+        #[arg(long, default_value = "chrome", value_parser = parse_browser)]
+        browser: std::option::Option<Browser>,
+        /// User-Agent; by default the browser's own.
+        #[arg(long)]
+        user_agent: Option<String>,
+        /// Proxy for every request: `http://`, `https://` or `socks5://host:port`.
+        #[arg(long)]
+        proxy: Option<String>,
+        /// Accept invalid or self-signed TLS certificates.
+        #[arg(short = 'k', long)]
+        insecure: bool,
+        /// Never use HTTP/2.
+        #[arg(long)]
+        http1: bool,
         /// No progress line.
         #[arg(short, long)]
         quiet: bool,
@@ -52,6 +69,11 @@ async fn main() -> ExitCode {
         connections,
         limit,
         headers,
+        browser,
+        user_agent,
+        proxy,
+        insecure,
+        http1,
         quiet,
     } = Cli::parse().command;
     let headers = match headers
@@ -78,6 +100,11 @@ async fn main() -> ExitCode {
     let opts = Options {
         connections,
         limiters: limit.map(|r| Limiter::new(Some(r))).into_iter().collect(),
+        browser,
+        user_agent,
+        proxy,
+        insecure,
+        http1_only: http1,
         ..Options::default()
     };
     let cancel = CancellationToken::new();
@@ -153,6 +180,14 @@ async fn print_progress(mut rx: tokio::sync::watch::Receiver<Progress>) {
     }
 }
 
+fn parse_browser(s: &str) -> Result<Option<Browser>, String> {
+    if s.eq_ignore_ascii_case("none") {
+        Ok(None)
+    } else {
+        s.parse().map(Some)
+    }
+}
+
 fn parse_rate(s: &str) -> Result<u64, String> {
     let s = s.trim();
     let (digits, shift) = match s.char_indices().last() {
@@ -196,7 +231,25 @@ fn human(b: f64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_rate;
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn cli_is_valid() {
+        Cli::command().debug_assert();
+        let parse = |args: &[&str]| match Cli::try_parse_from(args).expect("parse").command {
+            Command::Get { browser, .. } => browser,
+        };
+        assert_eq!(parse(&["dm", "get", "u", "-o", "f"]), Some(Browser::Chrome));
+        assert_eq!(
+            parse(&["dm", "get", "u", "-o", "f", "--browser", "none"]),
+            None
+        );
+        assert_eq!(
+            parse(&["dm", "get", "u", "-o", "f", "--browser", "Firefox"]),
+            Some(Browser::Firefox)
+        );
+    }
 
     #[test]
     fn rates() {

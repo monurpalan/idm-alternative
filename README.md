@@ -2,7 +2,7 @@
 
 An open-source download manager that aims to match Internet Download Manager feature-for-feature, built by combining the best ideas from existing open-source projects.
 
-> **Status:** early development — test infrastructure first. Nothing usable yet.
+> **Status:** early development — the engine first. `dm get` works from the command line; no app yet.
 
 ## Goals
 
@@ -37,7 +37,10 @@ docs/           architecture and design decisions
 
 ## Building
 
-Requires Rust 1.99 (pinned in `rust-toolchain.toml`) and, on Windows, the MSVC build tools.
+Requires Rust 1.99 (pinned in `rust-toolchain.toml`) and, on Windows, the MSVC build tools. The engine uses
+[wreq](https://github.com/0x676e67/wreq) (BoringSSL, for browser TLS fingerprints), whose build also needs
+CMake, NASM and LLVM (libclang) on `PATH`, e.g. `winget install Kitware.CMake NASM.NASM LLVM.LLVM`.
+Keep the checkout path short: MSBuild fails on BoringSSL objects past 260 characters.
 
 ```bash
 cargo build --workspace

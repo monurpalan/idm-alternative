@@ -1,14 +1,16 @@
 //! The HTTP router: `/file/{name}?<scenario>` plus `/_stats` and `/_reset`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{OriginalUri, Path, Query, State};
-use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
+use axum::extract::{ConnectInfo, OriginalUri, Path, Query, State};
+use axum::http::request::Parts;
+use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Version, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use bytes::Bytes;
@@ -33,6 +35,10 @@ struct UrlState {
     peak_active: AtomicU32,
     bytes_sent: AtomicU64,
     generation: AtomicU64,
+    h2_gets: AtomicU64,
+    /// Distinct client addresses, i.e. TCP connections (needs connect info).
+    peers: Mutex<HashSet<SocketAddr>>,
+    user_agent: Mutex<Option<String>>,
 }
 
 #[derive(Default)]
@@ -64,6 +70,11 @@ struct UrlStats {
     active: u32,
     peak_active: u32,
     bytes_sent: u64,
+    /// Requests that arrived over HTTP/2.
+    h2_gets: u64,
+    /// TCP connections the requests came on; 0 when the server has no connect info.
+    connections: usize,
+    user_agent: Option<String>,
 }
 
 async fn stats(State(app): State<Arc<AppState>>) -> axum::Json<Vec<UrlStats>> {
@@ -76,6 +87,13 @@ async fn stats(State(app): State<Arc<AppState>>) -> axum::Json<Vec<UrlStats>> {
             active: s.active.load(Ordering::Relaxed),
             peak_active: s.peak_active.load(Ordering::Relaxed),
             bytes_sent: s.bytes_sent.load(Ordering::Relaxed),
+            h2_gets: s.h2_gets.load(Ordering::Relaxed),
+            connections: s.peers.lock().unwrap_or_else(PoisonError::into_inner).len(),
+            user_agent: s
+                .user_agent
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone(),
         })
         .collect();
     out.sort_by(|a, b| a.url.cmp(&b.url));
@@ -99,9 +117,15 @@ async fn serve_file(
     Path(name): Path<String>,
     Query(sc): Query<Scenario>,
     OriginalUri(uri): OriginalUri,
-    method: Method,
-    headers: HeaderMap,
+    parts: Parts,
 ) -> Response {
+    let Parts {
+        method,
+        version,
+        headers,
+        extensions,
+        ..
+    } = parts;
     if sc.latency_ms > 0 {
         tokio::time::sleep(Duration::from_millis(sc.latency_ms)).await;
     }
@@ -123,6 +147,21 @@ async fn serve_file(
     }
 
     let url = app.url(&uri.to_string());
+    if version == Version::HTTP_2 {
+        url.h2_gets.fetch_add(1, Ordering::Relaxed);
+    }
+    if let Some(ConnectInfo(peer)) = extensions.get::<ConnectInfo<SocketAddr>>() {
+        url.peers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(*peer);
+    }
+    *url.user_agent
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
 
     if let Some(ttl) = sc.ttl {
         let first = *url

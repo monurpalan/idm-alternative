@@ -4,7 +4,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use idma_testserver::scenario::Size;
-use idma_testserver::{Verdict, router, verify_file};
+use idma_testserver::{SelfSigned, Verdict, router, serve_plain, serve_tls, verify_file};
 
 #[derive(Parser)]
 #[command(
@@ -18,10 +18,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Serve test files (HTTP/1.1 and h2c).
+    /// Serve test files (HTTP/1.1 and h2c, or HTTPS with HTTP/2 and HTTP/1.1).
     Serve {
         #[arg(long, default_value = "127.0.0.1:8787")]
         bind: SocketAddr,
+        /// HTTPS with a fresh self-signed certificate (clients need `-k` or the PEM).
+        #[arg(long)]
+        tls: bool,
     },
     /// Check a downloaded file against the expected content.
     Verify {
@@ -36,7 +39,7 @@ enum Command {
 #[tokio::main]
 async fn main() -> anyhow::Result<ExitCode> {
     match Cli::parse().command {
-        Command::Serve { bind } => {
+        Command::Serve { bind, tls } => {
             tracing_subscriber::fmt()
                 .with_env_filter(
                     tracing_subscriber::EnvFilter::try_from_default_env()
@@ -44,8 +47,15 @@ async fn main() -> anyhow::Result<ExitCode> {
                 )
                 .init();
             let listener = tokio::net::TcpListener::bind(bind).await?;
-            tracing::info!("listening on http://{bind}/file/test.bin?size=100M");
-            axum::serve(listener, router()).await?;
+            if tls {
+                let cert = SelfSigned::generate()?;
+                tracing::info!("listening on https://{bind}/file/test.bin?size=100M");
+                println!("{}", cert.pem);
+                serve_tls(listener, router(), &cert).await?;
+            } else {
+                tracing::info!("listening on http://{bind}/file/test.bin?size=100M");
+                serve_plain(listener, router()).await?;
+            }
             Ok(ExitCode::SUCCESS)
         }
         Command::Verify { file, size, seed } => match verify_file(&file, seed, size.0)? {

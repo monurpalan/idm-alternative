@@ -11,8 +11,10 @@
 pub mod content;
 pub mod scenario;
 mod server;
+mod tls;
 
 pub use server::router;
+pub use tls::{SelfSigned, serve_plain, serve_tls};
 
 use std::io::Read;
 use std::path::Path;

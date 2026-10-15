@@ -20,6 +20,7 @@ mod state;
 pub use download::{Options, Outcome, Progress, Request, SegmentView, download};
 pub use error::{Error, Result};
 pub use limit::Limiter;
+pub use remote::Browser;
 pub use tokio_util::sync::CancellationToken;
 
 /// Engine version, reported by the CLI and the app.

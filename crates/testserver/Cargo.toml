@@ -21,6 +21,11 @@ bytes.workspace = true
 clap.workspace = true
 futures-util.workspace = true
 httpdate = "1"
+hyper = "1"
+hyper-util = { version = "0.1", features = ["server-auto", "tokio", "service"] }
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true

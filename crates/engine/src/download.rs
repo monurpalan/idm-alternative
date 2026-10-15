@@ -5,15 +5,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use reqwest::Response;
+use futures_util::StreamExt;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
+use wreq::Response;
 
 use crate::error::{Error, Result};
 use crate::file::OutputFile;
 use crate::limit::Limiter;
-use crate::remote::{Http, Remote};
+use crate::remote::{Browser, Http, HttpConfig, Remote};
 use crate::segments::{SplitPolicy, Table};
 use crate::state::{State, sibling};
 
@@ -44,7 +45,16 @@ pub struct Options {
     pub checkpoint_every: Duration,
     /// Consecutive failures of one segment, without progress, before giving up.
     pub max_failures: u32,
-    pub user_agent: String,
+    /// `None` sends the browser's User-Agent, or the engine's without a browser.
+    pub user_agent: Option<String>,
+    /// TLS, HTTP/2 and header fingerprint to present; `None` is a plain client.
+    pub browser: Option<Browser>,
+    /// `http://`, `https://` or `socks5://` proxy for every request.
+    pub proxy: Option<String>,
+    /// Accept invalid or self-signed certificates.
+    pub insecure: bool,
+    /// Never negotiate HTTP/2.
+    pub http1_only: bool,
     pub split: SplitPolicy,
     /// Speed limits this download obeys, typically the app's global limiter and the
     /// download's own. Every connection pays each of them for every byte.
@@ -58,7 +68,11 @@ impl Default for Options {
             read_timeout: Duration::from_secs(20),
             checkpoint_every: Duration::from_secs(2),
             max_failures: 8,
-            user_agent: format!("idm-alternative/{}", crate::VERSION),
+            user_agent: None,
+            browser: Some(Browser::Chrome),
+            proxy: None,
+            insecure: false,
+            http1_only: false,
             split: SplitPolicy::default(),
             limiters: Vec::new(),
         }
@@ -103,7 +117,14 @@ pub async fn download(
     cancel: &CancellationToken,
 ) -> Result<Outcome> {
     let started = Instant::now();
-    let http = Http::new(&opts.user_agent, &req.headers, opts.connections)?;
+    let http = Http::new(&HttpConfig {
+        user_agent: opts.user_agent.clone(),
+        browser: opts.browser,
+        proxy: opts.proxy.clone(),
+        insecure: opts.insecure,
+        http1_only: opts.http1_only,
+        headers: req.headers.clone(),
+    })?;
     let part = sibling(&req.output, ".idma-part");
     let state_path = sibling(&req.output, ".idma-state");
     let mut force_single = false;
@@ -188,7 +209,7 @@ impl Job<'_> {
             Some(Resume::Partial(r)) => *r,
             None => {
                 discard(self.part, self.state_path);
-                let (remote, resp) = self.http.probe(&self.req.url, 0, None).await?;
+                let (remote, resp) = self.http.probe(&self.req.url, 0, None, 0).await?;
                 let table = Table::new(remote.size.unwrap_or(u64::MAX));
                 (remote, (0, resp), table, 0)
             }
@@ -218,22 +239,27 @@ impl Job<'_> {
 
         let mut workers: JoinSet<(usize, Result<()>)> = JoinSet::new();
         let mut next_id = 1u64;
-        // Per-connection stop switch, so a crawling connection can be dropped on its own.
-        let mut stops: HashMap<usize, CancellationToken> = HashMap::new();
+        // Per running segment: a stop switch, so a crawling connection can be dropped on its
+        // own, and the connection slot it uses. Slots are recycled so a finished segment's
+        // connection is reused by the next one; the probe used slot 0.
+        let mut running: HashMap<usize, (CancellationToken, u64)> = HashMap::new();
+        let mut free_slots: Vec<u64> = Vec::new();
+        let mut next_slot = 1u64;
         let spawn = |workers: &mut JoinSet<_>,
-                     stops: &mut HashMap<usize, CancellationToken>,
+                     running: &mut HashMap<usize, (CancellationToken, u64)>,
                      idx: usize,
+                     slot: u64,
                      resp: Option<Response>| {
             let ctx = Arc::clone(&ctx);
             let stop = ctx.cancel.child_token();
-            stops.insert(idx, stop.clone());
-            workers.spawn(async move { (idx, connection(&ctx, idx, resp, &stop).await) });
+            running.insert(idx, (stop.clone(), slot));
+            workers.spawn(async move { (idx, connection(&ctx, idx, slot, resp, &stop).await) });
         };
 
         let (idx, resp) = first_resp;
         ctx.table().claim(idx, next_id, Instant::now());
         next_id += 1;
-        spawn(&mut workers, &mut stops, idx, Some(resp));
+        spawn(&mut workers, &mut running, idx, 0, Some(resp));
 
         let mut conn_limit = if single {
             1
@@ -251,7 +277,9 @@ impl Job<'_> {
                 Some(joined) = workers.join_next(), if !workers.is_empty() => {
                     let (idx, result) = joined.map_err(|e| Error::State(format!("connection task: {e}")))?;
                     let now = Instant::now();
-                    stops.remove(&idx);
+                    if let Some((_, slot)) = running.remove(&idx) {
+                        free_slots.push(slot);
+                    }
                     let mut t = ctx.table();
                     match result {
                         Ok(()) => t.release(idx, false, now),
@@ -319,7 +347,7 @@ impl Job<'_> {
                         if !single
                             && fatal.is_none()
                             && let Some(idx) = t.laggard(now)
-                            && let Some(stop) = stops.get(&idx).filter(|s| !s.is_cancelled())
+                            && let Some((stop, _)) = running.get(&idx).filter(|(s, _)| !s.is_cancelled())
                         {
                             t.segs[idx].evictions += 1;
                             tracing::debug!(segment = idx, speed = t.segs[idx].speed, "dropping crawling connection");
@@ -331,7 +359,11 @@ impl Job<'_> {
                     }
                     last_tick = now;
                     for idx in to_start {
-                        spawn(&mut workers, &mut stops, idx, None);
+                        let slot = free_slots.pop().unwrap_or_else(|| {
+                            next_slot += 1;
+                            next_slot - 1
+                        });
+                        spawn(&mut workers, &mut running, idx, slot, None);
                     }
                     if fatal.is_none() && now - last_checkpoint >= self.opts.checkpoint_every {
                         self.checkpoint(&ctx, false).await?;
@@ -389,7 +421,7 @@ impl Job<'_> {
         let start = table.segs[idx].written;
         let (remote, resp) = self
             .http
-            .probe(&self.req.url, start, state.validators.if_range())
+            .probe(&self.req.url, start, state.validators.if_range(), 0)
             .await?;
         if remote.ranges
             && remote.size == Some(state.size)
@@ -462,6 +494,7 @@ fn snapshot(t: &Table, size: Option<u64>) -> Progress {
 async fn connection(
     ctx: &Ctx,
     idx: usize,
+    slot: u64,
     initial: Option<Response>,
     stop: &CancellationToken,
 ) -> Result<()> {
@@ -472,12 +505,12 @@ async fn connection(
     if start >= end {
         return Ok(());
     }
-    let mut resp = match initial {
+    let resp = match initial {
         Some(r) => r,
         None => {
             let end = (end != u64::MAX).then_some(end);
             tokio::select! {
-                r = ctx.http.range(&ctx.remote, start, end) => r?,
+                r = ctx.http.range(&ctx.remote, start, end, slot) => r?,
                 () = stop.cancelled() => return Err(Error::Cancelled),
             }
         }
@@ -488,14 +521,16 @@ async fn connection(
         offset: start,
         last: Instant::now(),
     };
+    let mut body = std::pin::pin!(resp.bytes_stream());
     let mut pos = start;
     let result = loop {
         let chunk = tokio::select! {
             () = stop.cancelled() => break Err(Error::Cancelled),
-            r = tokio::time::timeout(ctx.read_timeout, resp.chunk()) => match r {
+            r = tokio::time::timeout(ctx.read_timeout, body.next()) => match r {
                 Err(_) => break Err(Error::Stalled(ctx.read_timeout)),
-                Ok(Err(e)) => break Err(e.into()),
-                Ok(Ok(c)) => c,
+                Ok(Some(Err(e))) => break Err(e.into()),
+                Ok(Some(Ok(c))) => Some(c),
+                Ok(None) => None,
             },
         };
         let Some(chunk) = chunk else {

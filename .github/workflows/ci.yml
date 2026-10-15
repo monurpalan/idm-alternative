@@ -16,6 +16,11 @@ jobs:
       - name: Install toolchain from rust-toolchain.toml
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+      # wreq builds BoringSSL: CMake and LLVM (libclang) are preinstalled, NASM is not.
+      - name: Install NASM
+        run: |
+          choco install nasm -y --no-progress
+          echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
