@@ -668,8 +668,12 @@ name = "idma-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "clap",
  "idma-engine",
+ "idma-testserver",
+ "reqwest",
+ "serde_json",
  "tokio",
  "tracing-subscriber",
 ]

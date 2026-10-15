@@ -86,7 +86,7 @@ impl Default for SplitPolicy {
     fn default() -> Self {
         Self {
             min_piece: 256 << 10,
-            min_eta: Duration::from_secs(1),
+            min_eta: Duration::from_millis(400),
             victim_reserve: Duration::from_millis(300),
         }
     }
@@ -282,10 +282,15 @@ impl Table {
         }
     }
 
-    /// A connection that has crawled for a while at a small fraction of the others' speed
-    /// while more than a second of healthy work is left in its segment. The controller
-    /// drops it so a fresh connection can take the range.
+    /// A connection that has crawled for a while at a small fraction of the typical speed,
+    /// and would take noticeably longer to finish its segment than a fresh connection. The
+    /// controller drops it so a fresh connection can take the range.
+    ///
+    /// "Typical" is the median of the other active connections, or the best speed seen when
+    /// the crawler is the last one left — exactly when it holds up the whole download.
     pub fn laggard(&self, now: Instant) -> Option<usize> {
+        /// What dropping a connection and opening a new one is assumed to cost.
+        const RECONNECT: f64 = 0.25;
         let age = |s: &Segment| s.owned_since.map_or(Duration::ZERO, |t| now - t);
         let mut speeds: Vec<f64> = self
             .segs
@@ -293,20 +298,23 @@ impl Table {
             .filter(|s| s.owner.is_some() && s.speed > 0.0 && age(s) >= Duration::from_secs(1))
             .map(|s| s.speed)
             .collect();
-        if speeds.len() < 2 {
-            return None;
-        }
         speeds.sort_by(f64::total_cmp);
-        let typical = speeds[speeds.len() / 2];
+        let typical = match speeds.len() {
+            0 => return None,
+            1 => self.best_speed,
+            n => speeds[n / 2],
+        };
         self.segs
             .iter()
             .enumerate()
             .filter(|(_, s)| {
+                let remaining = s.remaining() as f64;
                 s.owner.is_some()
                     && s.evictions < 3
                     && age(s) >= Duration::from_secs(2)
+                    && s.speed > 0.0
                     && s.speed < 0.15 * typical
-                    && s.remaining() as f64 > typical
+                    && remaining / s.speed > remaining / typical + RECONNECT
             })
             .max_by_key(|(_, s)| s.remaining())
             .map(|(i, _)| i)
@@ -360,6 +368,39 @@ mod tests {
             "victim kept {} bytes",
             stolen.start - 10 * MB
         );
+    }
+
+    #[test]
+    fn last_crawler_is_dropped_even_with_a_small_remainder() {
+        let start = Instant::now();
+        let now = start + Duration::from_secs(3);
+        let policy = SplitPolicy::default();
+        let mut t = Table::new(100 * MB);
+        t.assign(1, start, &policy);
+        t.segs[0].received = 100 * MB - (64 << 10);
+        t.best_speed = 8.0 * MB as f64;
+        // Alone, crawling at 64 KiB/s with 64 KiB left: one second for it, ~0 for a new one.
+        t.segs[0].speed = 64.0 * 1024.0;
+        assert_eq!(t.laggard(now), Some(0));
+        // At a healthy speed it is left alone.
+        t.segs[0].speed = 4.0 * MB as f64;
+        assert_eq!(t.laggard(now), None);
+    }
+
+    #[test]
+    fn equally_slow_connections_are_not_dropped() {
+        let start = Instant::now();
+        let now = start + Duration::from_secs(3);
+        let policy = SplitPolicy::default();
+        let mut t = Table::new(100 * MB);
+        for id in 1..=4 {
+            t.assign(id, start, &policy);
+        }
+        t.best_speed = 8.0 * MB as f64;
+        for s in &mut t.segs {
+            s.speed = 64.0 * 1024.0; // a server capped per connection
+        }
+        assert_eq!(t.laggard(now), None);
     }
 
     #[test]
