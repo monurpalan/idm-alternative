@@ -7,6 +7,24 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util = "0.7"
+tracing.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_System_IO",
+  "Win32_System_Ioctl",
+] }
+
+[dev-dependencies]
+idma-testserver = { path = "../testserver" }
+axum = "0.8"
 
 [lints]
 workspace = true

@@ -30,7 +30,7 @@ args = [
 name = "dm"
 program = "${CARGO_TARGET_DIR}/release/dm.exe"
 args = ["get", "{url}", "-o", "{path}"]
-enabled = false
+# enabled once the engine landed
 
 # IDM: /n = silent, /q = exit when done.
 [[client]]
