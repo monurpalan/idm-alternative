@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import {
+		getSettings,
 		moveTask,
+		onSettings,
 		openFile,
 		pauseAll,
 		pauseTasks,
@@ -17,6 +19,7 @@
 	import ConfirmRemove from '#lib/components/ConfirmRemove.svelte';
 	import ContextMenu, { type Item } from '#lib/components/ContextMenu.svelte';
 	import DetailPane from '#lib/components/DetailPane.svelte';
+	import SettingsDialog from '#lib/components/SettingsDialog.svelte';
 	import Sidebar from '#lib/components/Sidebar.svelte';
 	import TaskList from '#lib/components/TaskList.svelte';
 	import {
@@ -38,8 +41,20 @@
 	let menu = $state<{ x: number; y: number; items: Item[] } | null>(null);
 	let notice = $state<string | null>(null);
 	let showDetails = $state(true);
+	let settingsOpen = $state(false);
+	let globalLimit = $state<number | null>(null);
 
-	onMount(() => downloads.connect());
+	onMount(() => {
+		const stop = downloads.connect();
+		getSettings()
+			.then((s) => (globalLimit = s.speed_limit))
+			.catch(() => {});
+		const unlisten = onSettings((s) => (globalLimit = s.speed_limit));
+		return () => {
+			stop();
+			unlisten.then((f) => f());
+		};
+	});
 
 	/** Sort keys that change with live progress; only these make the order depend on it. */
 	const LIVE_KEYS: SortKey[] = ['progress', 'speed', 'eta'];
@@ -162,7 +177,7 @@
 	}
 
 	function keydown(e: KeyboardEvent) {
-		if (adding || removing || inField(e)) return;
+		if (adding || removing || settingsOpen || inField(e)) return;
 		const ctrl = e.ctrlKey || e.metaKey;
 		if (ctrl && e.key.toLowerCase() === 'a') {
 			e.preventDefault();
@@ -181,7 +196,7 @@
 	}
 
 	function paste(e: ClipboardEvent) {
-		if (adding || removing || inField(e)) return;
+		if (adding || removing || settingsOpen || inField(e)) return;
 		const text = e.clipboardData?.getData('text/plain') ?? '';
 		if (looksLikeUrl(text)) {
 			e.preventDefault();
@@ -231,6 +246,9 @@
 			onclick={() => (showDetails = !showDetails)}
 			title="Details of the selected download">Details</button
 		>
+		<button class="icon" onclick={() => (settingsOpen = true)} title="Settings" aria-label="Settings"
+			>⚙</button
+		>
 		<input class="search" type="search" bind:value={search} placeholder="Search" aria-label="Search" />
 	</header>
 
@@ -249,6 +267,7 @@
 		{:else}
 			<span>{downloads.active} downloading</span>
 			{#if downloads.speed > 0}<span>{speed(downloads.speed)}</span>{/if}
+			{#if globalLimit}<span title="Speed limit for all downloads">limit {speed(globalLimit)}</span>{/if}
 			<span class="right">
 				{visible.length}
 				{visible.length === 1 ? 'item' : 'items'}{downloads.selected.size
@@ -272,6 +291,10 @@
 		}}
 		onclose={() => (removing = null)}
 	/>
+{/if}
+
+{#if settingsOpen}
+	<SettingsDialog onclose={() => (settingsOpen = false)} />
 {/if}
 
 {#if menu}
@@ -298,8 +321,13 @@
 		border-bottom: 1px solid var(--line);
 		background: var(--panel);
 	}
-	.search {
+	.icon {
 		margin-left: auto;
+		padding: 4px 9px;
+		font-size: 15px;
+		line-height: 1;
+	}
+	.search {
 		width: 220px;
 		padding: 5px 8px;
 		border: 1px solid var(--line);

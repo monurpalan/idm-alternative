@@ -5,17 +5,30 @@
 // No console window in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod settings;
+mod tray;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use idma_manager::{Config, Event, Manager, Move, NewTask, Status, Task, TaskId, TaskProgress};
+use idma_manager::{Event, Manager, Move, NewTask, Status, Task, TaskId, TaskProgress};
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, Manager as _, RunEvent, State};
+use settings::Settings;
+use tauri::{AppHandle, Emitter, Manager as _, RunEvent, State, WindowEvent};
+use tauri_plugin_autostart::ManagerExt as _;
+use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::broadcast::{self, error::RecvError};
 
 struct App {
     manager: Manager,
+    settings: Mutex<Settings>,
+    tray: Mutex<Option<tray::Tray>>,
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Errors reach the UI as their message.
@@ -184,27 +197,84 @@ async fn show_in_folder(
     handle.opener().reveal_item_in_dir(shown).map_err(msg)
 }
 
-#[derive(Serialize)]
-struct Settings {
-    dir: PathBuf,
-    max_active: usize,
+#[tauri::command]
+fn get_settings(app: State<'_, App>) -> Settings {
+    lock(&app.settings).clone()
 }
 
 #[tauri::command]
-fn get_settings(app: State<'_, App>) -> Settings {
-    let config = app.manager.config();
-    Settings {
-        dir: config.dir,
-        max_active: config.max_active,
+async fn set_settings(handle: AppHandle, settings: Settings) -> CmdResult<Settings> {
+    apply_settings(&handle, settings).await
+}
+
+/// Checks, applies and saves new settings, and tells the UI and the tray.
+async fn apply_settings(handle: &AppHandle, new: Settings) -> CmdResult<Settings> {
+    new.validate()?;
+    let app = handle.state::<App>();
+    let old = lock(&app.settings).clone();
+    app.manager.set_config(new.config()).await.map_err(msg)?;
+    app.manager.set_global_limit(new.speed_limit);
+    if new.start_with_windows != old.start_with_windows {
+        let autostart = handle.autolaunch();
+        if new.start_with_windows {
+            autostart.enable()
+        } else {
+            autostart.disable()
+        }
+        .map_err(|e| format!("could not change starting with Windows: {e}"))?;
+    }
+    app.manager
+        .save_setting(settings::KEY, &new)
+        .await
+        .map_err(msg)?;
+    *lock(&app.settings) = new.clone();
+    if let Some(t) = lock(&app.tray).as_ref() {
+        t.show_limit(new.speed_limit);
+    }
+    handle.emit("settings", &new).ok();
+    Ok(new)
+}
+
+/// Brings the window back, also from the tray.
+fn show_main(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        w.show().ok();
+        w.unminimize().ok();
+        w.set_focus().ok();
     }
 }
 
-/// Downloads running at once; more start right away when raised.
-#[tauri::command]
-async fn set_max_active(app: State<'_, App>, max_active: usize) -> CmdResult<()> {
-    let mut config = app.manager.config();
-    config.max_active = max_active.clamp(1, 50);
-    app.manager.set_config(config).await.map_err(msg)
+fn on_tray_menu(app: &AppHandle, id: &str) {
+    let manager = app.state::<App>().manager.clone();
+    match id {
+        tray::SHOW => show_main(app),
+        tray::START_ALL => {
+            tauri::async_runtime::spawn(async move { manager.start_all().await.ok() });
+        }
+        tray::PAUSE_ALL => {
+            tauri::async_runtime::spawn(async move { manager.pause_all().await.ok() });
+        }
+        tray::QUIT => app.exit(0),
+        id => {
+            let Some((limit, _)) = id
+                .strip_prefix(tray::LIMIT_PREFIX)
+                .and_then(|i| i.parse::<usize>().ok())
+                .and_then(|i| tray::LIMITS.get(i))
+            else {
+                return;
+            };
+            let settings = Settings {
+                speed_limit: *limit,
+                ..lock(&app.state::<App>().settings).clone()
+            };
+            let handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = apply_settings(&handle, settings).await {
+                    tracing::warn!("could not set the speed limit: {e}");
+                }
+            });
+        }
+    }
 }
 
 /// How often the UI gets the progress of all running downloads, as one message.
@@ -213,8 +283,11 @@ const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_millis(250
 /// Sends manager events to the UI. List changes go out at once; progress is collected and
 /// sent for all downloads together a few times a second, so the UI handles one message per
 /// tick instead of one per download (with hundreds of rows, one each could outpace it).
-async fn forward_events(handle: tauri::AppHandle, mut events: broadcast::Receiver<Event>) {
+/// Also shows a notification when a download finishes.
+async fn forward_events(handle: AppHandle, mut events: broadcast::Receiver<Event>) {
     let mut pending: HashMap<TaskId, TaskProgress> = HashMap::new();
+    // Last status seen per download, to notice the moment one finishes.
+    let mut statuses: HashMap<TaskId, Status> = HashMap::new();
     let mut tick = tokio::time::interval(PROGRESS_EVERY);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
@@ -224,14 +297,25 @@ async fn forward_events(handle: tauri::AppHandle, mut events: broadcast::Receive
                     pending.insert(p.id, p);
                 }
                 Ok(e) => {
-                    // A download that stopped must not get a stale progress afterwards.
-                    if let Event::Updated(t) = &e
-                        && t.status != Status::Downloading
-                    {
-                        pending.remove(&t.id);
-                    }
-                    if let Event::Removed(id) = &e {
-                        pending.remove(id);
+                    match &e {
+                        Event::Added(t) => {
+                            statuses.insert(t.id, t.status);
+                        }
+                        Event::Updated(t) => {
+                            // A download that stopped must not get a stale progress afterwards.
+                            if t.status != Status::Downloading {
+                                pending.remove(&t.id);
+                            }
+                            let before = statuses.insert(t.id, t.status);
+                            if t.status == Status::Done && before == Some(Status::Downloading) {
+                                notify_done(&handle, t);
+                            }
+                        }
+                        Event::Removed(id) => {
+                            pending.remove(id);
+                            statuses.remove(id);
+                        }
+                        Event::Progress(_) => {}
                     }
                     handle.emit("manager", &e).ok();
                 }
@@ -250,6 +334,25 @@ async fn forward_events(handle: tauri::AppHandle, mut events: broadcast::Receive
     }
 }
 
+fn notify_done(handle: &AppHandle, task: &Task) {
+    if !lock(&handle.state::<App>().settings).notify {
+        return;
+    }
+    let name = task.name.clone().unwrap_or_else(|| task.url.clone());
+    if let Err(e) = handle
+        .notification()
+        .builder()
+        .title("Download complete")
+        .body(name)
+        .show()
+    {
+        tracing::warn!("could not show a notification: {e}");
+    }
+}
+
+/// Passed when Windows starts the app at sign-in: stay in the tray.
+const HIDDEN_ARG: &str = "--hidden";
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -258,15 +361,17 @@ fn main() {
         .init();
 
     let app = tauri::Builder::default()
-        // A second launch (e.g. from the browser integration) focuses the running window.
+        // A second launch (e.g. from the browser integration) shows the running window.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                w.unminimize().ok();
-                w.set_focus().ok();
-            }
+            show_main(app);
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![HIDDEN_ARG]),
+        ))
         .setup(|app| {
             // `IDMA_HOME` keeps the list and downloads in one folder of its own, for trying
             // the app out without touching the real list or the Downloads folder.
@@ -276,23 +381,45 @@ fn main() {
                 None => app.path().app_data_dir()?,
             };
             std::fs::create_dir_all(&data)?;
-            let dir = match &home {
+            let default_dir = match &home {
                 Some(h) => h.join("downloads"),
                 None => app
                     .path()
                     .download_dir()
                     .unwrap_or_else(|_| data.join("downloads")),
             };
-            let config = Config {
-                dir,
-                ..Config::default()
-            };
-            let manager =
-                tauri::async_runtime::block_on(Manager::open(&data.join("downloads.db"), config))?;
+            let db = data.join("downloads.db");
+
+            let mut settings: Settings =
+                tauri::async_runtime::block_on(Manager::read_setting(&db, settings::KEY))?
+                    .unwrap_or_default();
+            if settings.dir.as_os_str().is_empty() {
+                settings.dir = default_dir;
+            }
+            let manager = tauri::async_runtime::block_on(Manager::open(&db, settings.config()))?;
+            manager.set_global_limit(settings.speed_limit);
 
             tauri::async_runtime::spawn(forward_events(app.handle().clone(), manager.subscribe()));
-            app.manage(App { manager });
+            let tray = tray::build(app.handle(), settings.speed_limit)?;
+            app.manage(App {
+                manager,
+                settings: Mutex::new(settings),
+                tray: Mutex::new(Some(tray)),
+            });
+            if std::env::args().any(|a| a == HIDDEN_ARG)
+                && let Some(w) = app.get_webview_window("main")
+            {
+                w.hide().ok();
+            }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event
+                && lock(&window.app_handle().state::<App>().settings).close_to_tray
+            {
+                api.prevent_close();
+                window.hide().ok();
+            }
         })
         .invoke_handler(tauri::generate_handler![
             list_tasks,
@@ -310,7 +437,7 @@ fn main() {
             open_file,
             show_in_folder,
             get_settings,
-            set_max_active,
+            set_settings,
         ])
         .build(tauri::generate_context!())
         .expect("failed to start the app");

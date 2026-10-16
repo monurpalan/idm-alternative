@@ -196,6 +196,27 @@ impl Db {
         Ok(())
     }
 
+    pub(crate) async fn setting(&self, key: &str) -> Result<Option<String>> {
+        Ok(
+            sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+                .bind(key)
+                .fetch_optional(&self.pool)
+                .await?,
+        )
+    }
+
+    pub(crate) async fn save_setting(&self, key: &str, value: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?, ?)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub(crate) async fn set_queue_pos(&self, id: TaskId, pos: i64) -> Result<()> {
         sqlx::query("UPDATE tasks SET queue_pos = ? WHERE id = ?")
             .bind(pos)

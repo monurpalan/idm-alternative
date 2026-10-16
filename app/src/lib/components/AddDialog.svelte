@@ -10,7 +10,9 @@
 
 	let url = $state('');
 	let name = $state('');
+	/** Empty: the default folder (per type, when the settings say so). */
 	let dir = $state('');
+	let defaultDir = $state('');
 	let info = $state<Probe | null>(null);
 	let checking = $state(false);
 	let error = $state<string | null>(null);
@@ -24,7 +26,7 @@
 		url = initialUrl;
 		dialog?.showModal();
 		getSettings()
-			.then((s) => (dir ||= s.dir))
+			.then((s) => (defaultDir = s.per_category ? `${s.dir}\\<type>` : s.dir))
 			.catch(() => {});
 		if (initialUrl) check();
 	});
@@ -121,7 +123,7 @@
 		<label>
 			Folder
 			<div class="row">
-				<input bind:value={dir} />
+				<input bind:value={dir} placeholder={defaultDir} />
 				<button type="button" onclick={browse}>Browse…</button>
 			</div>
 		</label>

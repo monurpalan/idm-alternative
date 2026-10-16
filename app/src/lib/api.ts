@@ -49,7 +49,17 @@ export interface Probe {
 
 export interface Settings {
 	dir: string;
+	per_category: boolean;
 	max_active: number;
+	connections: number;
+	overwrite: boolean;
+	/** All downloads together, bytes per second. */
+	speed_limit: number | null;
+	browser: string;
+	proxy: string;
+	close_to_tray: boolean;
+	start_with_windows: boolean;
+	notify: boolean;
 }
 
 /** List changes; progress comes separately, batched (see `onManagerEvent`). */
@@ -81,7 +91,12 @@ export const setSpeedLimit = (id: TaskId, rate: number | null) =>
 	invoke<void>('set_speed_limit', { id, rate });
 export const refreshLink = (id: TaskId, url: string) => invoke<void>('refresh_link', { id, url });
 export const getSettings = () => invoke<Settings>('get_settings');
-export const setMaxActive = (maxActive: number) => invoke<void>('set_max_active', { maxActive });
+/** Checks, applies and saves; returns what was saved. */
+export const setSettings = (settings: Settings) => invoke<Settings>('set_settings', { settings });
+
+/** Settings changed (from the dialog or the tray). */
+export const onSettings = (handler: (s: Settings) => void): Promise<UnlistenFn> =>
+	listen<Settings>('settings', (e) => handler(e.payload));
 
 /**
  * Every change to the list, and the progress of all running downloads a few times a second

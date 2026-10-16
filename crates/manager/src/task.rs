@@ -43,7 +43,7 @@ impl Status {
 }
 
 /// IDM's categories, picked from the file extension.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Category {
     General,
@@ -72,6 +72,27 @@ impl Category {
             "mp4" | "mkv" | "webm" | "avi" | "mov" | "wmv" | "flv" | "m4v" | "ts" | "mpg"
             | "mpeg" => Category::Video,
             _ => Category::General,
+        }
+    }
+
+    pub const ALL: [Category; 6] = [
+        Category::General,
+        Category::Compressed,
+        Category::Documents,
+        Category::Music,
+        Category::Programs,
+        Category::Video,
+    ];
+
+    /// Folder name IDM uses for the category.
+    pub fn folder(self) -> &'static str {
+        match self {
+            Category::General => "General",
+            Category::Compressed => "Compressed",
+            Category::Documents => "Documents",
+            Category::Music => "Music",
+            Category::Programs => "Programs",
+            Category::Video => "Video",
         }
     }
 

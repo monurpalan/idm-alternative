@@ -50,6 +50,9 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub struct Config {
     /// Default folder for new downloads.
     pub dir: PathBuf,
+    /// Folder per category, used instead of `dir` for new downloads of that category (IDM
+    /// keeps e.g. `Downloads\Video`).
+    pub category_dirs: HashMap<Category, PathBuf>,
     /// Downloads running at the same time; the rest wait in the queue.
     pub max_active: usize,
     /// Connections per download unless the download says otherwise.
@@ -69,6 +72,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             dir: PathBuf::from("."),
+            category_dirs: HashMap::new(),
             max_active: 3,
             connections: 16,
             conflict: Conflict::Rename,
@@ -222,6 +226,35 @@ impl Manager {
         self.inner.events.subscribe()
     }
 
+    /// A value saved with [`Manager::save_setting`], or `None` if there is none (or it no
+    /// longer parses as `T`).
+    pub async fn setting<T: serde::de::DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
+        Ok(self
+            .inner
+            .db
+            .setting(key)
+            .await?
+            .and_then(|v| serde_json::from_str(&v).ok()))
+    }
+
+    pub async fn save_setting<T: serde::Serialize>(&self, key: &str, value: &T) -> Result<()> {
+        self.inner
+            .db
+            .save_setting(key, &serde_json::to_string(value)?)
+            .await
+    }
+
+    /// Reads a setting before opening the manager, e.g. to build its [`Config`].
+    pub async fn read_setting<T: serde::de::DeserializeOwned>(
+        db_path: &Path,
+        key: &str,
+    ) -> Result<Option<T>> {
+        let db = Db::open(db_path).await?;
+        let value = db.setting(key).await;
+        db.close().await;
+        Ok(value?.and_then(|v| serde_json::from_str(&v).ok()))
+    }
+
     pub async fn list(&self) -> Result<Vec<Task>> {
         self.inner.db.list().await
     }
@@ -244,14 +277,23 @@ impl Manager {
         if let Some(c) = &new.checksum {
             c.parse::<Checksum>().map_err(Error::BadChecksum)?;
         }
+        let name = new.name.as_deref().map(idma_engine::name::sanitize);
+        // A guess from the URL until the server names the file.
+        let category = Category::for_name(
+            &name
+                .clone()
+                .or_else(|| idma_engine::name::from_url(&new.url))
+                .unwrap_or_default(),
+        );
         let (dir, connections) = {
             let cfg = lock(&self.inner.config);
             (
-                new.dir.clone().unwrap_or_else(|| cfg.dir.clone()),
+                new.dir.clone().unwrap_or_else(|| {
+                    cfg.category_dirs.get(&category).unwrap_or(&cfg.dir).clone()
+                }),
                 new.connections.unwrap_or(cfg.connections),
             )
         };
-        let name = new.name.as_deref().map(idma_engine::name::sanitize);
         let id = self
             .inner
             .db
@@ -265,13 +307,7 @@ impl Manager {
                 } else {
                     Status::Paused
                 },
-                // A guess from the URL until the server names the file.
-                category: Category::for_name(
-                    &name
-                        .clone()
-                        .or_else(|| idma_engine::name::from_url(&new.url))
-                        .unwrap_or_default(),
-                ),
+                category,
                 connections: connections.max(1),
                 speed_limit: new.speed_limit,
                 checksum: new.checksum.as_deref(),

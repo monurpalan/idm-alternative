@@ -253,3 +253,37 @@ async fn start_all_and_pause_all() {
     );
     m.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn settings_persist_and_category_folders_apply() {
+    let w = WorkDir::new("settings");
+    let mut config = w.config();
+    let video = w.0.join("downloads").join("Video");
+    config
+        .category_dirs
+        .insert(idma_manager::Category::Video, video.clone());
+    let m = Manager::open(&w.db(), config).await.expect("open");
+    let t = m
+        .add(task("http://127.0.0.1:9/film.mkv".into(), false))
+        .await
+        .expect("add");
+    assert_eq!(t.dir, video);
+    let other = m
+        .add(task("http://127.0.0.1:9/a.bin".into(), false))
+        .await
+        .expect("add");
+    assert_eq!(other.dir, w.0.join("downloads"));
+
+    m.save_setting("app", &serde_json::json!({ "max_active": 7 }))
+        .await
+        .expect("save");
+    m.close().await;
+    let read: serde_json::Value = Manager::read_setting(&w.db(), "app")
+        .await
+        .expect("read")
+        .expect("present");
+    assert_eq!(read["max_active"], 7);
+    let missing: Option<serde_json::Value> =
+        Manager::read_setting(&w.db(), "nope").await.expect("read");
+    assert!(missing.is_none());
+}
