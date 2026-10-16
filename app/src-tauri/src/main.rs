@@ -393,10 +393,68 @@ fn notify_done(handle: &AppHandle, task: &Task) {
     }
 }
 
+/// Answers the browser extension (through the native host): pings, and downloads or link
+/// lists it hands over, which open in the window for the user to confirm.
+fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma_bridge::Reply {
+    use idma_bridge::{Reply, Request};
+    match request {
+        Request::Ping => Reply {
+            version: Some(env!("CARGO_PKG_VERSION").into()),
+            ..Reply::ok()
+        },
+        Request::Download(capture) => {
+            show_main(handle);
+            handle.emit("capture", &capture).ok();
+            Reply::ok()
+        }
+        Request::Links { referrer, links } => {
+            show_main(handle);
+            handle
+                .emit(
+                    "capture-links",
+                    serde_json::json!({ "referrer": referrer, "links": links }),
+                )
+                .ok();
+            Reply::ok()
+        }
+        Request::Hello { .. } => Reply::error("unexpected hello"),
+    }
+}
+
 /// Passed when Windows starts the app at sign-in: stay in the tray.
 const HIDDEN_ARG: &str = "--hidden";
 
+/// Keeps panics in `crash.log` in the data folder: a release build has no console, and a
+/// browser-started app has nowhere else to say why it stopped.
+fn log_panics() {
+    let Some(dir) = idma_bridge::data_dir() else {
+        return;
+    };
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        use std::io::Write;
+        let when = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        if std::fs::create_dir_all(&dir).is_ok()
+            && let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(dir.join("crash.log"))
+        {
+            let _ = writeln!(
+                f,
+                "[{when}] {info}
+{backtrace}"
+            );
+        }
+        default(info);
+    }));
+}
+
 fn main() {
+    log_panics();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_env("DM_LOG").unwrap_or_else(|_| "info".into()),
@@ -443,6 +501,21 @@ fn main() {
             manager.set_global_limit(settings.speed_limit);
 
             tauri::async_runtime::spawn(forward_events(app.handle().clone(), manager.subscribe()));
+
+            // The browser bridge: a fresh token per start, a pipe only this user and data
+            // folder share.
+            let token = idma_bridge::new_token(&data)?;
+            let pipe = idma_bridge::pipe_name(&data);
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let serving = idma_bridge::serve(&pipe, token, move |request| {
+                    let handle = handle.clone();
+                    async move { bridge_reply(&handle, request) }
+                });
+                if let Err(e) = serving.await {
+                    tracing::error!("browser bridge stopped: {e}");
+                }
+            });
             let tray = tray::build(app.handle(), settings.speed_limit)?;
             app.manage(App {
                 manager,

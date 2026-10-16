@@ -1,0 +1,23 @@
+[package]
+name = "idma-native-host"
+description = "Native messaging host: started by the browser, passes the extension's messages to the app over a named pipe"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "idma-host"
+path = "src/main.rs"
+
+[dependencies]
+idma-bridge = { path = "../bridge" }
+serde_json.workspace = true
+tokio.workspace = true
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }
+
+[dev-dependencies]
+serde.workspace = true
+
+[lints]
+workspace = true

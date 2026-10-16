@@ -2343,6 +2343,7 @@ checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 name = "idma-app"
 version = "0.1.0"
 dependencies = [
+ "idma-bridge",
  "idma-engine",
  "idma-manager",
  "serde",
@@ -2375,6 +2376,18 @@ dependencies = [
  "sysinfo",
  "tokio",
  "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "idma-bridge"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2430,6 +2443,17 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "idma-native-host"
+version = "0.1.0"
+dependencies = [
+ "idma-bridge",
+ "serde",
+ "serde_json",
+ "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

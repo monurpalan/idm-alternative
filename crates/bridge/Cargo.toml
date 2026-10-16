@@ -1,0 +1,18 @@
+[package]
+name = "idma-bridge"
+description = "What the browser extension, the native messaging host and the app say to each other, and the named pipe between host and app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+getrandom = "0.3"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
