@@ -3,7 +3,7 @@
 	// (the engine's live splitting, one bar per connection's range), its own speed limit and
 	// "refresh link" for links that expired.
 
-	import { refreshLink, setLogin, setSpeedLimit, type Task } from '../api.ts';
+	import { refreshInBrowser, refreshLink, setLogin, setSpeedLimit, type Task } from '../api.ts';
 	import { downloads, HISTORY, row } from '../downloads.svelte.ts';
 	import { bytes, duration, speed } from '../format.ts';
 
@@ -206,6 +206,17 @@
 				<input id="newurl" type="url" bind:value={newUrl} placeholder="Paste a fresh link to the same file" />
 				<button type="submit" disabled={refreshing || !newUrl.trim()}>Refresh</button>
 			</form>
+			<div class="inline two">
+				<span></span>
+				<span class="hint">or open its page and start the download again there:</span>
+				<button
+					type="button"
+					onclick={() =>
+						refreshInBrowser(task.id)
+							.then(() => onerror('Waiting for the browser: start the download again on the page'))
+							.catch((e) => onerror(String(e)))}>In browser</button
+				>
+			</div>
 		{/if}
 	</div>
 	<div class="charts">
@@ -288,7 +299,8 @@
 	.inline button {
 		padding: 3px 10px;
 	}
-	.unit {
+	.unit,
+	.hint {
 		color: var(--muted);
 	}
 	.charts {

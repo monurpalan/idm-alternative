@@ -126,6 +126,11 @@ export const showInFolder = (id: TaskId) => invoke<void>('show_in_folder', { id 
 export const setSpeedLimit = (id: TaskId, rate: number | null) =>
 	invoke<void>('set_speed_limit', { id, rate });
 export const refreshLink = (id: TaskId, url: string) => invoke<void>('refresh_link', { id, url });
+/** Opens the download's page in the browser; the next captured download continues this one. */
+export const refreshInBrowser = (id: TaskId) => invoke<void>('refresh_in_browser', { id });
+/** Short messages for the status bar (e.g. a link refreshed from the browser). */
+export const onNotice = (handler: (text: string) => void): Promise<UnlistenFn> =>
+	listen<string>('notice', (e) => handler(e.payload));
 export const getSettings = () => invoke<Settings>('get_settings');
 /** Checks, applies and saves; returns what was saved. */
 export const setSettings = (settings: Settings) => invoke<Settings>('set_settings', { settings });

@@ -408,7 +408,7 @@ async fn refreshed_link_continues_only_for_the_same_file() {
     tokio::time::sleep(Duration::from_millis(2200)).await;
 
     let other = format!("{base}/file/new.bin?size={size}&seed=22&rate=1M");
-    let refused = m.refresh_link(task.id, &other).await;
+    let refused = m.refresh_link(task.id, &other, None).await;
     assert!(
         matches!(
             refused,
@@ -428,9 +428,13 @@ async fn refreshed_link_continues_only_for_the_same_file() {
     );
 
     let fresh = format!("{base}/file/fresh.bin?size={size}&seed=21&rate=1M");
-    m.refresh_link(task.id, &fresh).await.expect("refresh");
+    let from_browser = vec![("Cookie".to_owned(), "s=new".to_owned())];
+    m.refresh_link(task.id, &fresh, Some(&from_browser))
+        .await
+        .expect("refresh");
     let done = wait_done(&m, task.id).await;
     assert_eq!(done.url, fresh);
+    assert_eq!(done.headers, from_browser, "fresh cookies kept");
     assert_eq!(done.name.as_deref(), Some("old.bin"), "keeps its file");
     assert_file(&done, 21, size);
     m.close().await;

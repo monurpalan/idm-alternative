@@ -27,7 +27,13 @@ struct App {
     data: PathBuf,
     settings: Mutex<Settings>,
     tray: Mutex<Option<tray::Tray>>,
+    /// A download waiting for the browser to capture a fresh link to it ("refresh in browser"),
+    /// and since when.
+    awaiting_link: Mutex<Option<(TaskId, std::time::Instant)>>,
 }
+
+/// How long "refresh in browser" waits for the user to start the download again.
+const AWAIT_LINK: std::time::Duration = std::time::Duration::from_secs(600);
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
@@ -203,11 +209,32 @@ async fn set_speed_limit(app: State<'_, App>, id: TaskId, rate: Option<u64>) -> 
         .map_err(msg)
 }
 
+/// Opens the page the download came from (or its address) in the default browser and waits
+/// for the extension to capture the download again: the captured link then continues this
+/// download instead of starting a new one.
+#[tauri::command]
+async fn refresh_in_browser(handle: AppHandle, app: State<'_, App>, id: TaskId) -> CmdResult<()> {
+    let task = app.manager.get(id).await.map_err(msg)?;
+    let page = task
+        .headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("referer"))
+        .map_or_else(|| task.url.clone(), |(_, v)| v.clone());
+    *lock(&app.awaiting_link) = Some((id, std::time::Instant::now()));
+    let opened = handle.opener().open_url(page, None::<&str>);
+    if opened.is_err() {
+        // Nothing will come back from a browser that did not open: let the next capture be
+        // a new download.
+        lock(&app.awaiting_link).take();
+    }
+    opened.map_err(msg)
+}
+
 /// Continues a download from a fresh link to the same file.
 #[tauri::command]
 async fn refresh_link(app: State<'_, App>, id: TaskId, url: String) -> CmdResult<()> {
     app.manager
-        .refresh_link(id, url.trim())
+        .refresh_link(id, url.trim(), None)
         .await
         .map_err(|e| match e {
             idma_manager::Error::Engine(idma_engine::Error::FileChanged) => {
@@ -460,7 +487,7 @@ fn notify_done(handle: &AppHandle, task: &Task) {
 
 /// Answers the browser extension (through the native host): pings, and downloads or link
 /// lists it hands over, which open in the window for the user to confirm.
-fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma_bridge::Reply {
+async fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma_bridge::Reply {
     use idma_bridge::{Reply, Request};
     match request {
         Request::Ping => Reply {
@@ -468,6 +495,42 @@ fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma_bridg
             ..Reply::ok()
         },
         Request::Download(capture) => {
+            // A download waiting for a fresh link takes this one if it is the same file.
+            let waiting = {
+                let app = handle.state::<App>();
+                let mut awaiting = lock(&app.awaiting_link);
+                match awaiting.take() {
+                    Some((id, since)) if since.elapsed() < AWAIT_LINK => Some(id),
+                    _ => None,
+                }
+            };
+            if let Some(id) = waiting {
+                let manager = handle.state::<App>().manager.clone();
+                let headers = capture.request_headers();
+                match manager.refresh_link(id, &capture.url, Some(&headers)).await {
+                    Ok(()) => {
+                        let name = manager
+                            .get(id)
+                            .await
+                            .ok()
+                            .and_then(|t| t.name)
+                            .unwrap_or_default();
+                        handle
+                            .emit("notice", format!("Link refreshed: {name} continues"))
+                            .ok();
+                        return Reply::ok();
+                    }
+                    Err(e) => {
+                        tracing::info!("captured link is not the awaited file: {e}");
+                        handle
+                            .emit(
+                                "notice",
+                                "That link leads to a different file, so it opens as a new download",
+                            )
+                            .ok();
+                    }
+                }
+            }
             show_main(handle);
             handle
                 .emit(
@@ -590,7 +653,7 @@ fn main() {
             tauri::async_runtime::spawn(async move {
                 let serving = idma_bridge::serve(&pipe, token, move |request| {
                     let handle = handle.clone();
-                    async move { bridge_reply(&handle, request) }
+                    async move { bridge_reply(&handle, request).await }
                 });
                 if let Err(e) = serving.await {
                     tracing::error!("browser bridge stopped: {e}");
@@ -602,6 +665,7 @@ fn main() {
                 data: data.clone(),
                 settings: Mutex::new(settings),
                 tray: Mutex::new(Some(tray)),
+                awaiting_link: Mutex::new(None),
             });
             if std::env::args().any(|a| a == HIDDEN_ARG)
                 && let Some(w) = app.get_webview_window("main")
@@ -631,6 +695,7 @@ fn main() {
             move_task,
             set_speed_limit,
             refresh_link,
+            refresh_in_browser,
             set_login,
             open_file,
             show_in_folder,

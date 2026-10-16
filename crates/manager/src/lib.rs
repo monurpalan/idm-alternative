@@ -181,6 +181,15 @@ fn retryable(e: &Error) -> bool {
     }
 }
 
+/// `old` with every header named in `fresh` replaced by the fresh value.
+fn merge_headers(old: &[(String, String)], fresh: &[(String, String)]) -> Vec<(String, String)> {
+    old.iter()
+        .filter(|(k, _)| !fresh.iter().any(|(f, _)| f.eq_ignore_ascii_case(k)))
+        .chain(fresh)
+        .cloned()
+        .collect()
+}
+
 /// The file and the engine's partial data and state next to it.
 fn delete_files_of(path: &Path) {
     for suffix in ["", ".idma-part", ".idma-state"] {
@@ -471,8 +480,20 @@ impl Manager {
     /// file: the same size, and the same bytes as already downloaded; otherwise this fails
     /// with [`idma_engine::Error::FileChanged`] and nothing changes. A download that was
     /// running or had failed continues with the new link.
-    pub async fn refresh_link(&self, id: TaskId, url: &str) -> Result<()> {
+    ///
+    /// `headers` from the browser (fresh cookies, referrer) replace the download's headers of
+    /// the same names; others, such as a login, are kept.
+    pub async fn refresh_link(
+        &self,
+        id: TaskId,
+        url: &str,
+        headers: Option<&[(String, String)]>,
+    ) -> Result<()> {
         let task = self.get(id).await?;
+        let headers = match headers {
+            Some(fresh) => merge_headers(&task.headers, fresh),
+            None => task.headers.clone(),
+        };
         let was_running = self.inner.stop(id, Stop::Pause).await;
         if let Some(path) = &task.path {
             let mut state = path.as_os_str().to_owned();
@@ -482,7 +503,7 @@ impl Manager {
                 let req = idma_engine::Request {
                     url: url.to_owned(),
                     output: path.clone(),
-                    headers: task.headers.clone(),
+                    headers: headers.clone(),
                 };
                 if let Err(e) = idma_engine::patch_url(&req, &opts).await {
                     if was_running {
@@ -493,6 +514,7 @@ impl Manager {
             }
         }
         self.inner.db.set_url(id, url).await?;
+        self.inner.db.set_headers(id, &headers).await?;
         self.inner.emit(Event::Updated(self.get(id).await?));
         if was_running || task.status == Status::Error {
             self.start(id).await?;

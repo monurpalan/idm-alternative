@@ -5,6 +5,7 @@
 		moveTask,
 		onCapture,
 		onCapturedLinks,
+		onNotice,
 		onSettings,
 		openFile,
 		pauseAll,
@@ -50,6 +51,8 @@
 	let removing = $state<TaskId[] | null>(null);
 	let menu = $state<{ x: number; y: number; items: Item[] } | null>(null);
 	let notice = $state<string | null>(null);
+	/** A passing message that is not an error. */
+	let info = $state<string | null>(null);
 	let showDetails = $state(true);
 	let settingsOpen = $state(false);
 	let globalLimit = $state<number | null>(null);
@@ -63,7 +66,8 @@
 			onSettings((s) => (globalLimit = s.speed_limit)),
 			// The browser handed over a download: confirm it like IDM does.
 			onCapture((c) => (adding = { url: c.url, name: c.filename, headers: c.headers })),
-			onCapturedLinks((l) => (picking = l))
+			onCapturedLinks((l) => (picking = l)),
+			onNotice((text) => (info = text))
 		];
 		return () => {
 			stop();
@@ -279,6 +283,9 @@
 	<footer>
 		{#if notice || downloads.error}
 			<span class="notice">{notice ?? downloads.error}</span>
+		{:else if info}
+			<span class="info">{info}</span>
+			<button class="dismiss" onclick={() => (info = null)} aria-label="Dismiss">×</button>
 		{:else}
 			<span>{downloads.active} downloading</span>
 			{#if downloads.speed > 0}<span>{speed(downloads.speed)}</span>{/if}
@@ -404,5 +411,14 @@
 	}
 	.notice {
 		color: var(--danger);
+	}
+	.info {
+		color: var(--fg);
+	}
+	.dismiss {
+		padding: 0 6px;
+		border: 0;
+		background: transparent;
+		color: var(--muted);
 	}
 </style>
