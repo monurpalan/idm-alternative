@@ -31,7 +31,7 @@ crates/
   cli/          `dm` command-line front end
   testserver/   HTTP server reproducing hostile download scenarios
   bench/        benchmark runner
-app/            Tauri + Svelte desktop app (planned)
+app/            Tauri 2 + SvelteKit desktop app (early: a skeleton list)
 extension/      browser extension (planned)
 native-host/    native messaging host (planned)
 docs/           architecture and design decisions
@@ -45,8 +45,18 @@ CMake, NASM and LLVM (libclang) on `PATH`, e.g. `winget install Kitware.CMake NA
 Keep the checkout path short: MSBuild fails on BoringSSL objects past 260 characters.
 
 ```bash
-cargo build --workspace
-cargo test --workspace
+cargo build
+cargo test
+```
+
+The desktop app (`app/`) also needs Node 24. It embeds the built web UI, so plain `cargo`
+commands leave it out:
+
+```bash
+cd app
+npm ci
+npm run tauri dev     # development, with hot reload
+npm run tauri build   # installer in target/release/bundle
 ```
 
 ## Benchmarks

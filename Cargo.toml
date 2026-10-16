@@ -1,6 +1,10 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*", "app/src-tauri"]
+# The app embeds the built web UI (`app/build`) at compile time, so a plain `cargo build` or
+# `cargo test` leaves it out; build it with `npm run tauri build` in `app/`, or `-p idma-app`
+# after `npm run build`.
+default-members = ["crates/*"]
 
 [workspace.package]
 version = "0.1.0"

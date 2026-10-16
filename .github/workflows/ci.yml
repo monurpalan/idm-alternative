@@ -21,6 +21,18 @@ jobs:
         run: |
           choco install nasm -y --no-progress
           echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      # The app embeds the built web UI at compile time, so it is built before any cargo step.
+      - name: Web UI
+        working-directory: app
+        run: |
+          npm ci
+          npm run check
+          npm run build
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy

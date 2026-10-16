@@ -72,7 +72,9 @@ impl Default for Config {
     }
 }
 
-#[derive(Debug, Clone)]
+/// Serialized as `{"type": "added", "data": {...}}` for the UI.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "type", content = "data", rename_all = "lowercase")]
 pub enum Event {
     Added(Task),
     /// Status, name, size or settings changed.
