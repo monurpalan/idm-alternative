@@ -52,6 +52,7 @@ async fn killed_process_resumes() {
     child.wait().expect("wait");
     assert!(state.exists(), "no state file after 5 s");
     assert!(!out.exists());
+    let before = bytes_sent(&base).await;
 
     let status = tokio::task::spawn_blocking(move || dm(&url, &out).status())
         .await
@@ -62,13 +63,15 @@ async fn killed_process_resumes() {
     assert_eq!(verify_file(&out, 5, size).expect("verify"), Verdict::Ok);
     assert!(!state.exists());
 
-    // Starting over would have sent the ~20 MiB of the first run again; resuming loses at
-    // most the progress since the last checkpoint.
-    let sent = bytes_sent(&base).await;
+    // Starting over would fetch the whole file again. Resuming keeps what the last
+    // checkpoint recorded: at least the first one (2 s at up to 4 MiB/s, minus ramp-up).
+    // Measured from the kill on, so a slow machine that checkpoints late does not fail it.
+    let again = bytes_sent(&base).await - before;
     assert!(
-        sent < size + 14 * MB,
-        "server sent {} MiB in total",
-        sent / MB
+        again < size - 4 * MB,
+        "fetched {} of {} MiB again",
+        again / MB,
+        size / MB
     );
     std::fs::remove_dir_all(&dir).ok();
 }
