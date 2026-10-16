@@ -45,7 +45,9 @@ async fn global_limit_is_shared_between_downloads() {
     let _serial = serial().await;
     let base = start().await;
     let dir = workdir("global-limit");
-    let (size, rate) = (8 * MB, 4 * MB);
+    // About 8 s: long enough that ramping up connections at the start (a few hundred ms)
+    // does not decide the result on a slow CI machine.
+    let (size, rate) = (16 * MB, 4 * MB);
     let global = Limiter::new(Some(rate));
     let job = |name: &str| {
         let req = request(
