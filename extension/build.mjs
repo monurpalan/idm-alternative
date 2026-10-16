@@ -15,7 +15,8 @@ const common = {
 	permissions: ['downloads', 'nativeMessaging', 'cookies', 'contextMenus', 'scripting', 'storage', 'webRequest'],
 	host_permissions: ['<all_urls>'],
 	content_scripts: [
-		{ matches: ['<all_urls>'], js: ['content.js'], run_at: 'document_start', all_frames: true }
+		{ matches: ['<all_urls>'], js: ['content.js'], run_at: 'document_start', all_frames: true },
+		{ matches: ['<all_urls>'], js: ['video-button.js'], run_at: 'document_idle', all_frames: true }
 	],
 	options_ui: { page: 'options.html', open_in_tab: false },
 	action: {
@@ -47,7 +48,7 @@ for (const [name, manifest] of Object.entries(targets)) {
 	rmSync(out, { recursive: true, force: true });
 	mkdirSync(out, { recursive: true });
 	await build({
-		entryPoints: ['src/background.ts', 'src/content.ts', 'src/options.ts', 'src/popup.ts'],
+		entryPoints: ['src/background.ts', 'src/content.ts', 'src/video-button.ts', 'src/options.ts', 'src/popup.ts'],
 		bundle: true,
 		format: 'iife',
 		target: 'es2022',

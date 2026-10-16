@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { MAX_ITEMS, MIN_FILE_BYTES, classify, label, remember, totalSize, type Response } from './media.ts';
+import { MAX_ITEMS, MIN_FILE_BYTES, chooseMedia, classify, label, remember, totalSize, type MediaItem, type Response } from './media.ts';
 
 const r = (url: string, contentType: string | null, contentLength: number | null = null, contentRange: string | null = null): Response => ({
 	url,
@@ -56,4 +56,25 @@ test('labels', () => {
 	assert.equal(label({ url: 'https://v.x/a/%C3%A7ay.mp4?x', kind: 'video', size: null, mime: null }), 'çay.mp4');
 	assert.equal(label({ url: 'https://v.x/abc/master.m3u8', kind: 'hls', size: null, mime: null }), 'v.x HLS');
 	assert.equal(label({ url: 'https://v.x/', kind: 'dash', size: null, mime: null }), 'v.x DASH');
+});
+
+test('what the button over a video sends', () => {
+	const seen: MediaItem[] = [
+		{ url: 'https://cdn/a.mp4', kind: 'video', size: 9, mime: null },
+		{ url: 'https://cdn/old.m3u8', kind: 'hls', size: null, mime: null },
+		{ url: 'https://cdn/new.mpd', kind: 'dash', size: null, mime: null }
+	];
+	// A plain file source: that file, with what is known about it.
+	assert.deepEqual(chooseMedia('https://cdn/a.mp4', seen, null), [seen[0]]);
+	assert.equal(chooseMedia('https://cdn/b.webm', seen, null)[0].url, 'https://cdn/b.webm');
+	// A stream fed through blob: the playlists, newest first.
+	assert.deepEqual(chooseMedia('blob:https://x/1', seen, null).map((m) => m.url), ['https://cdn/new.mpd', 'https://cdn/old.m3u8']);
+	// No playlists: the files.
+	assert.deepEqual(chooseMedia('blob:x', [seen[0]], null), [seen[0]]);
+	// Nothing seen: the page, on sites yt-dlp knows.
+	assert.deepEqual(chooseMedia('blob:x', [], 'https://www.youtube.com/watch?v=1'), [
+		{ url: 'https://www.youtube.com/watch?v=1', kind: 'page', size: null, mime: null }
+	]);
+	assert.deepEqual(chooseMedia('blob:x', [], 'https://example.com/'), []);
+	assert.deepEqual(chooseMedia('', [], 'https://notyoutube.com/'), []);
 });

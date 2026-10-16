@@ -2,7 +2,8 @@
 // audio, or HLS/DASH playlists worth offering, and which are only pieces of them. Pure
 // functions, tested with node:test.
 
-export type MediaKind = 'hls' | 'dash' | 'video' | 'audio';
+/** `page`: a site yt-dlp knows, sent as the page address when nothing else was seen. */
+export type MediaKind = 'hls' | 'dash' | 'video' | 'audio' | 'page';
 
 export interface MediaItem {
 	url: string;
@@ -86,6 +87,41 @@ export function remember(list: MediaItem[], item: MediaItem): MediaItem[] {
 	const rest = list.filter((m) => key(m.url) !== key(item.url));
 	const next = [...rest, item];
 	return next.length > MAX_ITEMS ? next.slice(next.length - MAX_ITEMS) : next;
+}
+
+/** Sites yt-dlp extracts from: the page itself is worth sending when their players hide
+ * the media (encrypted URLs, blob: sources, signed requests the page makes). */
+export const PAGE_SITES = [
+	'youtube.com', 'youtu.be', 'x.com', 'twitter.com', 'instagram.com', 'tiktok.com',
+	'vimeo.com', 'facebook.com', 'dailymotion.com', 'twitch.tv', 'reddit.com', 'bilibili.com'
+];
+
+/**
+ * What the button over a video sends: the video's own file when it plays one; for a stream
+ * (a `blob:` source fed by the page), the playlists seen in the tab, newest first, else the
+ * files seen; when nothing was seen on a site yt-dlp knows, the page.
+ */
+export function chooseMedia(src: string, seen: MediaItem[], page: string | null): MediaItem[] {
+	if (/^https?:/i.test(src)) {
+		const known = seen.find((m) => m.url === src);
+		return [known ?? { url: src, kind: 'video', size: null, mime: null }];
+	}
+	const newest = [...seen].reverse();
+	const streams = newest.filter((m) => m.kind === 'hls' || m.kind === 'dash');
+	if (streams.length) return streams;
+	const files = newest.filter((m) => m.kind === 'video' || m.kind === 'audio');
+	if (files.length) return files;
+	if (page) {
+		try {
+			const host = new URL(page).hostname.toLowerCase();
+			if (PAGE_SITES.some((s) => host === s || host.endsWith(`.${s}`))) {
+				return [{ url: page, kind: 'page', size: null, mime: null }];
+			}
+		} catch {
+			// not a URL
+		}
+	}
+	return [];
 }
 
 /** A short label for the popup: the file name, or the host for playlists named "index". */

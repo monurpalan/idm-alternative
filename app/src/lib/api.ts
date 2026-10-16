@@ -111,7 +111,12 @@ export interface CapturedLinks {
 export interface CapturedMedia {
 	page: string | null;
 	title: string | null;
-	items: { url: string; kind: 'hls' | 'dash' | 'video' | 'audio'; size: number | null; mime: string | null }[];
+	items: {
+		url: string;
+		kind: 'hls' | 'dash' | 'video' | 'audio' | 'page';
+		size: number | null;
+		mime: string | null;
+	}[];
 	headers: Headers;
 }
 

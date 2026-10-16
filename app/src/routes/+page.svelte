@@ -74,6 +74,9 @@
 				if (!item) return;
 				if (item.kind === 'video' || item.kind === 'audio') {
 					adding = { url: item.url, name: null, headers: m.headers };
+				} else if (item.kind === 'page') {
+					// Sites like YouTube go through yt-dlp, which is not there yet.
+					info = 'Downloading from this site is not supported yet';
 				} else {
 					// Quality selection for streams is not there yet.
 					info = `${item.kind.toUpperCase()} streams cannot be downloaded yet`;

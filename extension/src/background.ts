@@ -3,7 +3,7 @@
 
 import { DEFAULT_SETTINGS, baseName, cookieHeader, shouldCapture, type Settings } from './filter.ts';
 import { api } from './api.ts';
-import { classify, remember, type MediaItem } from './media.ts';
+import { chooseMedia, classify, remember, type MediaItem } from './media.ts';
 
 const HOST = 'io.github.monurpalan.idma';
 /** Alt held this recently (by any page) means "let the browser download this one". */
@@ -85,10 +85,37 @@ api.downloads.onCreated.addListener(async (item) => {
 	}
 });
 
-// The content script reports Alt key presses.
-chrome.runtime.onMessage.addListener((message: { alt?: boolean }) => {
-	if (message?.alt) altDownAt = Date.now();
-});
+// Messages from content scripts: Alt key presses, and the button over videos.
+chrome.runtime.onMessage.addListener(
+	(
+		message: { alt?: boolean; videoButton?: { src: string } },
+		sender: chrome.runtime.MessageSender,
+		sendResponse: (reply: Reply) => void
+	) => {
+		if (message?.alt) altDownAt = Date.now();
+		if (message?.videoButton && sender.tab?.id !== undefined) {
+			sendVideo(sender.tab, message.videoButton.src).then(sendResponse);
+			return true; // the reply comes later
+		}
+		return false;
+	}
+);
+
+/** Sends what the button over a video stands for, with the page's cookies. */
+async function sendVideo(tab: chrome.tabs.Tab, src: string): Promise<Reply> {
+	const key = mediaKey(tab.id!);
+	const seen = ((await api.storage.session.get(key))[key] as MediaItem[] | undefined) ?? [];
+	const items = chooseMedia(src, seen, tab.url ?? null);
+	if (!items.length) return { ok: false, error: 'no media found on this page yet; let it play first' };
+	return send({
+		type: 'media',
+		page: tab.url ?? null,
+		title: tab.title ?? null,
+		items,
+		cookies: await cookiesFor(items[0].url),
+		user_agent: navigator.userAgent
+	});
+}
 
 // Right-click menu.
 const MENU_LINK = 'idma-link';
