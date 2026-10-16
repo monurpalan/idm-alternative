@@ -69,11 +69,29 @@ fn login_headers(login: Option<&Login>) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Headers the request carries: those the browser handed over, plus any login.
+fn request_headers(
+    headers: Option<Vec<(String, String)>>,
+    login: Option<&Login>,
+) -> Vec<(String, String)> {
+    let mut all = headers.unwrap_or_default();
+    if login.is_some() {
+        all.retain(|(k, _)| !k.eq_ignore_ascii_case("authorization"));
+        all.extend(login_headers(login));
+    }
+    all
+}
+
 #[tauri::command]
-async fn probe(app: State<'_, App>, url: String, login: Option<Login>) -> CmdResult<ProbeView> {
+async fn probe(
+    app: State<'_, App>,
+    url: String,
+    login: Option<Login>,
+    headers: Option<Vec<(String, String)>>,
+) -> CmdResult<ProbeView> {
     match app
         .manager
-        .probe(&url, &login_headers(login.as_ref()))
+        .probe(&url, &request_headers(headers, login.as_ref()))
         .await
     {
         Ok(p) => Ok(ProbeView {
@@ -102,13 +120,15 @@ struct AddRequest {
     dir: Option<PathBuf>,
     start: bool,
     login: Option<Login>,
+    /// From the browser: cookies, referrer, user agent.
+    headers: Option<Vec<(String, String)>>,
 }
 
 #[tauri::command]
 async fn add_task(app: State<'_, App>, request: AddRequest) -> CmdResult<Task> {
     app.manager
         .add(NewTask {
-            headers: login_headers(request.login.as_ref()),
+            headers: request_headers(request.headers, request.login.as_ref()),
             url: request.url,
             name: request.name.filter(|n| !n.trim().is_empty()),
             dir: request.dir,
@@ -404,7 +424,17 @@ fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma_bridg
         },
         Request::Download(capture) => {
             show_main(handle);
-            handle.emit("capture", &capture).ok();
+            handle
+                .emit(
+                    "capture",
+                    serde_json::json!({
+                        "url": capture.url,
+                        "filename": capture.filename,
+                        "size": capture.size,
+                        "headers": capture.request_headers(),
+                    }),
+                )
+                .ok();
             Reply::ok()
         }
         Request::Links { referrer, links } => {

@@ -3,10 +3,22 @@
 
 	import { onMount } from 'svelte';
 	import { open as pickFolder } from '@tauri-apps/plugin-dialog';
-	import { addTask, getSettings, probe, type Login, type Probe } from '../api.ts';
+	import { addTask, getSettings, probe, type Headers, type Login, type Probe } from '../api.ts';
 	import { bytes } from '../format.ts';
 
-	let { url: initialUrl = '', onclose }: { url?: string; onclose: () => void } = $props();
+	let {
+		url: initialUrl = '',
+		name: initialName = null,
+		headers = null,
+		onclose
+	}: {
+		url?: string;
+		/** The name the browser chose, kept unless the user changes it. */
+		name?: string | null;
+		/** From the browser: cookies, referrer, user agent. */
+		headers?: Headers | null;
+		onclose: () => void;
+	} = $props();
 
 	let url = $state('');
 	let name = $state('');
@@ -43,10 +55,10 @@
 		error = null;
 		info = null;
 		try {
-			const p = await probe(u, login());
+			const p = await probe(u, login(), headers);
 			if (asked !== u) return; // the URL changed meanwhile
 			info = p;
-			if (!p.needs_login) name = p.name;
+			if (!p.needs_login) name = initialName || p.name;
 		} catch (e) {
 			if (asked === u) error = String(e);
 		} finally {
@@ -66,12 +78,13 @@
 		try {
 			await addTask({
 				url: u,
-				// Only send the name when the user changed it; otherwise the server's choice
-				// is made (and made unique) when the download starts.
+				// Only send a name the user (or the browser) chose; otherwise the server's
+				// choice is made (and made unique) when the download starts.
 				name: info && name.trim() && name.trim() !== info.name ? name.trim() : null,
 				dir: dir || null,
 				start,
-				login: login()
+				login: login(),
+				headers
 			});
 			onclose();
 		} catch (e) {
@@ -89,6 +102,9 @@
 		}}
 	>
 		<h2 id="add-title">Add download</h2>
+		{#if headers?.length}
+			<p class="from">From the browser, with its cookies and referrer.</p>
+		{/if}
 
 		<label>
 			Address
@@ -221,6 +237,10 @@
 	}
 	.warn {
 		color: var(--fg);
+	}
+	.from {
+		margin: -8px 0 12px;
+		color: var(--muted);
 	}
 	.login {
 		display: grid;

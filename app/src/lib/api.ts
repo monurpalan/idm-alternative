@@ -79,15 +79,37 @@ export type ManagerEvent =
 	| { type: 'removed'; data: TaskId };
 
 export const listTasks = () => invoke<Task[]>('list_tasks');
-export const probe = (url: string, login: Login | null = null) =>
-	invoke<Probe>('probe', { url, login });
+export type Headers = [string, string][];
+
+export const probe = (url: string, login: Login | null = null, headers: Headers | null = null) =>
+	invoke<Probe>('probe', { url, login, headers });
 export const addTask = (request: {
 	url: string;
 	name: string | null;
 	dir: string | null;
 	start: boolean;
 	login: Login | null;
+	headers?: Headers | null;
 }) => invoke<Task>('add_task', { request });
+
+/** A download the browser handed over. */
+export interface Capture {
+	url: string;
+	filename: string | null;
+	size: number | null;
+	/** Cookies, referrer, user agent: what the browser would have sent. */
+	headers: Headers;
+}
+
+export interface CapturedLinks {
+	referrer: string | null;
+	links: { url: string; text: string }[];
+}
+
+export const onCapture = (handler: (c: Capture) => void): Promise<UnlistenFn> =>
+	listen<Capture>('capture', (e) => handler(e.payload));
+export const onCapturedLinks = (handler: (l: CapturedLinks) => void): Promise<UnlistenFn> =>
+	listen<CapturedLinks>('capture-links', (e) => handler(e.payload));
 export const setLogin = (id: TaskId, login: Login) => invoke<void>('set_login', { id, login });
 export const startTasks = (ids: TaskId[]) => invoke<void>('start_tasks', { ids });
 export const pauseTasks = (ids: TaskId[]) => invoke<void>('pause_tasks', { ids });

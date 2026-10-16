@@ -3,6 +3,8 @@
 	import {
 		getSettings,
 		moveTask,
+		onCapture,
+		onCapturedLinks,
 		onSettings,
 		openFile,
 		pauseAll,
@@ -12,6 +14,8 @@
 		showInFolder,
 		startAll,
 		startTasks,
+		type CapturedLinks,
+		type Headers,
 		type Task,
 		type TaskId
 	} from '#lib/api.ts';
@@ -19,6 +23,7 @@
 	import ConfirmRemove from '#lib/components/ConfirmRemove.svelte';
 	import ContextMenu, { type Item } from '#lib/components/ContextMenu.svelte';
 	import DetailPane from '#lib/components/DetailPane.svelte';
+	import LinksDialog from '#lib/components/LinksDialog.svelte';
 	import SettingsDialog from '#lib/components/SettingsDialog.svelte';
 	import Sidebar from '#lib/components/Sidebar.svelte';
 	import TaskList from '#lib/components/TaskList.svelte';
@@ -36,7 +41,12 @@
 	let search = $state('');
 	let sortKey = $state<SortKey>('queue');
 	let sortDesc = $state(false);
-	let adding = $state<{ url: string } | null>(null);
+	let adding = $state<{
+		url: string;
+		name?: string | null;
+		headers?: Headers | null;
+	} | null>(null);
+	let picking = $state<CapturedLinks | null>(null);
 	let removing = $state<TaskId[] | null>(null);
 	let menu = $state<{ x: number; y: number; items: Item[] } | null>(null);
 	let notice = $state<string | null>(null);
@@ -49,10 +59,15 @@
 		getSettings()
 			.then((s) => (globalLimit = s.speed_limit))
 			.catch(() => {});
-		const unlisten = onSettings((s) => (globalLimit = s.speed_limit));
+		const unlisten = [
+			onSettings((s) => (globalLimit = s.speed_limit)),
+			// The browser handed over a download: confirm it like IDM does.
+			onCapture((c) => (adding = { url: c.url, name: c.filename, headers: c.headers })),
+			onCapturedLinks((l) => (picking = l))
+		];
 		return () => {
 			stop();
-			unlisten.then((f) => f());
+			unlisten.forEach((u) => u.then((f) => f()));
 		};
 	});
 
@@ -177,7 +192,7 @@
 	}
 
 	function keydown(e: KeyboardEvent) {
-		if (adding || removing || settingsOpen || inField(e)) return;
+		if (adding || removing || settingsOpen || picking || inField(e)) return;
 		const ctrl = e.ctrlKey || e.metaKey;
 		if (ctrl && e.key.toLowerCase() === 'a') {
 			e.preventDefault();
@@ -196,7 +211,7 @@
 	}
 
 	function paste(e: ClipboardEvent) {
-		if (adding || removing || settingsOpen || inField(e)) return;
+		if (adding || removing || settingsOpen || picking || inField(e)) return;
 		const text = e.clipboardData?.getData('text/plain') ?? '';
 		if (looksLikeUrl(text)) {
 			e.preventDefault();
@@ -279,7 +294,12 @@
 </div>
 
 {#if adding}
-	<AddDialog url={adding.url} onclose={() => (adding = null)} />
+	<AddDialog
+		url={adding.url}
+		name={adding.name}
+		headers={adding.headers}
+		onclose={() => (adding = null)}
+	/>
 {/if}
 
 {#if removing}
@@ -290,6 +310,15 @@
 			run(removeTasks(list, deleteFiles));
 		}}
 		onclose={() => (removing = null)}
+	/>
+{/if}
+
+{#if picking}
+	<LinksDialog
+		referrer={picking.referrer}
+		links={picking.links}
+		onclose={() => (picking = null)}
+		onerror={(m) => (notice = m)}
 	/>
 {/if}
 
