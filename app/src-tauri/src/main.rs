@@ -327,10 +327,7 @@ async fn apply_settings(handle: &AppHandle, new: Settings) -> CmdResult<Settings
     let app = handle.state::<App>();
     let old = lock(&app.settings).clone();
     app.manager
-        .set_config(Config {
-            ffmpeg: app.ffmpeg.clone(),
-            ..new.config()
-        })
+        .set_config(manager_config(&new, app.ffmpeg.clone(), &app.data))
         .await
         .map_err(msg)?;
     app.manager.set_global_limit(new.speed_limit);
@@ -398,6 +395,39 @@ set \"IDMA_APP={}\"
     idma_bridge::register(&target, data).map_err(msg)
 }
 
+/// The manager's configuration: the settings plus the helper programs the app has.
+fn manager_config(settings: &Settings, ffmpeg: Option<PathBuf>, data: &Path) -> Config {
+    Config {
+        ffmpeg,
+        ytdlp: tools::installed(data, tools::Tool::Ytdlp),
+        deno: tools::installed(data, tools::Tool::Deno),
+        ..settings.config()
+    }
+}
+
+/// What a page of a site such as YouTube offers, read by yt-dlp with the page's headers.
+#[tauri::command]
+async fn inspect_page(
+    app: State<'_, App>,
+    url: String,
+    headers: Option<Vec<(String, String)>>,
+) -> CmdResult<idma_manager::ytdlp::PageInfo> {
+    let ytdlp = tools::installed(&app.data, tools::Tool::Ytdlp)
+        .ok_or_else(|| "yt-dlp is not set up".to_owned())?;
+    let tools = idma_manager::ytdlp::Tools {
+        ytdlp,
+        deno: tools::installed(&app.data, tools::Tool::Deno),
+        ffmpeg: app.ffmpeg.clone(),
+    };
+    idma_manager::ytdlp::inspect(
+        &tools,
+        &url,
+        &headers.unwrap_or_default(),
+        &app.data.join("tools").join("scratch"),
+    )
+    .await
+}
+
 /// The first `name` in a folder on PATH.
 fn find_on_path(name: &str) -> Option<PathBuf> {
     std::env::split_paths(&std::env::var_os("PATH")?)
@@ -437,6 +467,12 @@ async fn tools(app: State<'_, App>) -> CmdResult<Tools> {
 async fn install_tool(app: State<'_, App>, tool: tools::Tool) -> CmdResult<String> {
     let opts = app.manager.config().engine;
     let exe = tools::install(&app.data, tool, &opts).await?;
+    // Downloads started from now on use it.
+    let settings = lock(&app.settings).clone();
+    app.manager
+        .set_config(manager_config(&settings, app.ffmpeg.clone(), &app.data))
+        .await
+        .map_err(msg)?;
     Ok(tools::version(&exe).await.unwrap_or_default())
 }
 
@@ -721,10 +757,7 @@ fn main() {
                 settings.dir = default_dir;
             }
             let ffmpeg = find_on_path("ffmpeg.exe");
-            let config = Config {
-                ffmpeg: ffmpeg.clone(),
-                ..settings.config()
-            };
+            let config = manager_config(&settings, ffmpeg.clone(), &data);
             let manager = tauri::async_runtime::block_on(Manager::open(&db, config))?;
             if settings.browser_integration
                 && let Err(e) = set_browser_integration(&data, true)
@@ -790,6 +823,7 @@ fn main() {
             inspect_media,
             tools,
             install_tool,
+            inspect_page,
             set_login,
             open_file,
             show_in_folder,

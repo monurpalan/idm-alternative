@@ -28,6 +28,7 @@
 	import DetailPane from '#lib/components/DetailPane.svelte';
 	import LinksDialog from '#lib/components/LinksDialog.svelte';
 	import MediaDialog from '#lib/components/MediaDialog.svelte';
+	import PageDialog from '#lib/components/PageDialog.svelte';
 	import SettingsDialog from '#lib/components/SettingsDialog.svelte';
 	import Sidebar from '#lib/components/Sidebar.svelte';
 	import TaskList from '#lib/components/TaskList.svelte';
@@ -52,6 +53,7 @@
 	} | null>(null);
 	let picking = $state<CapturedLinks | null>(null);
 	let streaming = $state<CapturedMedia | null>(null);
+	let pageMedia = $state<CapturedMedia | null>(null);
 	let removing = $state<TaskId[] | null>(null);
 	let menu = $state<{ x: number; y: number; items: Item[] } | null>(null);
 	let notice = $state<string | null>(null);
@@ -78,8 +80,7 @@
 				if (item.kind === 'video' || item.kind === 'audio') {
 					adding = { url: item.url, name: null, headers: m.headers };
 				} else if (item.kind === 'page') {
-					// Sites like YouTube go through yt-dlp, which is not there yet.
-					info = 'Downloading from this site is not supported yet';
+					pageMedia = m;
 				} else {
 					streaming = m;
 				}
@@ -212,7 +213,7 @@
 	}
 
 	function keydown(e: KeyboardEvent) {
-		if (adding || removing || settingsOpen || picking || streaming || inField(e)) return;
+		if (adding || removing || settingsOpen || picking || streaming || pageMedia || inField(e)) return;
 		const ctrl = e.ctrlKey || e.metaKey;
 		if (ctrl && e.key.toLowerCase() === 'a') {
 			e.preventDefault();
@@ -334,6 +335,10 @@
 		}}
 		onclose={() => (removing = null)}
 	/>
+{/if}
+
+{#if pageMedia}
+	<PageDialog media={pageMedia} onclose={() => (pageMedia = null)} />
 {/if}
 
 {#if streaming}

@@ -14,6 +14,7 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio",
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+url = "2"
 
 [dev-dependencies]
 idma-testserver = { path = "../testserver" }

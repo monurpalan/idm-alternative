@@ -47,6 +47,9 @@ impl Status {
 pub struct Stream {
     /// A separate audio playlist, joined with the video.
     pub audio: Option<String>,
+    /// Downloaded by yt-dlp with this format selector; the task's URL is then the page.
+    #[serde(default)]
+    pub ytdlp: Option<String>,
 }
 
 /// What a failure needs from the user; the UI offers the matching fix.

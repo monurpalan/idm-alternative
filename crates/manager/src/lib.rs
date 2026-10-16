@@ -12,6 +12,7 @@
 
 mod db;
 mod task;
+pub mod ytdlp;
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -69,6 +70,9 @@ pub struct Config {
     /// Puts stream video and audio into one file; without it a stream is saved as the
     /// joined `.ts` segments, and one with separate audio cannot be saved.
     pub ffmpeg: Option<PathBuf>,
+    /// yt-dlp, for pages of sites such as YouTube; and deno, which it needs there.
+    pub ytdlp: Option<PathBuf>,
+    pub deno: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -83,6 +87,8 @@ impl Default for Config {
             max_retries: 5,
             retry_delay: Duration::from_secs(5),
             ffmpeg: None,
+            ytdlp: None,
+            deno: None,
         }
     }
 }
@@ -206,6 +212,16 @@ fn delete_files_of(path: &Path) {
         std::fs::remove_file(with(suffix)).ok();
     }
     std::fs::remove_dir_all(with(".idma-hls")).ok();
+    // yt-dlp's partial files: `<stem>.f137.mp4.part`, `<stem>.mp4.ytdl` and the like.
+    if let (Some(dir), Some(stem)) = (path.parent(), path.file_stem()) {
+        let prefix = format!("{}.", stem.to_string_lossy());
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with(&prefix) && (name.ends_with(".part") || name.ends_with(".ytdl")) {
+                std::fs::remove_file(entry.path()).ok();
+            }
+        }
+    }
 }
 
 fn now_ms() -> i64 {
@@ -768,6 +784,76 @@ impl Inner {
         Ok(result?)
     }
 
+    /// A page of a site yt-dlp knows: yt-dlp downloads the chosen format; the file's real
+    /// extension is known only at the end.
+    async fn download_page(
+        &self,
+        mut task: Task,
+        format: &str,
+        tools: &ytdlp::Tools,
+        conflict: Conflict,
+        cancel: &CancellationToken,
+    ) -> Result<Outcome> {
+        let started = std::time::Instant::now();
+        let path = match &task.path {
+            Some(p) => p.clone(),
+            None => {
+                std::fs::create_dir_all(&task.dir).map_err(idma_engine::Error::from)?;
+                let stem = task.name.clone().unwrap_or_else(|| "video".to_owned());
+                let stem = idma_engine::name::split_extension(&stem).0.to_owned();
+                let name = idma_engine::name::sanitize(&format!("{stem}.mp4"));
+                let _one_at_a_time = self.naming.lock().await;
+                let taken: std::collections::HashSet<PathBuf> =
+                    self.db.paths_except(task.id).await?.into_iter().collect();
+                let path =
+                    idma_engine::target_avoiding(&task.dir, &name, &task.url, conflict, |p| {
+                        taken.contains(p)
+                    });
+                let file_name = path
+                    .file_name()
+                    .map_or_else(|| name.clone(), |n| n.to_string_lossy().into_owned());
+                self.db
+                    .set_target(task.id, &file_name, &path, None, Category::Video)
+                    .await?;
+                task.name = Some(file_name);
+                task.path = Some(path.clone());
+                task.category = Category::Video;
+                self.emit(Event::Updated(task.clone()));
+                path
+            }
+        };
+        let stem = path.with_extension("");
+        let (tx, rx) = watch::channel(Progress::default());
+        let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
+        let result = ytdlp::run(tools, &task.url, format, &stem, &task.headers, &tx, cancel).await;
+        drop(tx);
+        reporter.await.ok();
+        let file = match result {
+            Ok(f) => f,
+            Err(_) if cancel.is_cancelled() => return Err(idma_engine::Error::Cancelled.into()),
+            Err(e) => return Err(idma_engine::Error::State(e).into()),
+        };
+        if file != path {
+            // Not merged into MP4 (audio alone, or a single file of another type).
+            let name = file
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let category = Category::for_name(&name);
+            self.db
+                .set_target(task.id, &name, &file, None, category)
+                .await?;
+        }
+        let size = std::fs::metadata(&file)
+            .map_err(idma_engine::Error::from)?
+            .len();
+        Ok(Outcome {
+            size,
+            resumed_from: 0,
+            elapsed: started.elapsed(),
+        })
+    }
+
     /// After a failure: when it may pass and retries are left, records when to try again,
     /// wakes the queue then, and returns the wait.
     fn schedule_retry(self: &Arc<Self>, id: TaskId, e: &Error) -> Option<Duration> {
@@ -807,9 +893,15 @@ impl Inner {
         cancel: &CancellationToken,
         limiter: Limiter,
     ) -> Result<Outcome> {
-        let (mut opts, conflict, ffmpeg) = {
+        let (mut opts, conflict, ffmpeg, ytdlp, deno) = {
             let cfg = lock(&self.config);
-            (cfg.engine.clone(), cfg.conflict, cfg.ffmpeg.clone())
+            (
+                cfg.engine.clone(),
+                cfg.conflict,
+                cfg.ffmpeg.clone(),
+                cfg.ytdlp.clone(),
+                cfg.deno.clone(),
+            )
         };
         opts.connections = task.connections;
         opts.limiters = vec![self.global.clone(), limiter];
@@ -820,6 +912,19 @@ impl Inner {
             .transpose()
             .map_err(Error::BadChecksum)?;
 
+        if let Some(format) = task.stream.as_ref().and_then(|s| s.ytdlp.clone()) {
+            let ytdlp = ytdlp.ok_or_else(|| {
+                idma_engine::Error::State("yt-dlp is not set up (Settings, Video tools)".into())
+            })?;
+            let tools = ytdlp::Tools {
+                ytdlp,
+                deno,
+                ffmpeg,
+            };
+            return self
+                .download_page(task, &format, &tools, conflict, cancel)
+                .await;
+        }
         if let Some(stream) = task.stream.clone() {
             return self
                 .download_stream(task, stream, opts, conflict, ffmpeg, cancel)

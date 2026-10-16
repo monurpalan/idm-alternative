@@ -91,9 +91,28 @@ export const addTask = (request: {
 	start: boolean;
 	login: Login | null;
 	headers?: Headers | null;
-	/** A stream: `url` is then the chosen video playlist. */
-	stream?: { audio: string | null } | null;
+	/** A stream: `url` is then the chosen video playlist, or with `ytdlp` (a format
+	 * selector) the page yt-dlp downloads from. */
+	stream?: { audio: string | null; ytdlp?: string | null } | null;
 }) => invoke<Task>('add_task', { request });
+
+/** What a page of a site like YouTube offers (read by yt-dlp). */
+export interface PageInfo {
+	title: string | null;
+	duration: number | null;
+	heights: number[];
+	audio_only: boolean;
+}
+
+export const inspectPage = (url: string, headers: Headers) =>
+	invoke<PageInfo>('inspect_page', { url, headers });
+
+/** yt-dlp's format selector for a choice; the same as `idma_manager::ytdlp::selector`. */
+export function ytdlpSelector(height: number | null): string {
+	return height === null
+		? 'bestaudio/best'
+		: `bestvideo[height<=${height}]+bestaudio/best[height<=${height}]/best`;
+}
 
 /** Helper programs the app has; versions of the ones it sets up itself. */
 export interface ToolStatus {
