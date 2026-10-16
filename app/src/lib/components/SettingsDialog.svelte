@@ -1,7 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { open as pickFolder } from '@tauri-apps/plugin-dialog';
-	import { getSettings, setSettings, type Settings } from '../api.ts';
+	import {
+		getSettings,
+		installTool,
+		setSettings,
+		tools,
+		type Settings,
+		type ToolStatus
+	} from '../api.ts';
 
 	let { onclose }: { onclose: () => void } = $props();
 
@@ -11,9 +18,28 @@
 	let error = $state<string | null>(null);
 	let saving = $state(false);
 	let dialog: HTMLDialogElement | undefined = $state();
+	let toolStatus = $state<ToolStatus | null>(null);
+	let installing = $state<'ytdlp' | 'deno' | null>(null);
+	let toolError = $state<string | null>(null);
+
+	async function setUp(tool: 'ytdlp' | 'deno') {
+		installing = tool;
+		toolError = null;
+		try {
+			await installTool(tool);
+			toolStatus = await tools();
+		} catch (e) {
+			toolError = String(e);
+		} finally {
+			installing = null;
+		}
+	}
 
 	onMount(() => {
 		dialog?.showModal();
+		tools()
+			.then((t) => (toolStatus = t))
+			.catch(() => {});
 		getSettings()
 			.then((v) => {
 				s = v;
@@ -108,6 +134,36 @@
 						<input bind:value={s.proxy} placeholder="none, or socks5://host:port" />
 					</label>
 				</div>
+			</fieldset>
+
+			<fieldset>
+				<legend>Video tools</legend>
+				{#if toolStatus}
+					<div class="tool">
+						<span>ffmpeg</span>
+						<span class="muted">
+							{toolStatus.ffmpeg ? 'Found' : 'Not found: install it (e.g. winget install ffmpeg) to join video and audio'}
+						</span>
+					</div>
+					{#each [{ id: 'ytdlp', name: 'yt-dlp', why: 'YouTube, X, Instagram and other sites' }, { id: 'deno', name: 'deno', why: 'Needed by yt-dlp for YouTube' }] as t (t.id)}
+						{@const version = toolStatus[t.id as 'ytdlp' | 'deno']}
+						<div class="tool">
+							<span>{t.name}</span>
+							<span class="muted">{version ? `Version ${version}` : t.why}</span>
+							<button
+								type="button"
+								disabled={installing !== null}
+								onclick={() => setUp(t.id as 'ytdlp' | 'deno')}
+							>
+								{installing === t.id ? 'Downloading…' : version ? 'Update' : 'Set up'}
+							</button>
+						</div>
+					{/each}
+					<p class="small">Downloaded from the projects' official GitHub releases and checked against their published SHA-256.</p>
+					{#if toolError}<p class="error">{toolError}</p>{/if}
+				{:else}
+					<p class="muted">Checking…</p>
+				{/if}
 			</fieldset>
 
 			<fieldset>
@@ -215,6 +271,18 @@
 	}
 	.muted {
 		color: var(--muted);
+	}
+	.tool {
+		display: grid;
+		grid-template-columns: 70px 1fr auto;
+		gap: 8px;
+		align-items: center;
+		min-height: 30px;
+	}
+	.small {
+		font-size: 12px;
+		color: var(--muted);
+		margin: 6px 0 0;
 	}
 	.error {
 		color: var(--danger);

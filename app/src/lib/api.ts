@@ -95,8 +95,16 @@ export const addTask = (request: {
 	stream?: { audio: string | null } | null;
 }) => invoke<Task>('add_task', { request });
 
-/** Helper programs the app found. */
-export const tools = () => invoke<{ ffmpeg: boolean }>('tools');
+/** Helper programs the app has; versions of the ones it sets up itself. */
+export interface ToolStatus {
+	ffmpeg: boolean;
+	ytdlp: string | null;
+	deno: string | null;
+}
+
+export const tools = () => invoke<ToolStatus>('tools');
+/** Sets up (or updates) yt-dlp or deno; returns the new version. */
+export const installTool = (tool: 'ytdlp' | 'deno') => invoke<string>('install_tool', { tool });
 
 /** A download the browser handed over. */
 export interface Capture {

@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod settings;
+mod tools;
 mod tray;
 
 use std::collections::HashMap;
@@ -404,17 +405,39 @@ fn find_on_path(name: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// Which helper programs the app found.
+/// Which helper programs the app has, and their versions.
 #[derive(Serialize)]
 struct Tools {
     ffmpeg: bool,
+    ytdlp: Option<String>,
+    deno: Option<String>,
 }
 
 #[tauri::command]
-fn tools(app: State<'_, App>) -> Tools {
-    Tools {
+async fn tools(app: State<'_, App>) -> CmdResult<Tools> {
+    let data = app.data.clone();
+    let version = |tool| {
+        let data = data.clone();
+        async move {
+            match tools::installed(&data, tool) {
+                Some(exe) => tools::version(&exe).await,
+                None => None,
+            }
+        }
+    };
+    Ok(Tools {
         ffmpeg: app.ffmpeg.is_some(),
-    }
+        ytdlp: version(tools::Tool::Ytdlp).await,
+        deno: version(tools::Tool::Deno).await,
+    })
+}
+
+/// Sets up (or updates to the latest release) a helper program, on the user's request.
+#[tauri::command]
+async fn install_tool(app: State<'_, App>, tool: tools::Tool) -> CmdResult<String> {
+    let opts = app.manager.config().engine;
+    let exe = tools::install(&app.data, tool, &opts).await?;
+    Ok(tools::version(&exe).await.unwrap_or_default())
 }
 
 /// Brings the window back, also from the tray.
@@ -766,6 +789,7 @@ fn main() {
             refresh_in_browser,
             inspect_media,
             tools,
+            install_tool,
             set_login,
             open_file,
             show_in_folder,

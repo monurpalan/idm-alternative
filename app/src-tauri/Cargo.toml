@@ -30,6 +30,7 @@ tauri-plugin-single-instance = "2"
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+zip = { version = "9.0.4", default-features = false, features = ["deflate"] }
 
 [lints]
 workspace = true
