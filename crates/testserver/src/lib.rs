@@ -11,6 +11,7 @@
 //! `POST /_reset` clears them.
 
 pub mod content;
+pub mod dash;
 pub mod hls;
 pub mod scenario;
 mod server;

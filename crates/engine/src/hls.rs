@@ -422,11 +422,50 @@ pub async fn download_hls(
         ));
     }
 
-    let dir = sibling(&req.output, ".idma-hls");
+    let mut tracks = vec![("video", Source::Segments(video))];
+    if let Some(a) = audio {
+        tracks.push(("audio", Source::Segments(a)));
+    }
+    segmented(
+        http,
+        &req.output,
+        tracks,
+        req.ffmpeg.as_deref(),
+        opts,
+        progress,
+        cancel,
+        started,
+    )
+    .await
+}
+
+/// A track to put into the output: segments still to download (and join), or a file that
+/// is already whole (a DASH representation that is a single file).
+pub(crate) enum Source {
+    Segments(MediaPlaylist),
+    Joined(PathBuf),
+}
+
+/// Downloads the segments of `tracks` into `<output>.idma-hls/`, joins each track, and puts
+/// the first (video) and the second (audio, if any) into `output`, with ffmpeg when given.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn segmented(
+    http: Http,
+    output: &Path,
+    tracks: Vec<(&'static str, Source)>,
+    ffmpeg: Option<&Path>,
+    opts: &Options,
+    progress: Option<&watch::Sender<Progress>>,
+    cancel: &CancellationToken,
+    started: Instant,
+) -> Result<Outcome> {
+    let dir = sibling(output, ".idma-hls");
     tokio::fs::create_dir_all(&dir).await?;
-    let mut files = track_files(&dir, "video", &video);
-    if let Some(a) = &audio {
-        files.extend(track_files(&dir, "audio", a));
+    let mut files = Vec::new();
+    for (name, source) in &tracks {
+        if let Source::Segments(p) = source {
+            files.extend(track_files(&dir, name, p));
+        }
     }
     let total = files.len();
     let missing: Vec<(Segment, PathBuf)> =
@@ -519,27 +558,34 @@ pub async fn download_hls(
     }
 
     // Join each track, then put them together.
-    let video_path = dir.join("video.joined");
-    join(&track_files(&dir, "video", &video), &video_path).await?;
-    let audio_path = match &audio {
-        Some(a) => {
-            let p = dir.join("audio.joined");
-            join(&track_files(&dir, "audio", a), &p).await?;
-            Some(p)
-        }
-        None => None,
-    };
-    match &req.ffmpeg {
+    let mut joined = Vec::new();
+    for (name, source) in &tracks {
+        joined.push(match source {
+            Source::Segments(p) => {
+                let path = dir.join(format!("{name}.joined"));
+                join(&track_files(&dir, name, p), &path).await?;
+                path
+            }
+            Source::Joined(path) => path.clone(),
+        });
+    }
+    match ffmpeg {
         Some(ffmpeg) => {
             if let Some(p) = progress {
                 p.send_modify(|p| p.phase = Phase::Verifying);
             }
-            mux(ffmpeg, &video_path, audio_path.as_deref(), &req.output).await?;
+            mux(
+                ffmpeg,
+                &joined[0],
+                joined.get(1).map(PathBuf::as_path),
+                output,
+            )
+            .await?;
         }
-        None => tokio::fs::rename(&video_path, &req.output).await?,
+        None => tokio::fs::rename(&joined[0], output).await?,
     }
     tokio::fs::remove_dir_all(&run.dir).await.ok();
-    let size = tokio::fs::metadata(&req.output).await?.len();
+    let size = tokio::fs::metadata(output).await?.len();
     if let Some(p) = progress {
         p.send_modify(|p| {
             p.phase = Phase::Done;

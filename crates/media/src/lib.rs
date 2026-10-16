@@ -2,11 +2,13 @@
 //! playlist or a DASH manifest, so the user can pick before downloading.
 
 mod dash;
+mod dash_segments;
 mod hls;
 
 use serde::Serialize;
 
 pub use dash::parse_mpd;
+pub use dash_segments::{DashTrack, Piece, dash_track};
 pub use hls::parse_m3u8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

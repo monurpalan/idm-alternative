@@ -64,6 +64,8 @@ pub fn router() -> Router {
         .route("/hls/key", get(crate::hls::key))
         .route("/hls/{playlist}", get(crate::hls::media_playlist))
         .route("/hls/{track}/{segment}", get(crate::hls::segment))
+        .route("/dash/manifest.mpd", get(crate::dash::manifest))
+        .route("/dash/{rep}/{file}", get(crate::dash::segment))
         .route("/_stats", get(stats))
         .route("/_reset", post(reset))
         .with_state(Arc::new(AppState::default()))

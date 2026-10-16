@@ -125,7 +125,7 @@ fn frame_rate(v: &str) -> Option<f64> {
 }
 
 /// ISO 8601 durations as DASH uses them: `PT1H2M3.5S`, `P1DT2H`.
-fn iso_duration(v: &str) -> Option<f64> {
+pub(crate) fn iso_duration(v: &str) -> Option<f64> {
     let rest = v.strip_prefix('P')?;
     let (date, time) = rest.split_once('T').unwrap_or((rest, ""));
     let mut total = 0.0;

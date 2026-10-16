@@ -10,6 +10,7 @@
 //!   server that ignores ranges falls back to a single connection.
 
 mod checksum;
+mod dash;
 mod download;
 pub mod error;
 mod file;
@@ -23,6 +24,7 @@ pub mod segments;
 mod state;
 
 pub use checksum::{Algorithm, Checksum};
+pub use dash::{DashRequest, download_dash};
 pub use download::{
     Options, Outcome, Phase, Probe, Progress, Request, SegmentView, download, fetch_text, probe,
 };
