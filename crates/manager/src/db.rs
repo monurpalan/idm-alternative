@@ -196,6 +196,15 @@ impl Db {
         Ok(())
     }
 
+    pub(crate) async fn set_url(&self, id: TaskId, url: &str) -> Result<()> {
+        sqlx::query("UPDATE tasks SET url = ? WHERE id = ?")
+            .bind(url)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Back to the queue with nothing downloaded, keeping the chosen path.
     pub(crate) async fn reset(&self, id: TaskId) -> Result<()> {
         sqlx::query(

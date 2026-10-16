@@ -100,9 +100,17 @@ export function compare(a: Row, b: Row, key: SortKey): number {
 	}
 }
 
+/** Speed samples kept per running download: a minute at four per second. */
+export const HISTORY = 240;
+
 class Downloads {
 	tasks = $state<Task[]>([]);
 	live = $state<Record<TaskId, TaskProgress>>({});
+	/**
+	 * Recent speeds per download, oldest first. Not reactive itself: whoever draws it also
+	 * reads `live[id]`, which changes with every new sample.
+	 */
+	history = new Map<TaskId, number[]>();
 	selected = new SvelteSet<TaskId>();
 	loaded = $state(false);
 	error = $state<string | null>(null);
@@ -134,6 +142,7 @@ class Downloads {
 					case 'removed':
 						this.tasks = this.tasks.filter((t) => t.id !== e.data);
 						delete this.live[e.data];
+						this.history.delete(e.data);
 						this.selected.delete(e.data);
 						break;
 				}
@@ -142,6 +151,10 @@ class Downloads {
 				for (const p of batch) {
 					// Ignore progress that arrives after the download stopped.
 					if (this.tasks.find((t) => t.id === p.id)?.status === 'downloading') {
+						const h = this.history.get(p.id) ?? [];
+						h.push(p.speed);
+						if (h.length > HISTORY) h.splice(0, h.length - HISTORY);
+						this.history.set(p.id, h);
 						this.live[p.id] = p;
 					}
 				}

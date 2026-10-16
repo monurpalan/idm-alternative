@@ -13,6 +13,7 @@
 	import AddDialog from '#lib/components/AddDialog.svelte';
 	import ConfirmRemove from '#lib/components/ConfirmRemove.svelte';
 	import ContextMenu, { type Item } from '#lib/components/ContextMenu.svelte';
+	import DetailPane from '#lib/components/DetailPane.svelte';
 	import Sidebar from '#lib/components/Sidebar.svelte';
 	import TaskList from '#lib/components/TaskList.svelte';
 	import {
@@ -33,6 +34,7 @@
 	let removing = $state<TaskId[] | null>(null);
 	let menu = $state<{ x: number; y: number; items: Item[] } | null>(null);
 	let notice = $state<string | null>(null);
+	let showDetails = $state(true);
 
 	onMount(() => downloads.connect());
 
@@ -56,6 +58,7 @@
 	const selectedTasks = $derived(
 		downloads.tasks.filter((t) => downloads.selected.has(t.id))
 	);
+	const detailed = $derived(showDetails && selectedTasks.length === 1 ? selectedTasks[0] : null);
 	const canStart = (t: Task) => t.status === 'paused' || t.status === 'error';
 	const canPause = (t: Task) => t.status === 'downloading' || t.status === 'queued';
 
@@ -190,13 +193,22 @@
 			disabled={!selectedTasks.length}
 			title="Delete">Remove</button
 		>
+		<button
+			class="toggle"
+			aria-pressed={showDetails}
+			onclick={() => (showDetails = !showDetails)}
+			title="Details of the selected download">Details</button
+		>
 		<input class="search" type="search" bind:value={search} placeholder="Search" aria-label="Search" />
 	</header>
 
 	<Sidebar bind:view />
 
-	<main>
+	<main class:split={detailed}>
 		<TaskList tasks={visible} bind:sortKey bind:sortDesc oncontext={contextMenu} onopen={openRow} />
+		{#if detailed}
+			<DetailPane task={detailed} onerror={(m) => (notice = m)} />
+		{/if}
 	</main>
 
 	<footer>
@@ -271,6 +283,16 @@
 		grid-area: main;
 		min-height: 0;
 		min-width: 0;
+		display: grid;
+		grid-template-rows: 1fr;
+	}
+	main.split {
+		grid-template-rows: 1fr 230px;
+	}
+	.toggle[aria-pressed='true'] {
+		background: var(--selected);
+		color: var(--selected-fg);
+		border-color: transparent;
 	}
 	footer {
 		grid-area: foot;

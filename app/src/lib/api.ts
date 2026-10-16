@@ -73,6 +73,9 @@ export const removeTasks = (ids: TaskId[], deleteFiles: boolean) =>
 export const restartTask = (id: TaskId) => invoke<void>('restart_task', { id });
 export const openFile = (id: TaskId) => invoke<void>('open_file', { id });
 export const showInFolder = (id: TaskId) => invoke<void>('show_in_folder', { id });
+export const setSpeedLimit = (id: TaskId, rate: number | null) =>
+	invoke<void>('set_speed_limit', { id, rate });
+export const refreshLink = (id: TaskId, url: string) => invoke<void>('refresh_link', { id, url });
 export const getSettings = () => invoke<Settings>('get_settings');
 export const setMaxActive = (maxActive: number) => invoke<void>('set_max_active', { maxActive });
 

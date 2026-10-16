@@ -101,6 +101,29 @@ async fn restart_task(app: State<'_, App>, id: TaskId) -> CmdResult<()> {
     app.manager.restart(id).await.map_err(msg)
 }
 
+/// This download's own limit in bytes per second; `None` removes it.
+#[tauri::command]
+async fn set_speed_limit(app: State<'_, App>, id: TaskId, rate: Option<u64>) -> CmdResult<()> {
+    app.manager
+        .set_speed_limit(id, rate.filter(|r| *r > 0))
+        .await
+        .map_err(msg)
+}
+
+/// Continues a download from a fresh link to the same file.
+#[tauri::command]
+async fn refresh_link(app: State<'_, App>, id: TaskId, url: String) -> CmdResult<()> {
+    app.manager
+        .refresh_link(id, url.trim())
+        .await
+        .map_err(|e| match e {
+            idma_manager::Error::Engine(idma_engine::Error::FileChanged) => {
+                "this link leads to a different file (size or content differ)".to_owned()
+            }
+            e => e.to_string(),
+        })
+}
+
 /// The file of a download, looked up here so the UI never names arbitrary paths to open.
 async fn file_of(app: &App, id: TaskId) -> CmdResult<PathBuf> {
     let task = app.manager.get(id).await.map_err(msg)?;
@@ -264,6 +287,8 @@ fn main() {
             pause_tasks,
             remove_tasks,
             restart_task,
+            set_speed_limit,
+            refresh_link,
             open_file,
             show_in_folder,
             get_settings,

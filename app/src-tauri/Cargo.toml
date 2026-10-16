@@ -15,6 +15,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+idma-engine = { version = "0.1.0", path = "../../crates/engine" }
 idma-manager = { path = "../../crates/manager" }
 serde.workspace = true
 tauri = { version = "2", features = [] }

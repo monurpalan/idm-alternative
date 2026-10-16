@@ -389,3 +389,49 @@ async fn restart_downloads_again_from_scratch() {
     );
     m.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn refreshed_link_continues_only_for_the_same_file() {
+    let base = start_server().await;
+    let w = WorkDir::new("refresh");
+    let m = Manager::open(&w.db(), w.config(3)).await.expect("open");
+    // 4 connections at 1 MiB/s: about 8 s, so it is still running when the link changes.
+    let size = 32 * MB;
+    let task = m
+        .add(new_task(format!(
+            "{base}/file/old.bin?size={size}&seed=21&rate=1M"
+        )))
+        .await
+        .expect("add");
+    wait_for(&m, task.id, 10, |t| t.received > 0).await;
+    // Let the state file record some progress.
+    tokio::time::sleep(Duration::from_millis(2200)).await;
+
+    let other = format!("{base}/file/new.bin?size={size}&seed=22&rate=1M");
+    let refused = m.refresh_link(task.id, &other).await;
+    assert!(
+        matches!(
+            refused,
+            Err(idma_manager::Error::Engine(idma_engine::Error::FileChanged))
+        ),
+        "{refused:?}"
+    );
+    let t = m.get(task.id).await.expect("get");
+    assert!(t.url.contains("old.bin"), "{}", t.url);
+    assert!(
+        matches!(
+            t.status,
+            Status::Downloading | Status::Queued | Status::Done
+        ),
+        "{:?}",
+        t.status
+    );
+
+    let fresh = format!("{base}/file/fresh.bin?size={size}&seed=21&rate=1M");
+    m.refresh_link(task.id, &fresh).await.expect("refresh");
+    let done = wait_done(&m, task.id).await;
+    assert_eq!(done.url, fresh);
+    assert_eq!(done.name.as_deref(), Some("old.bin"), "keeps its file");
+    assert_file(&done, 21, size);
+    m.close().await;
+}

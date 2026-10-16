@@ -314,6 +314,40 @@ impl Manager {
         Ok(())
     }
 
+    /// Points a download at a fresh link for the same file (the old one expired, or the site
+    /// hands out a new one per visit), keeping its progress. The new link must serve the same
+    /// file: the same size, and the same bytes as already downloaded; otherwise this fails
+    /// with [`idma_engine::Error::FileChanged`] and nothing changes. A download that was
+    /// running or had failed continues with the new link.
+    pub async fn refresh_link(&self, id: TaskId, url: &str) -> Result<()> {
+        let task = self.get(id).await?;
+        let was_running = self.inner.stop(id, Stop::Pause).await;
+        if let Some(path) = &task.path {
+            let mut state = path.as_os_str().to_owned();
+            state.push(".idma-state");
+            if PathBuf::from(state).exists() {
+                let opts = lock(&self.inner.config).engine.clone();
+                let req = idma_engine::Request {
+                    url: url.to_owned(),
+                    output: path.clone(),
+                    headers: task.headers.clone(),
+                };
+                if let Err(e) = idma_engine::patch_url(&req, &opts).await {
+                    if was_running {
+                        self.start(id).await?;
+                    }
+                    return Err(e.into());
+                }
+            }
+        }
+        self.inner.db.set_url(id, url).await?;
+        self.inner.emit(Event::Updated(self.get(id).await?));
+        if was_running || task.status == Status::Error {
+            self.start(id).await?;
+        }
+        Ok(())
+    }
+
     /// Stops every running download so it resumes on the next [`Manager::open`], and closes
     /// the database.
     pub async fn close(&self) {
