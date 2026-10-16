@@ -9,6 +9,7 @@
 //! - Every range response is checked (`If-Range`, `Content-Range`, size, HTML pages), and a
 //!   server that ignores ranges falls back to a single connection.
 
+mod checksum;
 mod download;
 pub mod error;
 mod file;
@@ -20,7 +21,10 @@ mod remote;
 pub mod segments;
 mod state;
 
-pub use download::{Options, Outcome, Probe, Progress, Request, SegmentView, download, probe};
+pub use checksum::{Algorithm, Checksum};
+pub use download::{
+    Options, Outcome, Phase, Probe, Progress, Request, SegmentView, download, probe,
+};
 pub use error::{Error, Result};
 pub use limit::Limiter;
 pub use place::{Conflict, target};

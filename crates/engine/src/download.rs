@@ -12,6 +12,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use wreq::Response;
 
+use crate::checksum::Checksum;
 use crate::error::{Error, Result};
 use crate::file::OutputFile;
 use crate::limit::Limiter;
@@ -61,6 +62,8 @@ pub struct Options {
     /// Speed limits this download obeys, typically the app's global limiter and the
     /// download's own. Every connection pays each of them for every byte.
     pub limiters: Vec<Limiter>,
+    /// Checked once the file is complete; a mismatch fails the download.
+    pub checksum: Option<Checksum>,
 }
 
 impl Default for Options {
@@ -77,6 +80,7 @@ impl Default for Options {
             http1_only: false,
             split: SplitPolicy::default(),
             limiters: Vec::new(),
+            checksum: None,
         }
     }
 }
@@ -90,14 +94,29 @@ pub struct SegmentView {
     pub speed: f64,
 }
 
+/// What a download is doing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Phase {
+    /// Asking the server about the file.
+    #[default]
+    Probing,
+    Downloading,
+    /// Hashing the finished file; see [`Progress::verified`].
+    Verifying,
+    Done,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Progress {
+    pub phase: Phase,
     pub size: Option<u64>,
     pub received: u64,
     /// Bytes per second over the last moments.
     pub speed: f64,
     pub connections: usize,
     pub segments: Vec<SegmentView>,
+    /// Bytes hashed so far while [`Phase::Verifying`].
+    pub verified: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -135,8 +154,25 @@ pub async fn download(
         };
         match job.run(progress, cancel).await {
             Ok((size, resumed_from)) => {
+                if let Some(want) = &opts.checksum {
+                    match verify(&part, want, progress, cancel).await {
+                        // Interrupted: the complete part and its state stay, so the next
+                        // attempt only verifies again.
+                        Err(Error::Cancelled) => return Err(Error::Cancelled),
+                        // Keep the file for inspection; downloading again starts over.
+                        Err(mismatch @ Error::ChecksumMismatch { .. }) => {
+                            std::fs::rename(&part, &req.output)?;
+                            std::fs::remove_file(&state_path).ok();
+                            return Err(mismatch);
+                        }
+                        other => other?,
+                    }
+                }
                 std::fs::rename(&part, &req.output)?;
                 std::fs::remove_file(&state_path).ok();
+                if let Some(p) = progress {
+                    p.send_modify(|p| p.phase = Phase::Done);
+                }
                 return Ok(Outcome {
                     size,
                     resumed_from,
@@ -182,6 +218,39 @@ pub async fn probe(url: &str, headers: &[(String, String)], opts: &Options) -> R
         resumable: remote.ranges && remote.size.is_some(),
         name: remote.name,
     })
+}
+
+/// Hashes the finished file, reporting progress about four times a second.
+async fn verify(
+    part: &Path,
+    want: &Checksum,
+    progress: Option<&watch::Sender<Progress>>,
+    cancel: &CancellationToken,
+) -> Result<()> {
+    let done = Arc::new(AtomicU64::new(0));
+    let report = |done: u64| {
+        if let Some(p) = progress {
+            p.send_modify(|p| {
+                p.phase = Phase::Verifying;
+                p.speed = 0.0;
+                p.connections = 0;
+                p.verified = done;
+            });
+        }
+    };
+    report(0);
+    let check = crate::checksum::verify(part, want, cancel, Arc::clone(&done));
+    tokio::pin!(check);
+    let mut tick = tokio::time::interval(Duration::from_millis(250));
+    loop {
+        tokio::select! {
+            result = &mut check => {
+                report(done.load(Ordering::Relaxed));
+                return result;
+            }
+            _ = tick.tick() => report(done.load(Ordering::Relaxed)),
+        }
+    }
 }
 
 pub(crate) fn http_config(headers: &[(String, String)], opts: &Options) -> HttpConfig {
@@ -619,6 +688,7 @@ enum Resume {
 
 fn snapshot(t: &Table, size: Option<u64>) -> Progress {
     Progress {
+        phase: Phase::Downloading,
         size,
         received: t.received_total(),
         speed: t.total_speed(),
@@ -634,6 +704,7 @@ fn snapshot(t: &Table, size: Option<u64>) -> Progress {
                 speed: s.speed,
             })
             .collect(),
+        verified: 0,
     }
 }
 

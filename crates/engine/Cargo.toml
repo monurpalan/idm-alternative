@@ -17,6 +17,9 @@ tokio.workspace = true
 tokio-util = "0.7"
 tracing.workspace = true
 fs4 = "1.1.0"
+md-5 = "0.11.0"
+sha1 = "0.11.0"
+sha2 = "0.11.1"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
@@ -29,6 +32,7 @@ windows-sys = { version = "0.61", features = [
 idma-testserver = { path = "../testserver" }
 axum = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+sha2 = "0.11.1"
 
 [lints]
 workspace = true

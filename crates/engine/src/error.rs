@@ -41,6 +41,10 @@ pub enum Error {
     TooManyFailures { attempts: u32, last: String },
     #[error("state file: {0}")]
     State(String),
+    /// The finished file does not match the checksum the user gave. The file is kept (under
+    /// its final name) so it can be inspected; downloading again starts over.
+    #[error("checksum mismatch: expected {expected}, got {actual}")]
+    ChecksumMismatch { expected: String, actual: String },
     /// Another download is writing the same file.
     #[error("{} is already being downloaded", .0.display())]
     InUse(std::path::PathBuf),

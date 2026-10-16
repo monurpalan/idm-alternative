@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use idma_engine::{
-    Browser, CancellationToken, Conflict, Error, Limiter, Options, Progress, Request,
+    Browser, CancellationToken, Checksum, Conflict, Error, Limiter, Options, Phase, Progress,
+    Request,
 };
 
 /// Command-line front end for the idm-alternative download engine.
@@ -56,6 +57,10 @@ enum Command {
         /// Accept invalid or self-signed TLS certificates.
         #[arg(short = 'k', long)]
         insecure: bool,
+        /// Verify the finished file: `sha256:<hex>` (also md5, sha1, sha512), or a bare hex
+        /// digest.
+        #[arg(long)]
+        checksum: Option<Checksum>,
         /// Never use HTTP/2.
         #[arg(long)]
         http1: bool,
@@ -87,6 +92,7 @@ async fn main() -> ExitCode {
         proxy,
         insecure,
         http1,
+        checksum,
         quiet,
     } = Cli::parse().command;
     let headers = match headers
@@ -113,6 +119,7 @@ async fn main() -> ExitCode {
         proxy,
         insecure,
         http1_only: http1,
+        checksum,
         ..Options::default()
     };
     let dir = dir.unwrap_or_default();
@@ -198,6 +205,15 @@ async fn print_progress(mut rx: tokio::sync::watch::Receiver<Progress>) {
             return;
         }
         let p = rx.borrow_and_update().clone();
+        if p.phase == Phase::Verifying {
+            let pct = p
+                .size
+                .filter(|s| *s > 0)
+                .map_or(0.0, |s| p.verified as f64 / s as f64 * 100.0);
+            eprint!("\rverifying {pct:>5.1}%{:<60}", "");
+            std::io::stderr().flush().ok();
+            continue;
+        }
         let pct = p
             .size
             .filter(|s| *s > 0)
