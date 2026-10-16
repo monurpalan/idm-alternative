@@ -5,9 +5,14 @@
 // No console window in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use idma_manager::{Config, Manager, NewTask, Task, TaskId};
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+use idma_manager::{Config, Event, Manager, NewTask, Status, Task, TaskId, TaskProgress};
+use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager as _, RunEvent, State};
-use tokio::sync::broadcast::error::RecvError;
+use tauri_plugin_opener::OpenerExt;
+use tokio::sync::broadcast::{self, error::RecvError};
 
 struct App {
     manager: Manager,
@@ -25,12 +30,42 @@ async fn list_tasks(app: State<'_, App>) -> CmdResult<Vec<Task>> {
     app.manager.list().await.map_err(msg)
 }
 
+/// What the "Add URL" dialog shows before the user decides.
+#[derive(Serialize)]
+struct ProbeView {
+    url: String,
+    name: String,
+    size: Option<u64>,
+    resumable: bool,
+}
+
 #[tauri::command]
-async fn add_task(app: State<'_, App>, url: String) -> CmdResult<Task> {
+async fn probe(app: State<'_, App>, url: String) -> CmdResult<ProbeView> {
+    let p = app.manager.probe(&url, &[]).await.map_err(msg)?;
+    Ok(ProbeView {
+        url: p.url,
+        name: p.name,
+        size: p.size,
+        resumable: p.resumable,
+    })
+}
+
+#[derive(Deserialize)]
+struct AddRequest {
+    url: String,
+    name: Option<String>,
+    dir: Option<PathBuf>,
+    start: bool,
+}
+
+#[tauri::command]
+async fn add_task(app: State<'_, App>, request: AddRequest) -> CmdResult<Task> {
     app.manager
         .add(NewTask {
-            url,
-            start: true,
+            url: request.url,
+            name: request.name.filter(|n| !n.trim().is_empty()),
+            dir: request.dir,
+            start: request.start,
             ..NewTask::default()
         })
         .await
@@ -38,18 +73,143 @@ async fn add_task(app: State<'_, App>, url: String) -> CmdResult<Task> {
 }
 
 #[tauri::command]
-async fn start_task(app: State<'_, App>, id: TaskId) -> CmdResult<()> {
-    app.manager.start(id).await.map_err(msg)
+async fn start_tasks(app: State<'_, App>, ids: Vec<TaskId>) -> CmdResult<()> {
+    for id in ids {
+        app.manager.start(id).await.map_err(msg)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
-async fn pause_task(app: State<'_, App>, id: TaskId) -> CmdResult<()> {
-    app.manager.pause(id).await.map_err(msg)
+async fn pause_tasks(app: State<'_, App>, ids: Vec<TaskId>) -> CmdResult<()> {
+    for id in ids {
+        app.manager.pause(id).await.map_err(msg)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
-async fn remove_task(app: State<'_, App>, id: TaskId, delete_files: bool) -> CmdResult<()> {
-    app.manager.remove(id, delete_files).await.map_err(msg)
+async fn remove_tasks(app: State<'_, App>, ids: Vec<TaskId>, delete_files: bool) -> CmdResult<()> {
+    for id in ids {
+        app.manager.remove(id, delete_files).await.map_err(msg)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn restart_task(app: State<'_, App>, id: TaskId) -> CmdResult<()> {
+    app.manager.restart(id).await.map_err(msg)
+}
+
+/// The file of a download, looked up here so the UI never names arbitrary paths to open.
+async fn file_of(app: &App, id: TaskId) -> CmdResult<PathBuf> {
+    let task = app.manager.get(id).await.map_err(msg)?;
+    task.path
+        .ok_or_else(|| "this download has no file yet".to_owned())
+}
+
+#[tauri::command]
+async fn open_file(handle: tauri::AppHandle, app: State<'_, App>, id: TaskId) -> CmdResult<()> {
+    let path = file_of(&app, id).await?;
+    handle
+        .opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(msg)
+}
+
+#[tauri::command]
+async fn show_in_folder(
+    handle: tauri::AppHandle,
+    app: State<'_, App>,
+    id: TaskId,
+) -> CmdResult<()> {
+    let path = file_of(&app, id).await?;
+    // An unfinished download only has its partial file on disk.
+    let shown = if path.exists() {
+        path
+    } else {
+        let mut part = path.clone().into_os_string();
+        part.push(".idma-part");
+        let part = PathBuf::from(part);
+        if part.exists() {
+            part
+        } else {
+            return handle
+                .opener()
+                .open_path(
+                    path.parent().unwrap_or(&path).to_string_lossy(),
+                    None::<&str>,
+                )
+                .map_err(msg);
+        }
+    };
+    handle.opener().reveal_item_in_dir(shown).map_err(msg)
+}
+
+#[derive(Serialize)]
+struct Settings {
+    dir: PathBuf,
+    max_active: usize,
+}
+
+#[tauri::command]
+fn get_settings(app: State<'_, App>) -> Settings {
+    let config = app.manager.config();
+    Settings {
+        dir: config.dir,
+        max_active: config.max_active,
+    }
+}
+
+/// Downloads running at once; more start right away when raised.
+#[tauri::command]
+async fn set_max_active(app: State<'_, App>, max_active: usize) -> CmdResult<()> {
+    let mut config = app.manager.config();
+    config.max_active = max_active.clamp(1, 50);
+    app.manager.set_config(config).await.map_err(msg)
+}
+
+/// How often the UI gets the progress of all running downloads, as one message.
+const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Sends manager events to the UI. List changes go out at once; progress is collected and
+/// sent for all downloads together a few times a second, so the UI handles one message per
+/// tick instead of one per download (with hundreds of rows, one each could outpace it).
+async fn forward_events(handle: tauri::AppHandle, mut events: broadcast::Receiver<Event>) {
+    let mut pending: HashMap<TaskId, TaskProgress> = HashMap::new();
+    let mut tick = tokio::time::interval(PROGRESS_EVERY);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tokio::select! {
+            e = events.recv() => match e {
+                Ok(Event::Progress(p)) => {
+                    pending.insert(p.id, p);
+                }
+                Ok(e) => {
+                    // A download that stopped must not get a stale progress afterwards.
+                    if let Event::Updated(t) = &e
+                        && t.status != Status::Downloading
+                    {
+                        pending.remove(&t.id);
+                    }
+                    if let Event::Removed(id) = &e {
+                        pending.remove(id);
+                    }
+                    handle.emit("manager", &e).ok();
+                }
+                Err(RecvError::Lagged(_)) => {
+                    handle.emit("manager-lagged", ()).ok();
+                }
+                Err(RecvError::Closed) => break,
+            },
+            _ = tick.tick() => {
+                if !pending.is_empty() {
+                    let batch: Vec<TaskProgress> = pending.drain().map(|(_, p)| p).collect();
+                    handle.emit("manager-progress", &batch).ok();
+                }
+            }
+        }
+    }
 }
 
 fn main() {
@@ -67,13 +227,24 @@ fn main() {
                 w.set_focus().ok();
             }
         }))
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let data = app.path().app_data_dir()?;
+            // `IDMA_HOME` keeps the list and downloads in one folder of its own, for trying
+            // the app out without touching the real list or the Downloads folder.
+            let home = std::env::var_os("IDMA_HOME").map(PathBuf::from);
+            let data = match &home {
+                Some(h) => h.clone(),
+                None => app.path().app_data_dir()?,
+            };
             std::fs::create_dir_all(&data)?;
-            let dir = app
-                .path()
-                .download_dir()
-                .unwrap_or_else(|_| data.join("downloads"));
+            let dir = match &home {
+                Some(h) => h.join("downloads"),
+                None => app
+                    .path()
+                    .download_dir()
+                    .unwrap_or_else(|_| data.join("downloads")),
+            };
             let config = Config {
                 dir,
                 ..Config::default()
@@ -81,30 +252,22 @@ fn main() {
             let manager =
                 tauri::async_runtime::block_on(Manager::open(&data.join("downloads.db"), config))?;
 
-            let mut events = manager.subscribe();
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                loop {
-                    match events.recv().await {
-                        Ok(e) => {
-                            handle.emit("manager", &e).ok();
-                        }
-                        Err(RecvError::Lagged(_)) => {
-                            handle.emit("manager-lagged", ()).ok();
-                        }
-                        Err(RecvError::Closed) => break,
-                    }
-                }
-            });
+            tauri::async_runtime::spawn(forward_events(app.handle().clone(), manager.subscribe()));
             app.manage(App { manager });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             list_tasks,
+            probe,
             add_task,
-            start_task,
-            pause_task,
-            remove_task
+            start_tasks,
+            pause_tasks,
+            remove_tasks,
+            restart_task,
+            open_file,
+            show_in_folder,
+            get_settings,
+            set_max_active,
         ])
         .build(tauri::generate_context!())
         .expect("failed to start the app");

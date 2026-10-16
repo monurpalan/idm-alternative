@@ -1,0 +1,169 @@
+// The download list as the UI sees it: tasks from the manager, kept current by its events,
+// plus the live progress of running downloads.
+
+import { SvelteSet } from 'svelte/reactivity';
+import {
+	listTasks,
+	onManagerEvent,
+	type Category,
+	type Task,
+	type TaskId,
+	type TaskProgress
+} from './api.ts';
+
+export type View = 'all' | Category | 'unfinished' | 'finished';
+
+export const VIEWS: { id: View; label: string }[] = [
+	{ id: 'all', label: 'All downloads' },
+	{ id: 'compressed', label: 'Compressed' },
+	{ id: 'documents', label: 'Documents' },
+	{ id: 'music', label: 'Music' },
+	{ id: 'programs', label: 'Programs' },
+	{ id: 'video', label: 'Video' },
+	{ id: 'unfinished', label: 'Unfinished' },
+	{ id: 'finished', label: 'Finished' }
+];
+
+export type SortKey = 'name' | 'size' | 'progress' | 'speed' | 'eta' | 'status' | 'added';
+
+/** A row: the stored task with live numbers folded in. */
+export interface Row {
+	task: Task;
+	name: string;
+	size: number | null;
+	received: number;
+	/** 0..1, or null when the size is unknown. */
+	fraction: number | null;
+	speed: number;
+	/** Seconds, or null. */
+	eta: number | null;
+	live: TaskProgress | undefined;
+}
+
+export function inView(t: Task, view: View): boolean {
+	switch (view) {
+		case 'all':
+			return true;
+		case 'unfinished':
+			return t.status !== 'done';
+		case 'finished':
+			return t.status === 'done';
+		default:
+			return t.category === view;
+	}
+}
+
+/** Until the server names the file: the last part of the URL path, like the engine does. */
+export function nameFromUrl(url: string): string {
+	try {
+		const segment = new URL(url).pathname.split('/').filter(Boolean).pop();
+		return segment ? decodeURIComponent(segment) : url;
+	} catch {
+		return url;
+	}
+}
+
+export function row(task: Task, live: TaskProgress | undefined): Row {
+	const size = live?.size ?? task.size;
+	const received = task.status === 'done' ? (size ?? task.received) : (live?.received ?? task.received);
+	const speed = task.status === 'downloading' ? (live?.speed ?? 0) : 0;
+	return {
+		task,
+		name: task.name ?? nameFromUrl(task.url),
+		size,
+		received,
+		fraction: size ? Math.min(1, received / size) : task.status === 'done' ? 1 : null,
+		speed,
+		eta: size && speed > 0 ? (size - received) / speed : null,
+		live
+	};
+}
+
+const STATUS_ORDER = { downloading: 0, queued: 1, paused: 2, error: 3, done: 4 } as const;
+
+export function compare(a: Row, b: Row, key: SortKey): number {
+	switch (key) {
+		case 'name':
+			return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+		case 'size':
+			return (a.size ?? -1) - (b.size ?? -1);
+		case 'progress':
+			return (a.fraction ?? -1) - (b.fraction ?? -1);
+		case 'speed':
+			return a.speed - b.speed;
+		case 'eta':
+			return (a.eta ?? Infinity) - (b.eta ?? Infinity);
+		case 'status':
+			return STATUS_ORDER[a.task.status] - STATUS_ORDER[b.task.status];
+		case 'added':
+			return a.task.added_at - b.task.added_at || a.task.queue_pos - b.task.queue_pos;
+	}
+}
+
+class Downloads {
+	tasks = $state<Task[]>([]);
+	live = $state<Record<TaskId, TaskProgress>>({});
+	selected = new SvelteSet<TaskId>();
+	loaded = $state(false);
+	error = $state<string | null>(null);
+
+	async reload() {
+		try {
+			this.tasks = await listTasks();
+			this.loaded = true;
+		} catch (e) {
+			this.error = String(e);
+		}
+	}
+
+	/** Starts listening; returns the function that stops it. */
+	connect(): () => void {
+		const stop = onManagerEvent(
+			(e) => {
+				switch (e.type) {
+					case 'added':
+						if (!this.tasks.some((t) => t.id === e.data.id)) this.tasks.push(e.data);
+						break;
+					case 'updated': {
+						const i = this.tasks.findIndex((t) => t.id === e.data.id);
+						if (i >= 0) this.tasks[i] = e.data;
+						else this.tasks.push(e.data);
+						if (e.data.status !== 'downloading') delete this.live[e.data.id];
+						break;
+					}
+					case 'removed':
+						this.tasks = this.tasks.filter((t) => t.id !== e.data);
+						delete this.live[e.data];
+						this.selected.delete(e.data);
+						break;
+				}
+			},
+			(batch) => {
+				for (const p of batch) {
+					// Ignore progress that arrives after the download stopped.
+					if (this.tasks.find((t) => t.id === p.id)?.status === 'downloading') {
+						this.live[p.id] = p;
+					}
+				}
+			},
+			() => this.reload()
+		);
+		this.reload();
+		return () => {
+			stop.then((f) => f());
+		};
+	}
+
+	/** Total speed of everything running. */
+	get speed(): number {
+		let sum = 0;
+		for (const p of Object.values(this.live)) sum += p.speed;
+		return sum;
+	}
+
+	get active(): number {
+		return this.tasks.filter((t) => t.status === 'downloading').length;
+	}
+}
+
+export const downloads = new Downloads();

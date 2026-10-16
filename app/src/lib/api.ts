@@ -40,28 +40,55 @@ export interface TaskProgress {
 	segments: [number, number, number, boolean][];
 }
 
+export interface Probe {
+	url: string;
+	name: string;
+	size: number | null;
+	resumable: boolean;
+}
+
+export interface Settings {
+	dir: string;
+	max_active: number;
+}
+
+/** List changes; progress comes separately, batched (see `onManagerEvent`). */
 export type ManagerEvent =
 	| { type: 'added'; data: Task }
 	| { type: 'updated'; data: Task }
-	| { type: 'progress'; data: TaskProgress }
 	| { type: 'removed'; data: TaskId };
 
 export const listTasks = () => invoke<Task[]>('list_tasks');
-export const addTask = (url: string) => invoke<Task>('add_task', { url });
-export const startTask = (id: TaskId) => invoke<void>('start_task', { id });
-export const pauseTask = (id: TaskId) => invoke<void>('pause_task', { id });
-export const removeTask = (id: TaskId, deleteFiles: boolean) =>
-	invoke<void>('remove_task', { id, deleteFiles });
+export const probe = (url: string) => invoke<Probe>('probe', { url });
+export const addTask = (request: {
+	url: string;
+	name: string | null;
+	dir: string | null;
+	start: boolean;
+}) => invoke<Task>('add_task', { request });
+export const startTasks = (ids: TaskId[]) => invoke<void>('start_tasks', { ids });
+export const pauseTasks = (ids: TaskId[]) => invoke<void>('pause_tasks', { ids });
+export const removeTasks = (ids: TaskId[], deleteFiles: boolean) =>
+	invoke<void>('remove_tasks', { ids, deleteFiles });
+export const restartTask = (id: TaskId) => invoke<void>('restart_task', { id });
+export const openFile = (id: TaskId) => invoke<void>('open_file', { id });
+export const showInFolder = (id: TaskId) => invoke<void>('show_in_folder', { id });
+export const getSettings = () => invoke<Settings>('get_settings');
+export const setMaxActive = (maxActive: number) => invoke<void>('set_max_active', { maxActive });
 
-/** Every change to the list. `onLagged` runs when events were dropped: reload the list. */
+/**
+ * Every change to the list, and the progress of all running downloads a few times a second
+ * (one batch per tick). `onLagged` runs when events were dropped: reload the list.
+ */
 export async function onManagerEvent(
 	handler: (e: ManagerEvent) => void,
+	onProgress: (batch: TaskProgress[]) => void,
 	onLagged: () => void
 ): Promise<UnlistenFn> {
-	const a = await listen<ManagerEvent>('manager', (e) => handler(e.payload));
-	const b = await listen('manager-lagged', onLagged);
-	return () => {
-		a();
-		b();
-	};
+	const stops = await Promise.all([
+		listen<ManagerEvent>('manager', (e) => handler(e.payload)),
+		listen<TaskProgress[]>('manager-progress', (e) => onProgress(e.payload)),
+		listen('manager-lagged', onLagged)
+	]);
+	return () => stops.forEach((f) => f());
 }

@@ -196,6 +196,18 @@ impl Db {
         Ok(())
     }
 
+    /// Back to the queue with nothing downloaded, keeping the chosen path.
+    pub(crate) async fn reset(&self, id: TaskId) -> Result<()> {
+        sqlx::query(
+            "UPDATE tasks SET status = 'queued', error = NULL, received = 0, finished_at = NULL
+             WHERE id = ?",
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub(crate) async fn delete(&self, id: TaskId) -> Result<()> {
         sqlx::query("DELETE FROM tasks WHERE id = ?")
             .bind(id)

@@ -114,10 +114,12 @@ async fn downloads_under_the_server_name_and_reports_progress() {
     let size = 2 * MB;
     let task = m
         .add(new_task(format!(
-            "{base}/file/x?size={size}&seed=1&rate=1M&cd=%C3%A7ay.zip"
+            "{base}/file/x.pdf?size={size}&seed=1&rate=1M&cd=%C3%A7ay.zip"
         )))
         .await
         .expect("add");
+    // Guessed from the URL first, then taken from the server's name.
+    assert_eq!(task.category, Category::Documents);
     let done = wait_done(&m, task.id).await;
     assert_eq!(done.name.as_deref(), Some("çay.zip"));
     assert_eq!(done.category, Category::Compressed);
@@ -359,6 +361,31 @@ async fn bad_checksum_is_refused_and_failures_are_recorded() {
         t.error.as_deref().is_some_and(|e| e.contains("404")),
         "{:?}",
         t.error
+    );
+    m.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn restart_downloads_again_from_scratch() {
+    let base = start_server().await;
+    let w = WorkDir::new("restart");
+    let m = Manager::open(&w.db(), w.config(3)).await.expect("open");
+    let size = MB;
+    let url = format!("{base}/file/again.bin?size={size}&seed=8");
+    let probe = m.probe(&url, &[]).await.expect("probe");
+    assert_eq!(probe.name, "again.bin");
+    assert_eq!(probe.size, Some(size));
+
+    let task = m.add(new_task(url)).await.expect("add");
+    let first = wait_done(&m, task.id).await;
+    let before = bytes_sent(&base).await;
+    m.restart(task.id).await.expect("restart");
+    let second = wait_done(&m, task.id).await;
+    assert_eq!(second.path, first.path, "same file, not a numbered copy");
+    assert_file(&second, 8, size);
+    assert!(
+        bytes_sent(&base).await - before >= size,
+        "nothing was downloaded again"
     );
     m.close().await;
 }

@@ -1,210 +1,291 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import {
-		addTask,
-		listTasks,
-		onManagerEvent,
-		pauseTask,
-		removeTask,
-		startTask,
+		openFile,
+		pauseTasks,
+		removeTasks,
+		restartTask,
+		showInFolder,
+		startTasks,
 		type Task,
-		type TaskId,
-		type TaskProgress
+		type TaskId
 	} from '#lib/api.ts';
+	import AddDialog from '#lib/components/AddDialog.svelte';
+	import ConfirmRemove from '#lib/components/ConfirmRemove.svelte';
+	import ContextMenu, { type Item } from '#lib/components/ContextMenu.svelte';
+	import Sidebar from '#lib/components/Sidebar.svelte';
+	import TaskList from '#lib/components/TaskList.svelte';
+	import {
+		compare,
+		downloads,
+		inView,
+		row,
+		type SortKey,
+		type View
+	} from '#lib/downloads.svelte.ts';
+	import { speed } from '#lib/format.ts';
 
-	// The full list view comes in the next step; this is the skeleton that proves the
-	// Rust side, the event stream and the UI are wired together.
+	let view = $state<View>('all');
+	let search = $state('');
+	let sortKey = $state<SortKey>('added');
+	let sortDesc = $state(true);
+	let adding = $state<{ url: string } | null>(null);
+	let removing = $state<TaskId[] | null>(null);
+	let menu = $state<{ x: number; y: number; items: Item[] } | null>(null);
+	let notice = $state<string | null>(null);
 
-	let tasks = $state<Task[]>([]);
-	let live = $state<Record<TaskId, TaskProgress>>({});
-	let url = $state('');
-	let error = $state<string | null>(null);
+	onMount(() => downloads.connect());
 
-	async function reload() {
-		tasks = await listTasks();
-	}
+	/** Sort keys that change with live progress; only these make the order depend on it. */
+	const LIVE_KEYS: SortKey[] = ['progress', 'speed', 'eta'];
 
-	onMount(() => {
-		reload().catch((e) => (error = String(e)));
-		const stop = onManagerEvent((e) => {
-			switch (e.type) {
-				case 'added':
-					tasks.push(e.data);
-					break;
-				case 'updated': {
-					const i = tasks.findIndex((t) => t.id === e.data.id);
-					if (i >= 0) tasks[i] = e.data;
-					if (e.data.status !== 'downloading') delete live[e.data.id];
-					break;
-				}
-				case 'progress':
-					live[e.data.id] = e.data;
-					break;
-				case 'removed':
-					tasks = tasks.filter((t) => t.id !== e.data);
-					delete live[e.data];
-					break;
-			}
-		}, reload);
-		return () => {
-			stop.then((f) => f());
-		};
+	const visible = $derived.by(() => {
+		const q = search.trim().toLowerCase();
+		const live = LIVE_KEYS.includes(sortKey);
+		const list = downloads.tasks
+			.filter(
+				(t) =>
+					inView(t, view) &&
+					(!q || (t.name ?? '').toLowerCase().includes(q) || t.url.toLowerCase().includes(q))
+			)
+			.map((t) => row(t, live ? downloads.live[t.id] : undefined));
+		list.sort((a, b) => compare(a, b, sortKey) * (sortDesc ? -1 : 1));
+		return list.map((r) => r.task);
 	});
 
-	async function add(event: SubmitEvent) {
-		event.preventDefault();
-		const u = url.trim();
-		if (!u) return;
+	const selectedTasks = $derived(
+		downloads.tasks.filter((t) => downloads.selected.has(t.id))
+	);
+	const canStart = (t: Task) => t.status === 'paused' || t.status === 'error';
+	const canPause = (t: Task) => t.status === 'downloading' || t.status === 'queued';
+
+	function ids(pred: (t: Task) => boolean): TaskId[] {
+		return selectedTasks.filter(pred).map((t) => t.id);
+	}
+
+	/** Runs an action, showing its error in the status bar instead of losing it. */
+	async function run(p: Promise<unknown>) {
 		try {
-			await addTask(u);
-			url = '';
-			error = null;
+			await p;
+			notice = null;
 		} catch (e) {
-			error = String(e);
+			notice = String(e);
 		}
 	}
 
-	function bytes(n: number | null): string {
-		if (n === null) return '?';
-		const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
-		let v = n;
-		let i = 0;
-		while (v >= 1024 && i < units.length - 1) {
-			v /= 1024;
-			i++;
-		}
-		return i === 0 ? `${v} B` : `${v.toFixed(1)} ${units[i]}`;
+	function openRow(t: Task) {
+		if (t.status === 'done') run(openFile(t.id));
 	}
 
-	function percent(t: Task): string {
-		const p = live[t.id];
-		const size = p?.size ?? t.size;
-		const received = p?.received ?? t.received;
-		if (!size) return '';
-		return `${((received / size) * 100).toFixed(1)}%`;
+	function contextMenu(e: MouseEvent, task: Task) {
+		const sel = selectedTasks;
+		const one = sel.length === 1 ? sel[0] : null;
+		menu = {
+			x: e.clientX,
+			y: e.clientY,
+			items: [
+				{
+					label: 'Open',
+					action: () => run(openFile(task.id)),
+					disabled: !one || one.status !== 'done'
+				},
+				{
+					label: 'Show in folder',
+					action: () => run(showInFolder(task.id)),
+					disabled: !one || !one.path
+				},
+				{
+					label: 'Resume',
+					action: () => run(startTasks(ids(canStart))),
+					disabled: !sel.some(canStart),
+					separated: true
+				},
+				{
+					label: 'Pause',
+					action: () => run(pauseTasks(ids(canPause))),
+					disabled: !sel.some(canPause)
+				},
+				{
+					label: 'Copy address',
+					action: () => run(navigator.clipboard.writeText(sel.map((t) => t.url).join('\n'))),
+					separated: true
+				},
+				{
+					label: 'Download again',
+					action: () => run(restartTask(task.id)),
+					disabled: !one
+				},
+				{
+					label: 'Remove…',
+					action: () => (removing = sel.map((t) => t.id)),
+					danger: true,
+					separated: true
+				}
+			]
+		};
+	}
+
+	function looksLikeUrl(s: string): boolean {
+		return /^(https?|ftp):\/\/\S+$/i.test(s.trim());
+	}
+
+	function inField(e: Event): boolean {
+		const t = e.target as HTMLElement | null;
+		return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+	}
+
+	function keydown(e: KeyboardEvent) {
+		if (adding || removing || inField(e)) return;
+		const ctrl = e.ctrlKey || e.metaKey;
+		if (ctrl && e.key.toLowerCase() === 'a') {
+			e.preventDefault();
+			for (const t of visible) downloads.selected.add(t.id);
+		} else if (ctrl && e.key.toLowerCase() === 'n') {
+			e.preventDefault();
+			adding = { url: '' };
+		} else if (e.key === 'Delete' && selectedTasks.length) {
+			removing = selectedTasks.map((t) => t.id);
+		} else if (e.key === 'Enter' && selectedTasks.length === 1) {
+			const t = selectedTasks[0];
+			if (t.status === 'done') run(openFile(t.id));
+		} else if (e.key === 'Escape') {
+			downloads.selected.clear();
+		}
+	}
+
+	function paste(e: ClipboardEvent) {
+		if (adding || removing || inField(e)) return;
+		const text = e.clipboardData?.getData('text/plain') ?? '';
+		if (looksLikeUrl(text)) {
+			e.preventDefault();
+			adding = { url: text.trim() };
+		}
+	}
+
+	function drop(e: DragEvent) {
+		e.preventDefault();
+		const text =
+			e.dataTransfer?.getData('text/uri-list').split('\n').find((l) => l && !l.startsWith('#')) ||
+			e.dataTransfer?.getData('text/plain') ||
+			'';
+		if (looksLikeUrl(text)) adding = { url: text.trim() };
 	}
 </script>
 
-<main>
-	<form onsubmit={add}>
-		<input bind:value={url} placeholder="Paste a link to download" aria-label="Link" />
-		<button type="submit">Download</button>
-	</form>
-	{#if error}<p class="error">{error}</p>{/if}
+<svelte:window onkeydown={keydown} onpaste={paste} ondragover={(e) => e.preventDefault()} ondrop={drop} />
 
-	<table>
-		<thead>
-			<tr><th>Name</th><th>Size</th><th>Progress</th><th>Speed</th><th>Status</th><th></th></tr>
-		</thead>
-		<tbody>
-			{#each tasks as t (t.id)}
-				<tr>
-					<td title={t.url}>{t.name ?? t.url}</td>
-					<td>{bytes(live[t.id]?.size ?? t.size)}</td>
-					<td>{percent(t)}</td>
-					<td>{live[t.id] ? `${bytes(Math.round(live[t.id].speed))}/s` : ''}</td>
-					<td title={t.error ?? ''}>{t.status}</td>
-					<td class="actions">
-						{#if t.status === 'downloading' || t.status === 'queued'}
-							<button onclick={() => pauseTask(t.id)}>Pause</button>
-						{:else if t.status !== 'done'}
-							<button onclick={() => startTask(t.id)}>Resume</button>
-						{/if}
-						<button onclick={() => removeTask(t.id, false)}>Remove</button>
-					</td>
-				</tr>
-			{:else}
-				<tr><td colspan="6" class="empty">No downloads yet</td></tr>
-			{/each}
-		</tbody>
-	</table>
-</main>
+<div class="app">
+	<header>
+		<button class="primary" onclick={() => (adding = { url: '' })} title="Ctrl+N">Add URL</button>
+		<button
+			onclick={() => run(startTasks(ids(canStart)))}
+			disabled={!selectedTasks.some(canStart)}>Resume</button
+		>
+		<button
+			onclick={() => run(pauseTasks(ids(canPause)))}
+			disabled={!selectedTasks.some(canPause)}>Pause</button
+		>
+		<button
+			onclick={() => (removing = selectedTasks.map((t) => t.id))}
+			disabled={!selectedTasks.length}
+			title="Delete">Remove</button
+		>
+		<input class="search" type="search" bind:value={search} placeholder="Search" aria-label="Search" />
+	</header>
+
+	<Sidebar bind:view />
+
+	<main>
+		<TaskList tasks={visible} bind:sortKey bind:sortDesc oncontext={contextMenu} onopen={openRow} />
+	</main>
+
+	<footer>
+		{#if notice || downloads.error}
+			<span class="notice">{notice ?? downloads.error}</span>
+		{:else}
+			<span>{downloads.active} downloading</span>
+			{#if downloads.speed > 0}<span>{speed(downloads.speed)}</span>{/if}
+			<span class="right">
+				{visible.length}
+				{visible.length === 1 ? 'item' : 'items'}{downloads.selected.size
+					? ` · ${downloads.selected.size} selected`
+					: ''}
+			</span>
+		{/if}
+	</footer>
+</div>
+
+{#if adding}
+	<AddDialog url={adding.url} onclose={() => (adding = null)} />
+{/if}
+
+{#if removing}
+	<ConfirmRemove
+		count={removing.length}
+		onconfirm={(deleteFiles) => {
+			const list = removing ?? [];
+			run(removeTasks(list, deleteFiles));
+		}}
+		onclose={() => (removing = null)}
+	/>
+{/if}
+
+{#if menu}
+	<ContextMenu x={menu.x} y={menu.y} items={menu.items} onclose={() => (menu = null)} />
+{/if}
 
 <style>
-	:global(:root) {
-		--bg: #ffffff;
-		--fg: #1b1b1f;
-		--muted: #6b6b76;
-		--line: #e3e3e8;
-		--accent: #2563eb;
-		--danger: #c62828;
-		font-family: system-ui, 'Segoe UI', sans-serif;
-		font-size: 14px;
+	.app {
+		display: grid;
+		grid-template-columns: 190px 1fr;
+		grid-template-rows: auto 1fr auto;
+		grid-template-areas:
+			'head head'
+			'side main'
+			'foot foot';
+		height: 100vh;
 	}
-	@media (prefers-color-scheme: dark) {
-		:global(:root) {
-			--bg: #1c1c20;
-			--fg: #ececf1;
-			--muted: #9a9aa6;
-			--line: #33333a;
-			--accent: #60a5fa;
-			--danger: #ef9a9a;
-		}
+	header {
+		grid-area: head;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 8px 10px;
+		border-bottom: 1px solid var(--line);
+		background: var(--panel);
 	}
-	:global(body) {
-		margin: 0;
-		background: var(--bg);
+	.search {
+		margin-left: auto;
+		width: 220px;
+		padding: 5px 8px;
+		border: 1px solid var(--line);
+		border-radius: 5px;
+		background: var(--field);
 		color: var(--fg);
+		font: inherit;
+	}
+	:global(nav) {
+		grid-area: side;
 	}
 	main {
-		padding: 12px 16px;
+		grid-area: main;
+		min-height: 0;
+		min-width: 0;
 	}
-	form {
+	footer {
+		grid-area: foot;
 		display: flex;
-		gap: 8px;
-		margin-bottom: 12px;
-	}
-	input {
-		flex: 1;
-		padding: 6px 8px;
-		border: 1px solid var(--line);
-		border-radius: 4px;
-		background: transparent;
-		color: inherit;
-	}
-	button {
+		gap: 16px;
 		padding: 4px 10px;
-		border: 1px solid var(--line);
-		border-radius: 4px;
-		background: transparent;
-		color: inherit;
-		cursor: pointer;
+		border-top: 1px solid var(--line);
+		background: var(--panel);
+		color: var(--muted);
+		font-variant-numeric: tabular-nums;
 	}
-	button[type='submit'] {
-		background: var(--accent);
-		border-color: var(--accent);
-		color: white;
+	.right {
+		margin-left: auto;
 	}
-	.error {
+	.notice {
 		color: var(--danger);
-	}
-	table {
-		width: 100%;
-		border-collapse: collapse;
-	}
-	th,
-	td {
-		text-align: left;
-		padding: 6px 8px;
-		border-bottom: 1px solid var(--line);
-		white-space: nowrap;
-	}
-	td:first-child {
-		max-width: 360px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-	th {
-		color: var(--muted);
-		font-weight: 500;
-	}
-	.actions {
-		display: flex;
-		gap: 4px;
-	}
-	.empty {
-		color: var(--muted);
-		text-align: center;
-		padding: 32px;
 	}
 </style>

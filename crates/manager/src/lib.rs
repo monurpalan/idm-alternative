@@ -128,6 +128,15 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// The file and the engine's partial data and state next to it.
+fn delete_files_of(path: &Path) {
+    for suffix in ["", ".idma-part", ".idma-state"] {
+        let mut p = path.as_os_str().to_owned();
+        p.push(suffix);
+        std::fs::remove_file(PathBuf::from(p)).ok();
+    }
+}
+
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -206,9 +215,13 @@ impl Manager {
                 } else {
                     Status::Paused
                 },
-                category: name
-                    .as_deref()
-                    .map_or(Category::General, Category::for_name),
+                // A guess from the URL until the server names the file.
+                category: Category::for_name(
+                    &name
+                        .clone()
+                        .or_else(|| idma_engine::name::from_url(&new.url))
+                        .unwrap_or_default(),
+                ),
                 connections: connections.max(1),
                 speed_limit: new.speed_limit,
                 checksum: new.checksum.as_deref(),
@@ -249,14 +262,36 @@ impl Manager {
         self.inner.stop(id, Stop::Remove).await;
         self.inner.db.delete(id).await?;
         if delete_files && let Some(path) = &task.path {
-            for suffix in ["", ".idma-part", ".idma-state"] {
-                let mut p = path.as_os_str().to_owned();
-                p.push(suffix);
-                std::fs::remove_file(PathBuf::from(p)).ok();
-            }
+            delete_files_of(path);
         }
         self.inner.emit(Event::Removed(id));
         self.inner.fill().await
+    }
+
+    /// Downloads again from scratch (IDM's "Redownload"): the file and any partial data are
+    /// deleted and the download is queued.
+    pub async fn restart(&self, id: TaskId) -> Result<()> {
+        let task = self.get(id).await?;
+        // Stopped like a removal: the download's own end is not recorded.
+        self.inner.stop(id, Stop::Remove).await;
+        if let Some(path) = &task.path {
+            delete_files_of(path);
+        }
+        self.inner.db.reset(id).await?;
+        let task = self.get(id).await?;
+        self.inner.emit(Event::Updated(task));
+        self.inner.fill().await
+    }
+
+    /// Asks the server about `url` with the configured client settings, without adding
+    /// anything: for showing name and size before the user decides.
+    pub async fn probe(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+    ) -> Result<idma_engine::Probe> {
+        let opts = lock(&self.inner.config).engine.clone();
+        Ok(idma_engine::probe(url, headers, &opts).await?)
     }
 
     /// Limit for all downloads together, bytes per second; takes effect at once.
