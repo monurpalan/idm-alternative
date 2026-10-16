@@ -2,8 +2,9 @@
 
 An open-source download manager that aims to match Internet Download Manager feature-for-feature, built by combining the best ideas from existing open-source projects.
 
-> **Status:** early development — the engine is done: `dm get` works from the command line and is
-> benchmarked against IDM below. No app yet.
+> **Status:** early development. The engine is done and benchmarked against IDM below.
+> The desktop app works end to end — list, queue, details, settings, tray — and is in
+> its trial period; there is no installer yet, and no browser integration.
 
 ## Goals
 
@@ -58,6 +59,26 @@ npm ci
 npm run tauri dev     # development, with hot reload
 npm run tauri build   # installer in target/release/bundle
 ```
+
+## Desktop app
+
+A Tauri 2 + SvelteKit window over the download list (`crates/manager`): IDM-style columns
+and categories, search, queue order with automatic retries, a detail pane with a live speed
+graph and segment map, per-download and global speed limits, "refresh link" for expired
+links, settings, and a tray icon. Downloads that were running when the app closed (or
+crashed) resume on the next start.
+
+Measured on the development machine (release build, Windows 11):
+
+| | |
+|---|---|
+| Executable | 21.9 MB |
+| Idle memory, app process | 34 MB working set (7 MB private) |
+| Idle memory, WebView2 (6 processes) | 352 MB working set (161 MB private) |
+| 500 downloads in the list, 20 running (~10 MB/s) | UI 9% of a core, engine 18–22%; scrolling at 60 fps |
+
+Most of the memory is the WebView2 runtime that every Tauri app shares with Edge; IDM's
+native window needs far less. That is the price of the web UI.
 
 ## Benchmarks
 
