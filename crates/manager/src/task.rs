@@ -1,0 +1,206 @@
+//! A download in the list, as stored and as shown.
+
+use std::path::PathBuf;
+
+use idma_engine::{Phase, SegmentView};
+use serde::Serialize;
+
+pub type TaskId = i64;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Status {
+    /// Waiting for a free download slot.
+    Queued,
+    Downloading,
+    /// Stopped by the user; keeps its progress.
+    Paused,
+    Done,
+    /// Stopped by an error (see [`Task::error`]); keeps its progress.
+    Error,
+}
+
+impl Status {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Status::Queued => "queued",
+            Status::Downloading => "downloading",
+            Status::Paused => "paused",
+            Status::Done => "done",
+            Status::Error => "error",
+        }
+    }
+
+    pub(crate) fn parse(s: &str) -> Self {
+        match s {
+            "queued" => Status::Queued,
+            "downloading" => Status::Downloading,
+            "paused" => Status::Paused,
+            "done" => Status::Done,
+            _ => Status::Error,
+        }
+    }
+}
+
+/// IDM's categories, picked from the file extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Category {
+    General,
+    Compressed,
+    Documents,
+    Music,
+    Programs,
+    Video,
+}
+
+impl Category {
+    pub fn for_name(name: &str) -> Self {
+        let ext = name
+            .rsplit_once('.')
+            .map(|(_, e)| e.to_ascii_lowercase())
+            .unwrap_or_default();
+        match ext.as_str() {
+            "zip" | "rar" | "7z" | "gz" | "tgz" | "bz2" | "xz" | "zst" | "tar" | "arj" | "cab"
+            | "iso" | "img" => Category::Compressed,
+            "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "odt" | "ods" | "txt"
+            | "rtf" | "epub" | "csv" => Category::Documents,
+            "mp3" | "wav" | "flac" | "aac" | "m4a" | "ogg" | "opus" | "wma" => Category::Music,
+            "exe" | "msi" | "msix" | "appx" | "apk" | "dmg" | "pkg" | "deb" | "rpm" => {
+                Category::Programs
+            }
+            "mp4" | "mkv" | "webm" | "avi" | "mov" | "wmv" | "flv" | "m4v" | "ts" | "mpg"
+            | "mpeg" => Category::Video,
+            _ => Category::General,
+        }
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Category::General => "general",
+            Category::Compressed => "compressed",
+            Category::Documents => "documents",
+            Category::Music => "music",
+            Category::Programs => "programs",
+            Category::Video => "video",
+        }
+    }
+
+    pub(crate) fn parse(s: &str) -> Self {
+        match s {
+            "compressed" => Category::Compressed,
+            "documents" => Category::Documents,
+            "music" => Category::Music,
+            "programs" => Category::Programs,
+            "video" => Category::Video,
+            _ => Category::General,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Task {
+    pub id: TaskId,
+    pub url: String,
+    /// Sent with every request, e.g. `Cookie`, `Referer` from the browser.
+    pub headers: Vec<(String, String)>,
+    pub dir: PathBuf,
+    /// File name; `None` until the server was asked (or the user chose one).
+    pub name: Option<String>,
+    /// Where the file is written, once chosen.
+    pub path: Option<PathBuf>,
+    pub size: Option<u64>,
+    /// Bytes on disk as of the last update (live progress comes as [`crate::Event::Progress`]).
+    pub received: u64,
+    pub status: Status,
+    pub error: Option<String>,
+    pub category: Category,
+    pub connections: usize,
+    /// This download's own speed limit, bytes per second.
+    pub speed_limit: Option<u64>,
+    pub checksum: Option<String>,
+    /// Unix milliseconds.
+    pub added_at: i64,
+    pub finished_at: Option<i64>,
+    /// Order in the queue: lower starts first.
+    pub queue_pos: i64,
+}
+
+/// What to download; everything else has defaults from [`crate::Config`].
+#[derive(Debug, Clone, Default)]
+pub struct NewTask {
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+    /// Folder to save into; `None` uses the configured one.
+    pub dir: Option<PathBuf>,
+    /// File name; `None` uses the server's suggestion.
+    pub name: Option<String>,
+    pub connections: Option<usize>,
+    pub speed_limit: Option<u64>,
+    /// `sha256:<hex>` and the like; checked when the download finishes.
+    pub checksum: Option<String>,
+    /// Queue it now; otherwise it is added paused.
+    pub start: bool,
+}
+
+/// Live progress of a running download, sent about four times a second.
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskProgress {
+    pub id: TaskId,
+    #[serde(serialize_with = "phase_name")]
+    pub phase: Phase,
+    pub size: Option<u64>,
+    pub received: u64,
+    /// Bytes per second.
+    pub speed: f64,
+    pub connections: usize,
+    /// Bytes hashed so far while verifying a checksum.
+    pub verified: u64,
+    #[serde(serialize_with = "segments")]
+    pub segments: Vec<SegmentView>,
+}
+
+fn phase_name<S: serde::Serializer>(p: &Phase, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(match p {
+        Phase::Probing => "probing",
+        Phase::Downloading => "downloading",
+        Phase::Verifying => "verifying",
+        Phase::Done => "done",
+    })
+}
+
+/// `[start, end, received, active]` per segment, for the segment map.
+fn segments<S: serde::Serializer>(v: &[SegmentView], s: S) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeSeq;
+    let mut seq = s.serialize_seq(Some(v.len()))?;
+    for seg in v {
+        seq.serialize_element(&(seg.start, seg.end, seg.received, seg.active))?;
+    }
+    seq.end()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn categories() {
+        assert_eq!(Category::for_name("a.ZIP"), Category::Compressed);
+        assert_eq!(Category::for_name("src.tar.gz"), Category::Compressed);
+        assert_eq!(Category::for_name("setup.exe"), Category::Programs);
+        assert_eq!(Category::for_name("film.mkv"), Category::Video);
+        assert_eq!(Category::for_name("song.flac"), Category::Music);
+        assert_eq!(Category::for_name("paper.pdf"), Category::Documents);
+        assert_eq!(Category::for_name("noext"), Category::General);
+        for c in [
+            Category::General,
+            Category::Compressed,
+            Category::Documents,
+            Category::Music,
+            Category::Programs,
+            Category::Video,
+        ] {
+            assert_eq!(Category::parse(c.as_str()), c);
+        }
+    }
+}

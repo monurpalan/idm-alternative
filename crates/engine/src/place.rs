@@ -27,8 +27,21 @@ const COMPOUND: [&str; 5] = [".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst", ".tar
 /// copy. Otherwise `conflict` decides what happens when the name is taken. A name that an
 /// unfinished download of another URL is using is always skipped.
 pub fn target(dir: &Path, name: &str, url: &str, conflict: Conflict) -> PathBuf {
+    target_avoiding(dir, name, url, conflict, |_| false)
+}
+
+/// [`target`], also skipping paths for which `taken` says yes: those that other downloads
+/// were given but have not created on disk yet (e.g. in a download list choosing names for
+/// several downloads at once).
+pub fn target_avoiding(
+    dir: &Path,
+    name: &str,
+    url: &str,
+    conflict: Conflict,
+    taken: impl Fn(&Path) -> bool,
+) -> PathBuf {
     let base = dir.join(name);
-    if conflict == Conflict::Overwrite && !has_other_download(&base, url) {
+    if conflict == Conflict::Overwrite && !has_other_download(&base, url) && !taken(&base) {
         return base;
     }
     for n in 0u32.. {
@@ -37,7 +50,7 @@ pub fn target(dir: &Path, name: &str, url: &str, conflict: Conflict) -> PathBuf 
         } else {
             dir.join(numbered(name, n))
         };
-        if resumes(&path, url) || !occupied(&path) {
+        if !taken(&path) && (resumes(&path, url) || !occupied(&path)) {
             return path;
         }
     }
@@ -166,6 +179,17 @@ mod tests {
         assert_eq!(
             target(&d, "a.zip", "http://other/a.zip", Conflict::Rename),
             d.join("a (2).zip")
+        );
+
+        // Names handed to other downloads that have not started writing yet are skipped.
+        assert_eq!(
+            target_avoiding(&d, "c.zip", url, Conflict::Rename, |p| p == d.join("c.zip")),
+            d.join("c (1).zip")
+        );
+        assert_eq!(
+            target_avoiding(&d, "c.zip", url, Conflict::Overwrite, |p| p
+                == d.join("c.zip")),
+            d.join("c (1).zip")
         );
 
         // Overwrite never takes a name from another URL's unfinished download.

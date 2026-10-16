@@ -27,6 +27,7 @@ An open-source download manager that aims to match Internet Download Manager fea
 ```
 crates/
   engine/       download engine (library)
+  manager/      download list, queue and events on top of the engine
   cli/          `dm` command-line front end
   testserver/   HTTP server reproducing hostile download scenarios
   bench/        benchmark runner
