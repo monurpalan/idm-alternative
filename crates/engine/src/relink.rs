@@ -72,7 +72,7 @@ pub async fn patch_url(req: &Request, opts: &Options) -> Result<()> {
             req.output.display()
         ))
     })?;
-    let http = Http::new(&crate::download::http_config(req, opts))?;
+    let http = Http::new(&crate::download::http_config(&req.headers, opts))?;
     let (remote, resp) = http.probe(&req.url, 0, None, 0).await?;
     drop(resp);
     let sample = read_sample(&part, &state.segments)?;

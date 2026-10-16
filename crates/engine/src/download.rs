@@ -118,7 +118,7 @@ pub async fn download(
     cancel: &CancellationToken,
 ) -> Result<Outcome> {
     let started = Instant::now();
-    let http = Http::new(&http_config(req, opts))?;
+    let http = Http::new(&http_config(&req.headers, opts))?;
     let part = sibling(&req.output, ".idma-part");
     let state_path = sibling(&req.output, ".idma-state");
     let mut force_single = false;
@@ -155,14 +155,41 @@ pub async fn download(
     }
 }
 
-pub(crate) fn http_config(req: &Request, opts: &Options) -> HttpConfig {
+/// What a server says about a URL before anything is downloaded, for deciding where to save
+/// it and showing it to the user.
+#[derive(Debug, Clone)]
+pub struct Probe {
+    /// URL after redirects.
+    pub url: String,
+    pub size: Option<u64>,
+    /// Range requests work: the download can use several connections and resume.
+    pub resumable: bool,
+    /// Safe file name from `Content-Disposition`, the URL or the media type.
+    pub name: String,
+}
+
+/// Asks the server about `url` with the same client settings a download would use, reading
+/// only the response headers.
+pub async fn probe(url: &str, headers: &[(String, String)], opts: &Options) -> Result<Probe> {
+    let http = Http::new(&http_config(headers, opts))?;
+    let (remote, resp) = http.probe(url, 0, None, 0).await?;
+    drop(resp);
+    Ok(Probe {
+        url: remote.url,
+        size: remote.size,
+        resumable: remote.ranges && remote.size.is_some(),
+        name: remote.name,
+    })
+}
+
+pub(crate) fn http_config(headers: &[(String, String)], opts: &Options) -> HttpConfig {
     HttpConfig {
         user_agent: opts.user_agent.clone(),
         browser: opts.browser,
         proxy: opts.proxy.clone(),
         insecure: opts.insecure,
         http1_only: opts.http1_only,
-        headers: req.headers.clone(),
+        headers: headers.to_vec(),
     }
 }
 

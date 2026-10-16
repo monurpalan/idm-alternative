@@ -19,9 +19,13 @@ enum Command {
     /// Download a URL. Interrupted downloads resume when run again with the same arguments.
     Get {
         url: String,
-        /// Output file.
+        /// Output file name, or path; by default the name the server suggests
+        /// (`Content-Disposition`) or the last part of the URL.
         #[arg(short, long)]
-        output: PathBuf,
+        output: Option<PathBuf>,
+        /// Folder to save into (default: the current folder).
+        #[arg(short = 'd', long = "dir")]
+        dir: Option<PathBuf>,
         /// Maximum simultaneous connections.
         #[arg(short, long, default_value_t = 16)]
         connections: usize,
@@ -66,6 +70,7 @@ async fn main() -> ExitCode {
     let Command::Get {
         url,
         output,
+        dir,
         connections,
         limit,
         headers,
@@ -92,11 +97,6 @@ async fn main() -> ExitCode {
         }
     };
 
-    let req = Request {
-        url,
-        output,
-        headers,
-    };
     let opts = Options {
         connections,
         limiters: limit.map(|r| Limiter::new(Some(r))).into_iter().collect(),
@@ -106,6 +106,27 @@ async fn main() -> ExitCode {
         insecure,
         http1_only: http1,
         ..Options::default()
+    };
+    let dir = dir.unwrap_or_default();
+    let output = match output {
+        Some(o) => dir.join(o),
+        None => match idma_engine::probe(&url, &headers, &opts).await {
+            Ok(p) => {
+                if !quiet {
+                    eprintln!("saving as {}", p.name);
+                }
+                dir.join(p.name)
+            }
+            Err(e) => {
+                eprintln!("dm: {e}");
+                return ExitCode::FAILURE;
+            }
+        },
+    };
+    let req = Request {
+        url,
+        output,
+        headers,
     };
     let cancel = CancellationToken::new();
     let (tx, rx) = tokio::sync::watch::channel(Progress::default());

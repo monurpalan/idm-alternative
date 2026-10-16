@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{ConnectInfo, OriginalUri, Path, Query, State};
+use axum::extract::{ConnectInfo, OriginalUri, Query, State};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Version, header};
 use axum::response::{IntoResponse, Response};
@@ -115,7 +115,6 @@ fn text(status: StatusCode, body: &'static str) -> Response {
 
 async fn serve_file(
     State(app): State<Arc<AppState>>,
-    Path(name): Path<String>,
     Query(sc): Query<Scenario>,
     OriginalUri(uri): OriginalUri,
     parts: Parts,
@@ -150,7 +149,9 @@ async fn serve_file(
                 app.next_hop.fetch_add(1, Ordering::Relaxed)
             ));
         }
-        let location = format!("/file/{name}?{}", next.join("&"));
+        // The path as received, still percent-encoded: a decoded non-ASCII name is not a
+        // valid Location.
+        let location = format!("{}?{}", uri.path(), next.join("&"));
         return (StatusCode::FOUND, [(header::LOCATION, location)]).into_response();
     }
 

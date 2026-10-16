@@ -13,12 +13,13 @@ mod download;
 pub mod error;
 mod file;
 mod limit;
+pub mod name;
 mod relink;
 mod remote;
 pub mod segments;
 mod state;
 
-pub use download::{Options, Outcome, Progress, Request, SegmentView, download};
+pub use download::{Options, Outcome, Probe, Progress, Request, SegmentView, download, probe};
 pub use error::{Error, Result};
 pub use limit::Limiter;
 pub use relink::patch_url;

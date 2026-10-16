@@ -59,6 +59,8 @@ pub struct Remote {
     pub ranges: bool,
     pub validators: Validators,
     pub html: bool,
+    /// File name suggested by the response (see [`crate::name::choose`]).
+    pub name: String,
 }
 
 /// Browsers whose TLS and HTTP/2 fingerprint and default headers the engine can present.
@@ -204,38 +206,36 @@ impl Http {
         let validators = Validators::from_headers(resp.headers());
         let html = is_html(&resp);
         let final_url = resp.uri().to_string();
-        let remote = match resp.status() {
+        let name = crate::name::choose(
+            resp.headers()
+                .get(header::CONTENT_DISPOSITION)
+                .map(HeaderValue::as_bytes),
+            resp.headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            &final_url,
+            url,
+        );
+        let (size, ranges) = match resp.status() {
             StatusCode::PARTIAL_CONTENT => {
                 let (first, _, total) = content_range(&resp)?;
                 if first != start {
                     return Err(Error::BadRange(format!("asked for {start}, got {first}")));
                 }
-                Remote {
-                    url: final_url,
-                    size: total,
-                    ranges: true,
-                    validators,
-                    html,
-                }
+                (total, true)
             }
-            StatusCode::OK => Remote {
-                url: final_url,
-                size: resp.content_length(),
-                ranges: false,
-                validators,
-                html,
-            },
-            StatusCode::RANGE_NOT_SATISFIABLE if start == 0 => {
-                // Only an empty file makes `bytes=0-` unsatisfiable.
-                Remote {
-                    url: final_url,
-                    size: Some(0),
-                    ranges: false,
-                    validators,
-                    html,
-                }
-            }
+            StatusCode::OK => (resp.content_length(), false),
+            // Only an empty file makes `bytes=0-` unsatisfiable.
+            StatusCode::RANGE_NOT_SATISFIABLE if start == 0 => (Some(0), false),
             s => return Err(status_error(s)),
+        };
+        let remote = Remote {
+            url: final_url,
+            size,
+            ranges,
+            validators,
+            html,
+            name,
         };
         Ok((remote, resp))
     }
