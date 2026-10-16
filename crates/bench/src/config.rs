@@ -30,6 +30,9 @@ pub struct Client {
     pub args: Vec<String>,
     #[serde(default = "enabled_default")]
     pub enabled: bool,
+    /// Judge the run by the file alone: some clients (IDM) exit non-zero after success.
+    #[serde(default)]
+    pub ignore_exit_code: bool,
 }
 
 fn enabled_default() -> bool {
@@ -46,6 +49,14 @@ pub struct Scenario {
     pub seed: u64,
     #[serde(default)]
     pub query: String,
+    /// A real download URL instead of the local test server. Such runs have no server-side
+    /// numbers (tail, GETs, overhead), and are verified by size and by comparing every
+    /// client's SHA-256 with the first successful download.
+    pub url: Option<String>,
+    /// Disabled scenarios only run when selected with `--scenario` (internet ones are, so
+    /// a plain run stays offline).
+    #[serde(default = "enabled_default")]
+    pub enabled: bool,
 }
 
 fn default_seed() -> u64 {

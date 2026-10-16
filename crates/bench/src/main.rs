@@ -26,10 +26,11 @@ struct Cli {
     /// Where summaries are written.
     #[arg(long, default_value = "bench/results")]
     results_dir: PathBuf,
-    /// Only run scenarios whose name contains this text.
+    /// Only run scenarios whose name contains this text (also enables disabled ones).
     #[arg(long)]
     scenario: Option<String>,
-    /// Only run clients whose name contains this text (also enables disabled ones).
+    /// Only run these clients (comma-separated; a name that is not a client's exact name
+    /// selects every client containing it). Also enables disabled ones, e.g. `--client "dm,IDM"`.
     #[arg(long)]
     client: Option<String>,
     /// Override the repeat count from the config.
@@ -45,17 +46,25 @@ async fn main() -> anyhow::Result<()> {
     let scenarios: Vec<_> = cfg
         .scenario
         .iter()
-        .filter(|s| {
-            cli.scenario
-                .as_ref()
-                .is_none_or(|f| s.name.contains(f.as_str()))
+        .filter(|s| match &cli.scenario {
+            Some(f) => s.name.contains(f.as_str()),
+            None => s.enabled,
         })
         .collect();
     let clients: Vec<_> = cfg
         .client
         .iter()
         .filter(|c| match &cli.client {
-            Some(f) => c.name.contains(f.as_str()),
+            Some(f) => {
+                let names: Vec<&str> = f.split(',').map(str::trim).collect();
+                names.iter().any(|n| {
+                    if clients_named(&cfg.client, n) {
+                        c.name == *n
+                    } else {
+                        c.name.contains(n)
+                    }
+                })
+            }
             None => c.enabled,
         })
         .collect();
@@ -75,15 +84,32 @@ async fn main() -> anyhow::Result<()> {
     let mut results = Vec::new();
     let total = scenarios.len() * clients.len() * repeat as usize;
     let mut n = 0;
+    let mut order: Vec<usize> = (0..clients.len()).collect();
+    let mut rng = seed_from_clock();
     for scenario in &scenarios {
-        for client in &clients {
-            for k in 1..=repeat {
+        // Internet runs: the first successful download's hash, which the others must match.
+        let mut reference = None;
+        for k in 1..=repeat {
+            // A different client order every round, so time-of-day effects (network load,
+            // disk write-back) do not always land on the same client.
+            shuffle(&mut order, &mut rng);
+            for &i in &order {
+                let client = clients[i];
                 n += 1;
                 eprint!(
                     "[{n}/{total}] {} · {} · run {k} … ",
                     scenario.name, client.name
                 );
-                let r = run::run_once(&base, scenario, client, k, &out_dir, cfg.timeout_secs).await;
+                let r = run::run_once(
+                    &base,
+                    scenario,
+                    client,
+                    k,
+                    &out_dir,
+                    cfg.timeout_secs,
+                    &mut reference,
+                )
+                .await;
                 eprintln!("{}", r.one_line());
                 results.push(r);
             }
@@ -101,4 +127,26 @@ async fn main() -> anyhow::Result<()> {
     std::fs::write(&raw_path, serde_json::to_string_pretty(&results)?)?;
     eprintln!("wrote {} and {}", md_path.display(), raw_path.display());
     Ok(())
+}
+
+fn seed_from_clock() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0x9e37_79b9, |d| d.as_nanos() as u64)
+        | 1
+}
+
+/// Fisher–Yates with xorshift64: good enough to vary the order, no dependency needed.
+fn shuffle(v: &mut [usize], state: &mut u64) {
+    for i in (1..v.len()).rev() {
+        *state ^= *state << 13;
+        *state ^= *state >> 7;
+        *state ^= *state << 17;
+        v.swap(i, (*state % (i as u64 + 1)) as usize);
+    }
+}
+
+/// Whether some client is called exactly `name`; then `name` selects only that one.
+fn clients_named(clients: &[config::Client], name: &str) -> bool {
+    clients.iter().any(|c| c.name == name)
 }

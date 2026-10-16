@@ -21,6 +21,8 @@ name = "aria2 x16"
 program = "aria2c"
 args = [
   "-x16", "-s16", "-k1M", "--file-allocation=falloc",
+  # No fallback to IPv4 when an IPv6 address is unreachable (the others fall back):
+  "--disable-ipv6=true",
   "--allow-overwrite=true", "--auto-file-renaming=false",
   "--console-log-level=error", "--summary-interval=0", "--download-result=hide",
   "-d", "{dir}", "-o", "{file}", "{url}",
@@ -30,14 +32,24 @@ args = [
 name = "dm"
 program = "${CARGO_TARGET_DIR}/release/dm.exe"
 args = ["get", "{url}", "-o", "{path}"]
-# enabled once the engine landed
 
-# IDM: /n = silent, /q = exit when done.
+# Same connection count as IDM's default, for a like-for-like comparison.
+[[client]]
+name = "dm x8"
+program = "${CARGO_TARGET_DIR}/release/dm.exe"
+args = ["get", "{url}", "-o", "{path}", "-c", "8"]
+enabled = false
+
+# IDM 6.43 (default settings: 8 connections). /n = silent, /q = exit when done -- but /q only
+# works for the first instance: close IDM (tray icon included) before benchmarking, or the
+# command hands the download to the running copy and returns at once. Checked 2026-10-16:
+# exits after the download and the file verifies, but with exit code 1 even on success (a
+# failed download never exits; the timeout catches it).
 [[client]]
 name = "IDM"
 program = "C:/Program Files (x86)/Internet Download Manager/IDMan.exe"
 args = ["/d", "{url}", "/p", "{dir}", "/f", "{file}", "/n", "/q"]
-enabled = false
+ignore_exit_code = true
 
 # ---------------------------------------------------------------- scenarios
 # `query` is appended to `size` and `seed`; see crates/testserver/README.md.
@@ -82,3 +94,23 @@ name = "fake-ranges"
 description = "Advertises ranges but always returns 200 + full file"
 size = "128M"
 query = "range_as_200=1&rate=16M"
+
+# ---------------------------------------------------------------- internet
+# Off by default (a plain run stays offline); select with --scenario internet.
+# Checked 2026-10-16 from Turkey: Hetzner's speed-test hosts reset the TLS connection,
+# Tele2 does not answer, Leaseweb's files are gone, and proof.ovh.net stopped accepting
+# connections from this IP minutes into the first run (16 + 8 connections per download).
+
+[[scenario]]
+name = "internet-linode-1g"
+description = "Linode Frankfurt speed test, 1000 MiB, real internet"
+size = "1000M"
+url = "https://speedtest.frankfurt.linode.com/1GB-frankfurt.bin"
+enabled = false
+
+[[scenario]]
+name = "internet-linode-100m"
+description = "Linode Frankfurt speed test, 100 MiB, real internet"
+size = "100M"
+url = "https://speedtest.frankfurt.linode.com/100MB-frankfurt.bin"
+enabled = false

@@ -30,25 +30,33 @@ pub fn markdown(
     let mut md = String::new();
     let _ = writeln!(
         md,
-        "# Benchmark — {}\n\nLocal test server, {repeat} run(s) per cell, medians of successful runs. \
-         *Tail* = time spent on the last 10 % of bytes. *Overhead* = bytes sent beyond file size.\n",
+        "# Benchmark — {}\n\n{repeat} run(s) per cell in shuffled client order, medians of \
+         successful runs. *Tail* = time spent on the last 10 % of bytes. *After* = from the \
+         server having sent the whole file to the client exiting (assembling parts, flushing, \
+         shutting down). *Overhead* = bytes sent beyond file size. These come from the local test \
+         server; internet scenarios (with a URL) leave them empty.\n",
         chrono::Local::now().format("%Y-%m-%d %H:%M")
     );
     for s in scenarios {
+        let source = s.url.clone().unwrap_or_else(|| {
+            format!(
+                "size={}&seed={}{}{}",
+                s.size.0,
+                s.seed,
+                if s.query.is_empty() { "" } else { "&" },
+                s.query
+            )
+        });
         let _ = writeln!(
             md,
-            "## {} · {}\n\n{}\n\n`size={}&seed={}{}{}`\n",
+            "## {} · {}\n\n{}\n\n`{source}`\n",
             s.name,
             human(s.size.0),
             s.description,
-            s.size.0,
-            s.seed,
-            if s.query.is_empty() { "" } else { "&" },
-            s.query
         );
         md.push_str(
-            "| Client | OK | Time (s) | MiB/s | Tail (s) | Peak conns | GETs | Overhead % | CPU % | RAM (MiB) |\n\
-             |---|---|---:|---:|---:|---:|---:|---:|---:|---:|\n",
+            "| Client | OK | Time (s) | MiB/s | Tail (s) | After (s) | Peak conns | GETs | Overhead % | CPU % | RAM (MiB) |\n\
+             |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n",
         );
         for c in clients {
             let runs: Vec<&RunResult> = results
@@ -70,12 +78,13 @@ pub fn markdown(
             }
             let _ = writeln!(
                 md,
-                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                 c.name,
                 status,
                 fmt(col(&|r| Some(r.secs)), 2),
                 fmt(col(&|r| Some(r.mib_s)), 1),
                 fmt(col(&|r| r.tail_secs), 2),
+                fmt(col(&|r| r.after_secs), 2),
                 fmt(col(&|r| Some(f64::from(r.peak_conns))), 0),
                 fmt(col(&|r| Some(r.gets as f64)), 0),
                 fmt(col(&|r| Some(r.overhead_pct)), 1),

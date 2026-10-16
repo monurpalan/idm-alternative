@@ -35,6 +35,9 @@ pub struct RunResult {
     pub mib_s: f64,
     /// Time spent on the last 10 % of the bytes (server-side view).
     pub tail_secs: Option<f64>,
+    /// From the server having sent the whole file to the client exiting: assembling parts,
+    /// flushing, shutting down — work after the network part is over.
+    pub after_secs: Option<f64>,
     /// GET requests the server received.
     pub gets: u64,
     /// Most concurrent responses at any moment.
@@ -101,6 +104,7 @@ pub async fn run_once(
     run: u32,
     out_dir: &Path,
     timeout_secs: u64,
+    reference: &mut Option<String>,
 ) -> RunResult {
     let size = scenario.size.0;
     let file = format!("{}-{}-{run}.bin", slug(&scenario.name), slug(&client.name));
@@ -114,7 +118,13 @@ pub async fn run_once(
         url_path.push_str(&scenario.query);
     }
     url_path.push_str(&format!("&run={unique}"));
-    let url = format!("{base}{url_path}");
+    // A real URL gets a unique query too: no client is served from a cache warmed by the
+    // previous one, and IDM does not see a duplicate download.
+    let url = match &scenario.url {
+        Some(u) => format!("{u}{}run={unique}", if u.contains('?') { '&' } else { '?' }),
+        None => format!("{base}{url_path}"),
+    };
+    let local = scenario.url.is_none();
 
     let mut result = RunResult {
         scenario: scenario.name.clone(),
@@ -125,6 +135,7 @@ pub async fn run_once(
         secs: 0.0,
         mib_s: 0.0,
         tail_secs: None,
+        after_secs: None,
         gets: 0,
         peak_conns: 0,
         overhead_pct: 0.0,
@@ -175,6 +186,7 @@ pub async fn run_once(
     let mut cpu_ms = 0u64;
     let mut peak_rss = 0u64;
     let mut t90 = None;
+    let mut t100 = None;
     let deadline = started + Duration::from_secs(timeout_secs);
     let mut tick = tokio::time::interval(SAMPLE_EVERY);
 
@@ -186,11 +198,16 @@ pub async fn run_once(
                     child.kill().await.ok();
                     break None;
                 }
-                if t90.is_none()
+                if local
+                    && t100.is_none()
                     && let Some(s) = url_stats(&http, base, &url_path).await
-                    && s.bytes_sent * 10 >= size * 9
                 {
-                    t90 = Some(started.elapsed());
+                    if t90.is_none() && s.bytes_sent * 10 >= size * 9 {
+                        t90 = Some(started.elapsed());
+                    }
+                    if s.bytes_sent >= size {
+                        t100 = Some(started.elapsed());
+                    }
                 }
                 if let Some(pid) = pid {
                     sys.refresh_processes_specifics(
@@ -210,6 +227,7 @@ pub async fn run_once(
     result.secs = elapsed.as_secs_f64();
     result.mib_s = size as f64 / result.secs.max(1e-9) / (1u64 << 20) as f64;
     result.tail_secs = t90.map(|t| elapsed.saturating_sub(t).as_secs_f64());
+    result.after_secs = t100.map(|t| elapsed.saturating_sub(t).as_secs_f64());
     if cpu_ms > 0 {
         result.cpu_avg_pct = Some((cpu_ms as f64 / (result.secs * 1000.0) * 100.0) as f32);
     }
@@ -217,7 +235,7 @@ pub async fn run_once(
         result.peak_rss_mib = Some(peak_rss as f64 / (1u64 << 20) as f64);
     }
 
-    if let Some(s) = url_stats(&http, base, &url_path).await {
+    if local && let Some(s) = url_stats(&http, base, &url_path).await {
         result.gets = s.gets;
         result.peak_conns = s.peak_active;
         result.overhead_pct = (s.bytes_sent as f64 / size.max(1) as f64 - 1.0) * 100.0;
@@ -234,9 +252,10 @@ pub async fn run_once(
             result.detail = format!("killed after {timeout_secs}s");
         }
         Some(Err(e)) => result.detail = e.to_string(),
-        Some(Ok(code)) if !code.success() => {
+        Some(Ok(code)) if !code.success() && !client.ignore_exit_code => {
             result.detail = format!("{code}: {}", stderr.lines().last().unwrap_or_default());
         }
+        Some(Ok(_)) if !local => verify_remote(&path, size, reference, &mut result).await,
         Some(Ok(_)) => {
             let p = path.clone();
             let seed = scenario.seed;
@@ -268,4 +287,57 @@ fn cleanup(path: &Path) {
     let mut aria2 = path.as_os_str().to_owned();
     aria2.push(".aria2");
     std::fs::remove_file(aria2).ok();
+}
+
+/// Internet runs: the size must match, and the content must hash like the first
+/// successful download of the same scenario (the servers publish no checksums).
+async fn verify_remote(
+    path: &Path,
+    size: u64,
+    reference: &mut Option<String>,
+    result: &mut RunResult,
+) {
+    let p = path.to_owned();
+    let hashed = tokio::task::spawn_blocking(move || -> std::io::Result<(u64, String)> {
+        use sha2::{Digest, Sha256};
+        use std::io::Read;
+        let mut file = std::fs::File::open(&p)?;
+        let mut hasher = Sha256::new();
+        let mut buf = vec![0u8; 4 << 20];
+        let mut len = 0u64;
+        loop {
+            let n = file.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+            len += n as u64;
+        }
+        let hex = hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        Ok((len, hex))
+    })
+    .await;
+    match hashed {
+        Ok(Ok((len, _))) if len != size => {
+            result.status = Status::WrongLength;
+            result.detail = format!("{len} bytes, expected {size}");
+        }
+        Ok(Ok((_, hash))) => match reference {
+            Some(r) if *r != hash => {
+                result.status = Status::Corrupt;
+                result.detail = format!("sha256 {hash} differs from {r}");
+            }
+            Some(_) => result.status = Status::Ok,
+            None => {
+                *reference = Some(hash);
+                result.status = Status::Ok;
+            }
+        },
+        Ok(Err(e)) => result.detail = format!("output: {e}"),
+        Err(e) => result.detail = e.to_string(),
+    }
 }
