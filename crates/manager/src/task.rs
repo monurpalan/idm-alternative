@@ -50,6 +50,10 @@ pub struct Stream {
     /// Downloaded by yt-dlp with this format selector; the task's URL is then the page.
     #[serde(default)]
     pub ytdlp: Option<String>,
+    /// A DASH stream: the video representation id; the task's URL is the manifest and
+    /// `audio` an audio representation id.
+    #[serde(default)]
+    pub dash: Option<String>,
 }
 
 /// What a failure needs from the user; the UI offers the matching fix.

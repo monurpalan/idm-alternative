@@ -358,3 +358,40 @@ async fn stream_task_pauses_and_finishes() {
     );
     m.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dash_task_downloads_the_chosen_representation() {
+    let base = start_server().await;
+    let w = WorkDir::new("dash-task");
+    let m = Manager::open(&w.db(), w.config()).await.expect("open");
+    let t = m
+        .add(NewTask {
+            url: format!("{base}/dash/manifest.mpd?mode=timeline&segments=4&seed=3"),
+            name: Some("Belgesel".into()),
+            start: true,
+            stream: Some(idma_manager::Stream {
+                dash: Some("v360".into()),
+                ..idma_manager::Stream::default()
+            }),
+            ..NewTask::default()
+        })
+        .await
+        .expect("add");
+    let done = wait_for(&m, t.id, 20, |t| {
+        matches!(t.status, Status::Done | Status::Error)
+    })
+    .await;
+    assert_eq!(done.status, Status::Done, "{:?}", done.error);
+    assert_eq!(done.name.as_deref(), Some("Belgesel.mp4"));
+    let total = 4096 + 4 * (128 << 10);
+    assert_eq!(
+        verify_file(
+            &done.path.expect("path"),
+            idma_testserver::hls::track_seed(3, "v360"),
+            total
+        )
+        .expect("verify"),
+        Verdict::Ok
+    );
+    m.close().await;
+}

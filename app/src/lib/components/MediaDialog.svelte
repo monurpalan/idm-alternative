@@ -28,7 +28,6 @@
 	/** Why the stream cannot be downloaded, if it cannot. */
 	const blocked = $derived.by(() => {
 		if (!info) return 'Read the playlist first';
-		if (info.format === 'dash') return 'DASH streams cannot be downloaded yet';
 		if (info.encryption === 'DRM') return 'Protected streams cannot be downloaded';
 		if (info.live) return 'Live streams cannot be downloaded yet';
 		if (!ffmpeg && info.audio.length) return 'This stream has separate audio: ffmpeg is needed';
@@ -40,13 +39,17 @@
 		busy = true;
 		try {
 			await addTask({
-				url: video,
+				// HLS: the chosen variant's playlist; DASH: the manifest, with representation ids.
+				url: info.format === 'dash' ? chosenUrl : video,
 				name: name.trim() || null,
 				dir: null,
 				start: true,
 				login: null,
 				headers: media.headers,
-				stream: { audio: audio || null }
+				stream:
+					info.format === 'dash'
+						? { audio: audio || null, dash: video }
+						: { audio: audio || null }
 			});
 			dialog?.close();
 		} catch (e) {

@@ -93,7 +93,7 @@ export const addTask = (request: {
 	headers?: Headers | null;
 	/** A stream: `url` is then the chosen video playlist, or with `ytdlp` (a format
 	 * selector) the page yt-dlp downloads from. */
-	stream?: { audio: string | null; ytdlp?: string | null } | null;
+	stream?: { audio: string | null; ytdlp?: string | null; dash?: string | null } | null;
 }) => invoke<Task>('add_task', { request });
 
 /** What a page of a site like YouTube offers (read by yt-dlp). */

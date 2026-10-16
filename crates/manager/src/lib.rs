@@ -726,8 +726,9 @@ impl Inner {
         }
     }
 
-    /// A stream (HLS): the name comes from the page title (or the playlist URL) with the
-    /// extension of what will be written, `.mp4` with ffmpeg, `.ts` without.
+    /// A stream (HLS or DASH): the name comes from the page title (or the playlist URL) with
+    /// the extension of what will be written: `.mp4` with ffmpeg or for DASH (fragmented
+    /// MP4), `.ts` for HLS without ffmpeg.
     async fn download_stream(
         &self,
         mut task: Task,
@@ -747,7 +748,11 @@ impl Inner {
                     .or_else(|| idma_engine::name::from_url(&task.url))
                     .unwrap_or_else(|| "video".to_owned());
                 let stem = idma_engine::name::split_extension(&base).0.to_owned();
-                let ext = if ffmpeg.is_some() { "mp4" } else { "ts" };
+                let ext = if ffmpeg.is_some() || stream.dash.is_some() {
+                    "mp4"
+                } else {
+                    "ts"
+                };
                 let name = idma_engine::name::sanitize(&format!("{stem}.{ext}"));
                 let _one_at_a_time = self.naming.lock().await;
                 let taken: std::collections::HashSet<PathBuf> =
@@ -769,16 +774,31 @@ impl Inner {
                 path
             }
         };
-        let req = idma_engine::StreamRequest {
-            video: task.url.clone(),
-            audio: stream.audio,
-            output: path,
-            headers: task.headers.clone(),
-            ffmpeg,
-        };
         let (tx, rx) = watch::channel(Progress::default());
         let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
-        let result = idma_engine::download_hls(&req, &opts, Some(&tx), cancel).await;
+        let result = match stream.dash {
+            Some(video) => {
+                let req = idma_engine::DashRequest {
+                    manifest: task.url.clone(),
+                    video,
+                    audio: stream.audio,
+                    output: path,
+                    headers: task.headers.clone(),
+                    ffmpeg,
+                };
+                idma_engine::download_dash(&req, &opts, Some(&tx), cancel).await
+            }
+            None => {
+                let req = idma_engine::StreamRequest {
+                    video: task.url.clone(),
+                    audio: stream.audio,
+                    output: path,
+                    headers: task.headers.clone(),
+                    ffmpeg,
+                };
+                idma_engine::download_hls(&req, &opts, Some(&tx), cancel).await
+            }
+        };
         drop(tx);
         reporter.await.ok();
         Ok(result?)
