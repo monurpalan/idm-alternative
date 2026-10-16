@@ -14,11 +14,15 @@ mod frame;
 mod message;
 #[cfg(windows)]
 mod pipe;
+#[cfg(windows)]
+mod register;
 
 pub use frame::{MAX_FRAME, read_frame, read_json, write_frame, write_json};
 pub use message::{Capture, Link, Reply, Request};
 #[cfg(windows)]
 pub use pipe::{connect, serve};
+#[cfg(windows)]
+pub use register::{manifest_dir, register, registered_manifest, unregister};
 
 use std::path::{Path, PathBuf};
 

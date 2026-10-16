@@ -70,6 +70,7 @@ export interface Settings {
 	close_to_tray: boolean;
 	start_with_windows: boolean;
 	notify: boolean;
+	browser_integration: boolean;
 }
 
 /** List changes; progress comes separately, batched (see `onManagerEvent`). */

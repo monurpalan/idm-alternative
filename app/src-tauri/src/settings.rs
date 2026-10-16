@@ -33,6 +33,8 @@ pub struct Settings {
     pub start_with_windows: bool,
     /// A notification when a download finishes.
     pub notify: bool,
+    /// Registered with the browsers, so the extension can hand downloads over.
+    pub browser_integration: bool,
 }
 
 impl Default for Settings {
@@ -49,6 +51,7 @@ impl Default for Settings {
             close_to_tray: true,
             start_with_windows: false,
             notify: true,
+            browser_integration: true,
         }
     }
 }

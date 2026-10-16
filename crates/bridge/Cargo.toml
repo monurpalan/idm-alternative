@@ -14,5 +14,8 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56.0"
+
 [lints]
 workspace = true

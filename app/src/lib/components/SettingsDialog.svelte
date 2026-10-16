@@ -124,6 +124,11 @@
 					<input type="checkbox" bind:checked={s.notify} />
 					Notify me when a download finishes
 				</label>
+				<label class="check">
+					<input type="checkbox" bind:checked={s.browser_integration} />
+					Take downloads from the browser extension (registers with Chrome, Edge, Brave,
+					Vivaldi, Opera and Firefox)
+				</label>
 			</fieldset>
 		{:else if !error}
 			<p class="muted">Loading…</p>

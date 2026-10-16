@@ -1,17 +1,18 @@
 // The extension's options page: which downloads go to the app.
 
+import { api } from './api.ts';
 import { DEFAULT_SETTINGS, parseList, type Settings } from './filter.ts';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 async function load() {
-	const stored = await chrome.storage.sync.get('settings');
+	const stored = await api.storage.sync.get('settings');
 	const s: Settings = { ...DEFAULT_SETTINGS, ...(stored.settings ?? {}) };
 	$<HTMLInputElement>('enabled').checked = s.enabled;
 	$<HTMLInputElement>('min').value = s.minSizeKb ? String(s.minSizeKb) : '';
 	$<HTMLTextAreaElement>('extensions').value = s.extensions.join(' ');
 	$<HTMLTextAreaElement>('excluded').value = s.excludedSites.join('\n');
-	const reply = await chrome.runtime
+	const reply = await api.runtime
 		.sendNativeMessage('io.github.monurpalan.idma', { type: 'ping' })
 		.catch((e: unknown) => ({ ok: false, error: String(e) }));
 	$('status').textContent = reply?.ok
@@ -29,13 +30,13 @@ $('form').addEventListener('submit', async (e) => {
 		extensions: parseList($<HTMLTextAreaElement>('extensions').value),
 		excludedSites: parseList($<HTMLTextAreaElement>('excluded').value)
 	};
-	await chrome.storage.sync.set({ settings });
+	await api.storage.sync.set({ settings });
 	$('saved').textContent = 'Saved';
 	setTimeout(() => ($('saved').textContent = ''), 1500);
 });
 
 $('reset').addEventListener('click', async () => {
-	await chrome.storage.sync.remove('settings');
+	await api.storage.sync.remove('settings');
 	await load();
 });
 

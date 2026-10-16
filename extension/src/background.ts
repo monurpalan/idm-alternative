@@ -2,6 +2,7 @@
 // messaging host. When the app cannot take one, the browser downloads it after all.
 
 import { DEFAULT_SETTINGS, baseName, cookieHeader, shouldCapture, type Settings } from './filter.ts';
+import { api } from './api.ts';
 
 const HOST = 'io.github.monurpalan.idma';
 /** Alt held this recently (by any page) means "let the browser download this one". */
@@ -12,13 +13,13 @@ let altDownAt = 0;
 const givenBack = new Set<string>();
 
 async function settings(): Promise<Settings> {
-	const stored = await chrome.storage.sync.get('settings');
+	const stored = await api.storage.sync.get('settings');
 	return { ...DEFAULT_SETTINGS, ...(stored.settings ?? {}) };
 }
 
 async function cookiesFor(url: string): Promise<string | null> {
 	try {
-		return cookieHeader(await chrome.cookies.getAll({ url }));
+		return cookieHeader(await api.cookies.getAll({ url }));
 	} catch {
 		return null;
 	}
@@ -31,7 +32,7 @@ interface Reply {
 
 async function send(message: object): Promise<Reply> {
 	try {
-		return (await chrome.runtime.sendNativeMessage(HOST, message)) as Reply;
+		return (await api.runtime.sendNativeMessage(HOST, message)) as Reply;
 	} catch (e) {
 		// No host registered, or it failed to start.
 		return { ok: false, error: String(e) };
@@ -50,7 +51,7 @@ async function handOver(url: string, referrer: string | undefined, filename?: st
 	});
 }
 
-chrome.downloads.onCreated.addListener(async (item) => {
+api.downloads.onCreated.addListener(async (item) => {
 	const url = item.finalUrl || item.url;
 	const s = await settings();
 	const candidate = {
@@ -63,16 +64,23 @@ chrome.downloads.onCreated.addListener(async (item) => {
 
 	// Stop the browser's copy first, so the file is not fetched twice.
 	try {
-		await chrome.downloads.cancel(item.id);
-		await chrome.downloads.erase({ id: item.id });
+		await api.downloads.cancel(item.id);
 	} catch {
 		return; // already finished or gone: nothing to take over
 	}
-	const reply = await handOver(url, item.referrer, baseName(item.filename ?? ''), candidate.size);
-	if (!reply.ok) {
-		console.warn('idm-alternative: giving the download back to the browser:', reply.error);
+	// Only tidies the browser's list; Firefox may refuse right after a cancel.
+	api.downloads.erase({ id: item.id }).catch(() => {});
+	let reply: Reply;
+	try {
+		reply = await handOver(url, item.referrer, baseName(item.filename ?? ''), candidate.size);
+	} catch (e) {
+		reply = { ok: false, error: String(e) };
+	}
+	if (!reply?.ok) {
+		// Never lose a download: the browser gets it back.
+		console.warn('idm-alternative: giving the download back to the browser:', reply?.error);
 		givenBack.add(url);
-		await chrome.downloads.download({ url });
+		await api.downloads.download({ url });
 	}
 });
 
@@ -119,7 +127,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 		const reply = await handOver(url, info.pageUrl);
 		if (!reply.ok) console.warn('idm-alternative: the app could not take the link:', reply.error);
 	} else if (info.menuItemId === MENU_PAGE && tab?.id !== undefined) {
-		const [result] = await chrome.scripting.executeScript({
+		const [result] = await api.scripting.executeScript({
 			target: { tabId: tab.id },
 			func: collectLinks
 		});

@@ -9,7 +9,7 @@ mod settings;
 mod tray;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use idma_manager::{Event, Manager, Move, NewTask, Status, Task, TaskId, TaskProgress};
@@ -23,6 +23,8 @@ use tokio::sync::broadcast::{self, error::RecvError};
 
 struct App {
     manager: Manager,
+    /// The app's data folder (the list, the bridge token, the host manifests).
+    data: PathBuf,
     settings: Mutex<Settings>,
     tray: Mutex<Option<tray::Tray>>,
 }
@@ -277,6 +279,9 @@ async fn apply_settings(handle: &AppHandle, new: Settings) -> CmdResult<Settings
     let old = lock(&app.settings).clone();
     app.manager.set_config(new.config()).await.map_err(msg)?;
     app.manager.set_global_limit(new.speed_limit);
+    if new.browser_integration != old.browser_integration {
+        set_browser_integration(&app.data, new.browser_integration)?;
+    }
     if new.start_with_windows != old.start_with_windows {
         let autostart = handle.autolaunch();
         if new.start_with_windows {
@@ -296,6 +301,46 @@ async fn apply_settings(handle: &AppHandle, new: Settings) -> CmdResult<Settings
     }
     handle.emit("settings", &new).ok();
     Ok(new)
+}
+
+/// Registers the native messaging host with the browsers, or removes the registration.
+///
+/// The host is installed next to the app. A profile started with `IDMA_HOME` registers a
+/// small script that starts the host with the same `IDMA_HOME`, so browsers reach that
+/// profile and not the real one.
+fn set_browser_integration(data: &Path, on: bool) -> CmdResult<()> {
+    if !on {
+        return idma_bridge::unregister(data).map_err(msg);
+    }
+    let exe = std::env::current_exe().map_err(msg)?;
+    let host = exe.with_file_name("idma-host.exe");
+    if !host.exists() {
+        return Err(format!(
+            "the browser host is missing next to the app ({})",
+            host.display()
+        ));
+    }
+    let target = if std::env::var_os("IDMA_HOME").is_some() {
+        let script = data.join("idma-host.cmd");
+        std::fs::write(
+            &script,
+            format!(
+                "@echo off
+set \"IDMA_HOME={}\"
+set \"IDMA_APP={}\"
+\"{}\" %*
+",
+                data.display(),
+                exe.display(),
+                host.display()
+            ),
+        )
+        .map_err(msg)?;
+        script
+    } else {
+        host
+    };
+    idma_bridge::register(&target, data).map_err(msg)
 }
 
 /// Brings the window back, also from the tray.
@@ -528,6 +573,11 @@ fn main() {
                 settings.dir = default_dir;
             }
             let manager = tauri::async_runtime::block_on(Manager::open(&db, settings.config()))?;
+            if settings.browser_integration
+                && let Err(e) = set_browser_integration(&data, true)
+            {
+                tracing::warn!("could not register with the browsers: {e}");
+            }
             manager.set_global_limit(settings.speed_limit);
 
             tauri::async_runtime::spawn(forward_events(app.handle().clone(), manager.subscribe()));
@@ -549,6 +599,7 @@ fn main() {
             let tray = tray::build(app.handle(), settings.speed_limit)?;
             app.manage(App {
                 manager,
+                data: data.clone(),
                 settings: Mutex::new(settings),
                 tray: Mutex::new(Some(tray)),
             });
