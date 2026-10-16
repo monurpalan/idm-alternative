@@ -91,7 +91,12 @@ export const addTask = (request: {
 	start: boolean;
 	login: Login | null;
 	headers?: Headers | null;
+	/** A stream: `url` is then the chosen video playlist. */
+	stream?: { audio: string | null } | null;
 }) => invoke<Task>('add_task', { request });
+
+/** Helper programs the app found. */
+export const tools = () => invoke<{ ffmpeg: boolean }>('tools');
 
 /** A download the browser handed over. */
 export interface Capture {

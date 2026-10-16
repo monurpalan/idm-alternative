@@ -42,6 +42,13 @@ impl Status {
     }
 }
 
+/// A stream download: the task's URL is the video playlist (HLS); this says what goes with it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct Stream {
+    /// A separate audio playlist, joined with the video.
+    pub audio: Option<String>,
+}
+
 /// What a failure needs from the user; the UI offers the matching fix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -198,6 +205,8 @@ pub struct Task {
     pub finished_at: Option<i64>,
     /// Order in the queue: lower starts first.
     pub queue_pos: i64,
+    /// Set for a stream (HLS) download.
+    pub stream: Option<Stream>,
 }
 
 /// What to download; everything else has defaults from [`crate::Config`].
@@ -215,6 +224,8 @@ pub struct NewTask {
     pub checksum: Option<String>,
     /// Queue it now; otherwise it is added paused.
     pub start: bool,
+    /// A stream download (`url` is then the video playlist).
+    pub stream: Option<Stream>,
 }
 
 /// Live progress of a running download, sent about four times a second.

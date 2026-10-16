@@ -9,7 +9,7 @@ use sqlx::sqlite::{
 };
 
 use crate::Result;
-use crate::task::{Category, ErrorKind, Status, Task, TaskId};
+use crate::task::{Category, ErrorKind, Status, Stream, Task, TaskId};
 
 #[derive(Clone)]
 pub(crate) struct Db {
@@ -28,6 +28,7 @@ pub(crate) struct Insert<'a> {
     pub speed_limit: Option<u64>,
     pub checksum: Option<&'a str>,
     pub added_at: i64,
+    pub stream: Option<&'a Stream>,
 }
 
 impl Db {
@@ -55,8 +56,8 @@ impl Db {
         let headers = serde_json::to_string(t.headers)?;
         let id = sqlx::query(
             "INSERT INTO tasks (url, headers, dir, name, status, category, connections,
-                                speed_limit, checksum, added_at, queue_pos)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                speed_limit, checksum, added_at, stream, queue_pos)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                      (SELECT COALESCE(MAX(queue_pos), 0) + 1 FROM tasks))",
         )
         .bind(t.url)
@@ -69,6 +70,7 @@ impl Db {
         .bind(t.speed_limit.map(|v| v as i64))
         .bind(t.checksum)
         .bind(t.added_at)
+        .bind(t.stream.map(serde_json::to_string).transpose()?)
         .execute(&self.pool)
         .await?
         .last_insert_rowid();
@@ -304,5 +306,9 @@ fn task(r: &SqliteRow) -> Result<Task> {
         added_at: r.try_get("added_at")?,
         finished_at: r.try_get("finished_at")?,
         queue_pos: r.try_get("queue_pos")?,
+        stream: r
+            .try_get::<Option<String>, _>("stream")?
+            .map(|s| serde_json::from_str(&s))
+            .transpose()?,
     })
 }

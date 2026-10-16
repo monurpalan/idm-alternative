@@ -2,7 +2,7 @@
 	// A stream the extension found: pick the quality, audio and subtitles.
 
 	import { onMount } from 'svelte';
-	import { inspectMedia, type CapturedMedia, type StreamInfo } from '../api.ts';
+	import { addTask, inspectMedia, tools, type CapturedMedia, type StreamInfo } from '../api.ts';
 	import { duration } from '../format.ts';
 
 	let {
@@ -20,8 +20,40 @@
 	let loading = $state(false);
 	let video = $state('');
 	let audio = $state('');
-	let subtitles = $state(new Set<string>());
+	let name = $state('');
+	let ffmpeg = $state(true);
+	let busy = $state(false);
 	let dialog: HTMLDialogElement | undefined = $state();
+
+	/** Why the stream cannot be downloaded, if it cannot. */
+	const blocked = $derived.by(() => {
+		if (!info) return 'Read the playlist first';
+		if (info.format === 'dash') return 'DASH streams cannot be downloaded yet';
+		if (info.encryption === 'DRM') return 'Protected streams cannot be downloaded';
+		if (info.live) return 'Live streams cannot be downloaded yet';
+		if (!ffmpeg && info.audio.length) return 'This stream has separate audio: ffmpeg is needed';
+		return null;
+	});
+
+	async function download() {
+		if (!info || blocked) return;
+		busy = true;
+		try {
+			await addTask({
+				url: video,
+				name: name.trim() || null,
+				dir: null,
+				start: true,
+				login: null,
+				headers: media.headers,
+				stream: { audio: audio || null }
+			});
+			dialog?.close();
+		} catch (e) {
+			error = String(e);
+			busy = false;
+		}
+	}
 
 	async function load(url: string) {
 		chosenUrl = url;
@@ -32,7 +64,6 @@
 			info = await inspectMedia(url, media.headers);
 			video = info.video[0]?.id ?? '';
 			audio = (info.audio.find((a) => a.default) ?? info.audio[0])?.id ?? '';
-			subtitles = new Set();
 		} catch (e) {
 			error = String(e);
 		} finally {
@@ -42,6 +73,10 @@
 
 	onMount(() => {
 		dialog?.showModal();
+		name = media.title ?? '';
+		tools()
+			.then((t) => (ffmpeg = t.ffmpeg))
+			.catch(() => {});
 		if (streams[0]) load(streams[0].url);
 	});
 
@@ -58,12 +93,6 @@
 		return [t.name, t.language && t.language !== t.name ? `(${t.language})` : ''].filter(Boolean).join(' ') || (t.id ?? 'Track');
 	}
 
-	function toggleSubtitle(id: string) {
-		const next = new Set(subtitles);
-		if (next.has(id)) next.delete(id);
-		else next.add(id);
-		subtitles = next;
-	}
 </script>
 
 <dialog bind:this={dialog} onclose={onclose} aria-labelledby="media-title">
@@ -117,25 +146,24 @@
 		{/if}
 
 		{#if info.subtitles.length}
-			<fieldset>
-				<legend>Subtitles</legend>
-				{#each info.subtitles as s (s.id ?? s.name)}
-					<label class="option">
-						<input type="checkbox" checked={subtitles.has(s.id ?? '')} onchange={() => toggleSubtitle(s.id ?? '')} />
-						{trackName(s)}
-					</label>
-				{/each}
-			</fieldset>
+			<p class="note">
+				Subtitles offered ({info.subtitles.map(trackName).join(', ')}) are not saved yet.
+			</p>
 		{/if}
+
+		<label class="field">
+			Save as
+			<input bind:value={name} placeholder="Name from the address" />
+		</label>
 	{/if}
 
-	<p class="note">
-		Saving streams needs the stream downloader (N_m3u8DL-RE) and ffmpeg; the app will offer to set
-		them up in the next step.
-	</p>
+	{#if info && !ffmpeg}
+		<p class="note">ffmpeg was not found: the video is saved as joined .ts segments.</p>
+	{/if}
+	{#if blocked && info}<p class="note">{blocked}.</p>{/if}
 	<div class="buttons">
 		<button type="button" onclick={() => dialog?.close()}>Close</button>
-		<button type="button" class="primary" disabled>Download</button>
+		<button type="button" class="primary" disabled={!!blocked || busy} onclick={download}>Download</button>
 	</div>
 </dialog>
 
@@ -184,7 +212,8 @@
 		color: var(--muted);
 		margin: 10px 0;
 	}
-	select {
+	select,
+	.field input {
 		padding: 5px 8px;
 		border: 1px solid var(--line);
 		border-radius: 5px;

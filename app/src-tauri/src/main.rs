@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use idma_manager::{Event, Manager, Move, NewTask, Status, Task, TaskId, TaskProgress};
+use idma_manager::{Config, Event, Manager, Move, NewTask, Status, Task, TaskId, TaskProgress};
 use serde::{Deserialize, Serialize};
 use settings::Settings;
 use tauri::{AppHandle, Emitter, Manager as _, RunEvent, State, WindowEvent};
@@ -27,6 +27,8 @@ struct App {
     data: PathBuf,
     settings: Mutex<Settings>,
     tray: Mutex<Option<tray::Tray>>,
+    /// ffmpeg, found on PATH at start: joins stream video and audio.
+    ffmpeg: Option<PathBuf>,
     /// A download waiting for the browser to capture a fresh link to it ("refresh in browser"),
     /// and since when.
     awaiting_link: Mutex<Option<(TaskId, std::time::Instant)>>,
@@ -130,6 +132,8 @@ struct AddRequest {
     login: Option<Login>,
     /// From the browser: cookies, referrer, user agent.
     headers: Option<Vec<(String, String)>>,
+    /// A stream: `url` is then the chosen video playlist.
+    stream: Option<idma_manager::Stream>,
 }
 
 #[tauri::command]
@@ -141,6 +145,7 @@ async fn add_task(app: State<'_, App>, request: AddRequest) -> CmdResult<Task> {
             name: request.name.filter(|n| !n.trim().is_empty()),
             dir: request.dir,
             start: request.start,
+            stream: request.stream,
             ..NewTask::default()
         })
         .await
@@ -320,7 +325,13 @@ async fn apply_settings(handle: &AppHandle, new: Settings) -> CmdResult<Settings
     new.validate()?;
     let app = handle.state::<App>();
     let old = lock(&app.settings).clone();
-    app.manager.set_config(new.config()).await.map_err(msg)?;
+    app.manager
+        .set_config(Config {
+            ffmpeg: app.ffmpeg.clone(),
+            ..new.config()
+        })
+        .await
+        .map_err(msg)?;
     app.manager.set_global_limit(new.speed_limit);
     if new.browser_integration != old.browser_integration {
         set_browser_integration(&app.data, new.browser_integration)?;
@@ -384,6 +395,26 @@ set \"IDMA_APP={}\"
         host
     };
     idma_bridge::register(&target, data).map_err(msg)
+}
+
+/// The first `name` in a folder on PATH.
+fn find_on_path(name: &str) -> Option<PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|dir| dir.join(name))
+        .find(|p| p.is_file())
+}
+
+/// Which helper programs the app found.
+#[derive(Serialize)]
+struct Tools {
+    ffmpeg: bool,
+}
+
+#[tauri::command]
+fn tools(app: State<'_, App>) -> Tools {
+    Tools {
+        ffmpeg: app.ffmpeg.is_some(),
+    }
 }
 
 /// Brings the window back, also from the tray.
@@ -666,7 +697,12 @@ fn main() {
             if settings.dir.as_os_str().is_empty() {
                 settings.dir = default_dir;
             }
-            let manager = tauri::async_runtime::block_on(Manager::open(&db, settings.config()))?;
+            let ffmpeg = find_on_path("ffmpeg.exe");
+            let config = Config {
+                ffmpeg: ffmpeg.clone(),
+                ..settings.config()
+            };
+            let manager = tauri::async_runtime::block_on(Manager::open(&db, config))?;
             if settings.browser_integration
                 && let Err(e) = set_browser_integration(&data, true)
             {
@@ -697,6 +733,7 @@ fn main() {
                 settings: Mutex::new(settings),
                 tray: Mutex::new(Some(tray)),
                 awaiting_link: Mutex::new(None),
+                ffmpeg,
             });
             if std::env::args().any(|a| a == HIDDEN_ARG)
                 && let Some(w) = app.get_webview_window("main")
@@ -728,6 +765,7 @@ fn main() {
             refresh_link,
             refresh_in_browser,
             inspect_media,
+            tools,
             set_login,
             open_file,
             show_in_folder,

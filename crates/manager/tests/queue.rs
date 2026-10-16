@@ -323,3 +323,38 @@ async fn login_prompt_then_credentials_continue() {
     assert_eq!(verify_file(&path, 41, size).expect("verify"), Verdict::Ok);
     m.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stream_task_pauses_and_finishes() {
+    let base = start_server().await;
+    let w = WorkDir::new("stream");
+    let m = Manager::open(&w.db(), w.config()).await.expect("open");
+    let seg = 256u64 << 10;
+    // 12 segments at 256 KiB/s each, four at a time: about 3 s.
+    let t = m
+        .add(NewTask {
+            url: format!("{base}/hls/v360.m3u8?segments=12&seed=9&rate=256K"),
+            name: Some("Kısa film".into()),
+            start: true,
+            stream: Some(idma_manager::Stream::default()),
+            ..NewTask::default()
+        })
+        .await
+        .expect("add");
+    let running = wait_for(&m, t.id, 10, |t| t.received > 0).await;
+    assert_eq!(running.name.as_deref(), Some("Kısa film.ts"));
+    assert_eq!(running.category, idma_manager::Category::Video);
+    m.pause(t.id).await.expect("pause");
+    assert_eq!(m.get(t.id).await.expect("get").status, Status::Paused);
+    let path = running.path.clone().expect("path");
+    assert!(PathBuf::from(format!("{}.idma-hls", path.display())).exists());
+
+    m.start(t.id).await.expect("start");
+    let done = wait_for(&m, t.id, 30, |t| t.status == Status::Done).await;
+    assert_eq!(done.size, Some(12 * seg));
+    assert_eq!(
+        verify_file(&path, idma_testserver::hls::track_seed(9, "v360"), 12 * seg).expect("verify"),
+        Verdict::Ok
+    );
+    m.close().await;
+}

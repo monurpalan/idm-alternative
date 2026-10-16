@@ -26,7 +26,7 @@ use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 
 use db::{Db, Insert};
-pub use task::{Category, ErrorKind, NewTask, Status, Task, TaskId, TaskProgress};
+pub use task::{Category, ErrorKind, NewTask, Status, Stream, Task, TaskId, TaskProgress};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -66,6 +66,9 @@ pub struct Config {
     pub max_retries: u32,
     /// Wait before the first retry; doubles with each one, up to five minutes.
     pub retry_delay: Duration,
+    /// Puts stream video and audio into one file; without it a stream is saved as the
+    /// joined `.ts` segments, and one with separate audio cannot be saved.
+    pub ffmpeg: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -79,6 +82,7 @@ impl Default for Config {
             engine: Options::default(),
             max_retries: 5,
             retry_delay: Duration::from_secs(5),
+            ffmpeg: None,
         }
     }
 }
@@ -190,13 +194,18 @@ fn merge_headers(old: &[(String, String)], fresh: &[(String, String)]) -> Vec<(S
         .collect()
 }
 
-/// The file and the engine's partial data and state next to it.
+/// The file and the engine's partial data and state next to it (for streams, the folder
+/// of segments).
 fn delete_files_of(path: &Path) {
-    for suffix in ["", ".idma-part", ".idma-state"] {
+    let with = |suffix: &str| {
         let mut p = path.as_os_str().to_owned();
         p.push(suffix);
-        std::fs::remove_file(PathBuf::from(p)).ok();
+        PathBuf::from(p)
+    };
+    for suffix in ["", ".idma-part", ".idma-state"] {
+        std::fs::remove_file(with(suffix)).ok();
     }
+    std::fs::remove_dir_all(with(".idma-hls")).ok();
 }
 
 fn now_ms() -> i64 {
@@ -321,6 +330,7 @@ impl Manager {
                 speed_limit: new.speed_limit,
                 checksum: new.checksum.as_deref(),
                 added_at: now_ms(),
+                stream: new.stream.as_ref(),
             })
             .await?;
         let task = self.get(id).await?;
@@ -700,6 +710,64 @@ impl Inner {
         }
     }
 
+    /// A stream (HLS): the name comes from the page title (or the playlist URL) with the
+    /// extension of what will be written, `.mp4` with ffmpeg, `.ts` without.
+    async fn download_stream(
+        &self,
+        mut task: Task,
+        stream: Stream,
+        opts: Options,
+        conflict: Conflict,
+        ffmpeg: Option<PathBuf>,
+        cancel: &CancellationToken,
+    ) -> Result<Outcome> {
+        let path = match &task.path {
+            Some(p) => p.clone(),
+            None => {
+                std::fs::create_dir_all(&task.dir).map_err(idma_engine::Error::from)?;
+                let base = task
+                    .name
+                    .clone()
+                    .or_else(|| idma_engine::name::from_url(&task.url))
+                    .unwrap_or_else(|| "video".to_owned());
+                let stem = idma_engine::name::split_extension(&base).0.to_owned();
+                let ext = if ffmpeg.is_some() { "mp4" } else { "ts" };
+                let name = idma_engine::name::sanitize(&format!("{stem}.{ext}"));
+                let _one_at_a_time = self.naming.lock().await;
+                let taken: std::collections::HashSet<PathBuf> =
+                    self.db.paths_except(task.id).await?.into_iter().collect();
+                let path =
+                    idma_engine::target_avoiding(&task.dir, &name, &task.url, conflict, |p| {
+                        taken.contains(p)
+                    });
+                let file_name = path
+                    .file_name()
+                    .map_or_else(|| name.clone(), |n| n.to_string_lossy().into_owned());
+                self.db
+                    .set_target(task.id, &file_name, &path, None, Category::Video)
+                    .await?;
+                task.name = Some(file_name);
+                task.path = Some(path.clone());
+                task.category = Category::Video;
+                self.emit(Event::Updated(task.clone()));
+                path
+            }
+        };
+        let req = idma_engine::StreamRequest {
+            video: task.url.clone(),
+            audio: stream.audio,
+            output: path,
+            headers: task.headers.clone(),
+            ffmpeg,
+        };
+        let (tx, rx) = watch::channel(Progress::default());
+        let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
+        let result = idma_engine::download_hls(&req, &opts, Some(&tx), cancel).await;
+        drop(tx);
+        reporter.await.ok();
+        Ok(result?)
+    }
+
     /// After a failure: when it may pass and retries are left, records when to try again,
     /// wakes the queue then, and returns the wait.
     fn schedule_retry(self: &Arc<Self>, id: TaskId, e: &Error) -> Option<Duration> {
@@ -739,9 +807,9 @@ impl Inner {
         cancel: &CancellationToken,
         limiter: Limiter,
     ) -> Result<Outcome> {
-        let (mut opts, conflict) = {
+        let (mut opts, conflict, ffmpeg) = {
             let cfg = lock(&self.config);
-            (cfg.engine.clone(), cfg.conflict)
+            (cfg.engine.clone(), cfg.conflict, cfg.ffmpeg.clone())
         };
         opts.connections = task.connections;
         opts.limiters = vec![self.global.clone(), limiter];
@@ -751,6 +819,12 @@ impl Inner {
             .map(str::parse)
             .transpose()
             .map_err(Error::BadChecksum)?;
+
+        if let Some(stream) = task.stream.clone() {
+            return self
+                .download_stream(task, stream, opts, conflict, ffmpeg, cancel)
+                .await;
+        }
 
         let path = match &task.path {
             Some(p) => p.clone(),
