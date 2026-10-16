@@ -70,6 +70,7 @@ async fn killed_process_resumes() {
         "server sent {} MiB in total",
         sent / MB
     );
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 async fn bytes_sent(base: &str) -> u64 {

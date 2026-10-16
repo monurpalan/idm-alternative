@@ -21,14 +21,29 @@ pub async fn start() -> String {
     format!("http://{addr}")
 }
 
-/// A fresh, empty directory for one test.
-pub fn workdir(name: &str) -> PathBuf {
+/// A fresh, empty directory for one test, removed again when the test ends (downloads add
+/// up to gigabytes per run). Keep it in a variable: a temporary is dropped at once.
+pub struct WorkDir(PathBuf);
+
+impl WorkDir {
+    pub fn join(&self, name: &str) -> PathBuf {
+        self.0.join(name)
+    }
+}
+
+impl Drop for WorkDir {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).ok();
+    }
+}
+
+pub fn workdir(name: &str) -> WorkDir {
     let dir = std::env::temp_dir()
         .join("idma-engine-tests")
         .join(format!("{name}-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).expect("create workdir");
-    dir
+    WorkDir(dir)
 }
 
 pub fn request(url: String, output: &Path) -> Request {

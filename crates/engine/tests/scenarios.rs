@@ -14,7 +14,8 @@ use idma_engine::{CancellationToken, Error, Options, Outcome, download};
 /// Downloads `query` (appended to the URL) and checks the file.
 async fn ok(name: &str, size: u64, query: &str, connections: usize) -> Outcome {
     let base = start().await;
-    let out = workdir(name).join("f.bin");
+    let dir = workdir(name);
+    let out = dir.join("f.bin");
     let url = format!("{base}/file/f.bin?size={size}&seed=7{query}");
     let done = get(&request(url, &out), &opts(connections))
         .await
@@ -63,7 +64,8 @@ async fn dropped_connections_are_resumed() {
 #[tokio::test(flavor = "multi_thread")]
 async fn stalled_connection_is_replaced() {
     let base = start().await;
-    let out = workdir("stall").join("f.bin");
+    let dir = workdir("stall");
+    let out = dir.join("f.bin");
     let url = format!("{base}/file/f.bin?size={}&seed=7&stall_after=2M", 8 * MB);
     let o = Options {
         read_timeout: Duration::from_millis(500),
@@ -96,7 +98,8 @@ async fn follows_redirects() {
 #[tokio::test(flavor = "multi_thread")]
 async fn changed_file_is_detected_and_discarded() {
     let base = start().await;
-    let out = workdir("etag-rotate").join("f.bin");
+    let dir = workdir("etag-rotate");
+    let out = dir.join("f.bin");
     let url = format!("{base}/file/f.bin?size={}&etag=rotate&rate=4M", 16 * MB);
     let err = get(&request(url, &out), &opts(8))
         .await
@@ -109,7 +112,8 @@ async fn changed_file_is_detected_and_discarded() {
 #[tokio::test(flavor = "multi_thread")]
 async fn html_error_page_is_not_written_as_data() {
     let base = start().await;
-    let out = workdir("html").join("f.bin");
+    let dir = workdir("html");
+    let out = dir.join("f.bin");
     let url = format!(
         "{base}/file/f.bin?size={}&html_error_after=1&rate=4M",
         16 * MB
@@ -146,7 +150,8 @@ async fn interrupt(url: &str, out: &Path, after: Duration, cancel: bool) {
 
 async fn interrupted_then_resumed(name: &str, cancel: bool) {
     let base = start().await;
-    let out = workdir(name).join("f.bin");
+    let dir = workdir(name);
+    let out = dir.join("f.bin");
     let size = 16 * MB;
     // 4 connections at 1 MiB/s: about 4 s in total.
     let url = format!("{base}/file/f.bin?size={size}&seed=3&rate=1M");
@@ -177,7 +182,8 @@ async fn killed_then_resume() {
 #[tokio::test(flavor = "multi_thread")]
 async fn completed_download_is_not_fetched_again() {
     let base = start().await;
-    let out = workdir("again").join("f.bin");
+    let dir = workdir("again");
+    let out = dir.join("f.bin");
     let url = format!("{base}/file/f.bin?size={}&seed=7", 4 * MB);
     get(&request(url.clone(), &out), &opts(4))
         .await

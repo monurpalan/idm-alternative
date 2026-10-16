@@ -1,12 +1,16 @@
 //! Transport: HTTPS with HTTP/2, browser fingerprints, proxies.
 
-use std::path::{Path, PathBuf};
+mod common;
+
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use idma_engine::{Browser, CancellationToken, Error, Options, Outcome, Request, download};
 use idma_testserver::{SelfSigned, Verdict, router, serve_plain, serve_tls, verify_file};
+
+use common::workdir;
 
 const MB: u64 = 1 << 20;
 const LIMIT: Duration = Duration::from_secs(60);
@@ -28,15 +32,6 @@ async fn start_plain() -> String {
     let addr = listener.local_addr().expect("addr");
     tokio::spawn(async move { serve_plain(listener, router()).await });
     format!("http://{addr}")
-}
-
-fn workdir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir()
-        .join("idma-engine-tests")
-        .join(format!("{name}-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).expect("create workdir");
-    dir
 }
 
 async fn get(url: String, out: &Path, opts: &Options) -> idma_engine::Result<Outcome> {
@@ -80,7 +75,8 @@ fn tls_opts() -> Options {
 #[tokio::test(flavor = "multi_thread")]
 async fn http2_segments_get_their_own_connections() {
     let base = start_tls().await;
-    let out = workdir("h2").join("f.bin");
+    let dir = workdir("h2");
+    let out = dir.join("f.bin");
     // 2 MiB/s per response: segmenting only helps if responses do not share a connection.
     let url = format!("{base}/file/f.bin?size={}&seed=4&rate=2M", 16 * MB);
     let done = get(url, &out, &tls_opts()).await.expect("download");
@@ -94,7 +90,8 @@ async fn http2_segments_get_their_own_connections() {
 #[tokio::test(flavor = "multi_thread")]
 async fn presents_the_browser_user_agent() {
     let base = start_tls().await;
-    let out = workdir("ua-chrome").join("f.bin");
+    let dir = workdir("ua-chrome");
+    let out = dir.join("f.bin");
     get(format!("{base}/file/f.bin?size={MB}"), &out, &tls_opts())
         .await
         .expect("download");
@@ -106,7 +103,8 @@ async fn presents_the_browser_user_agent() {
 #[tokio::test(flavor = "multi_thread")]
 async fn plain_client_and_http1_only() {
     let base = start_tls().await;
-    let out = workdir("plain").join("f.bin");
+    let dir = workdir("plain");
+    let out = dir.join("f.bin");
     let o = Options {
         browser: None,
         http1_only: true,
@@ -129,7 +127,8 @@ async fn plain_client_and_http1_only() {
 #[tokio::test(flavor = "multi_thread")]
 async fn custom_user_agent_wins() {
     let base = start_tls().await;
-    let out = workdir("ua-custom").join("f.bin");
+    let dir = workdir("ua-custom");
+    let out = dir.join("f.bin");
     let o = Options {
         user_agent: Some("Wget/1.21".into()),
         browser: Some(Browser::Firefox),
@@ -144,7 +143,8 @@ async fn custom_user_agent_wins() {
 #[tokio::test(flavor = "multi_thread")]
 async fn self_signed_certificate_is_rejected_by_default() {
     let base = start_tls().await;
-    let out = workdir("bad-cert").join("f.bin");
+    let dir = workdir("bad-cert");
+    let out = dir.join("f.bin");
     let o = Options {
         insecure: false,
         ..tls_opts()
@@ -160,7 +160,8 @@ async fn downloads_through_a_proxy() {
     // The test server also answers absolute-form requests, so it can stand in for a
     // forward proxy: the file's host does not exist, only the proxy can reach "it".
     let proxy = start_plain().await;
-    let out = workdir("proxy").join("f.bin");
+    let dir = workdir("proxy");
+    let out = dir.join("f.bin");
     let o = Options {
         proxy: Some(proxy.clone()),
         connections: 4,
@@ -226,7 +227,8 @@ async fn downloads_through_a_socks5_proxy() {
         .parse()
         .expect("server address");
     let (proxy, tunnels) = start_socks5(target).await;
-    let out = workdir("socks5").join("f.bin");
+    let dir = workdir("socks5");
+    let out = dir.join("f.bin");
     let o = Options {
         proxy: Some(proxy),
         connections: 4,

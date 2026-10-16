@@ -17,7 +17,8 @@ fn ratio(bytes: u64, elapsed: Duration, rate: u64) -> f64 {
 async fn speed_limit_is_accurate() {
     let _serial = serial().await;
     let base = start().await;
-    let out = workdir("limit").join("f.bin");
+    let dir = workdir("limit");
+    let out = dir.join("f.bin");
     let (size, rate) = (16 * MB, 4 * MB);
     let url = format!("{base}/file/f.bin?size={size}&seed=7");
     let o = Options {
@@ -79,7 +80,8 @@ async fn global_limit_is_shared_between_downloads() {
 async fn limit_can_change_during_a_download() {
     let _serial = serial().await;
     let base = start().await;
-    let out = workdir("limit-change").join("f.bin");
+    let dir = workdir("limit-change");
+    let out = dir.join("f.bin");
     let size = 12 * MB;
     let limiter = Limiter::new(Some(2 * MB));
     let o = Options {
@@ -105,7 +107,8 @@ async fn limit_can_change_during_a_download() {
 async fn low_limit_uses_few_connections() {
     let _serial = serial().await;
     let base = start().await;
-    let out = workdir("low-limit").join("f.bin");
+    let dir = workdir("low-limit");
+    let out = dir.join("f.bin");
     // 96 KiB/s allows three connections of at least 32 KiB/s each.
     let (size, rate) = (192 << 10, 96 << 10);
     let o = Options {

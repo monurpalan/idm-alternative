@@ -1,11 +1,15 @@
 //! Expiring links: redirect targets resolved again, expired links stopping cleanly, and
 //! continuing an interrupted download from a fresh link.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use idma_engine::{CancellationToken, Error, Options, Outcome, Request, download, patch_url};
 use idma_testserver::{Verdict, router, serve_plain, verify_file};
+
+use common::workdir;
 
 const MB: u64 = 1 << 20;
 const SIZE: u64 = 16 * MB;
@@ -18,15 +22,6 @@ async fn start() -> String {
     let addr = listener.local_addr().expect("addr");
     tokio::spawn(async move { serve_plain(listener, router()).await });
     format!("http://{addr}")
-}
-
-fn workdir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir()
-        .join("idma-engine-tests")
-        .join(format!("{name}-{}", std::process::id()));
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).expect("create workdir");
-    dir
 }
 
 fn request(url: String, output: &Path) -> Request {
@@ -77,7 +72,8 @@ async fn expire(base: &str, out: &Path) {
 #[tokio::test(flavor = "multi_thread")]
 async fn expired_redirect_target_is_resolved_again() {
     let base = start().await;
-    let out = workdir("redirect-expiry").join("f.bin");
+    let dir = workdir("redirect-expiry");
+    let out = dir.join("f.bin");
     // Every resolved link lives one second; the download needs about four, and responses
     // are cut every MiB so new requests keep hitting the expiry.
     let url = format!(
@@ -101,7 +97,8 @@ async fn expired_redirect_target_is_resolved_again() {
 #[tokio::test(flavor = "multi_thread")]
 async fn fresh_link_continues_an_expired_download() {
     let base = start().await;
-    let out = workdir("fresh-link").join("f.bin");
+    let dir = workdir("fresh-link");
+    let out = dir.join("f.bin");
     expire(&base, &out).await;
     // Another URL for the same file, as the browser would capture it.
     let fresh = format!("{base}/file/new.bin?size={SIZE}&seed=8");
@@ -117,7 +114,8 @@ async fn fresh_link_continues_an_expired_download() {
 #[tokio::test(flavor = "multi_thread")]
 async fn link_to_a_different_file_starts_over() {
     let base = start().await;
-    let out = workdir("other-file").join("f.bin");
+    let dir = workdir("other-file");
+    let out = dir.join("f.bin");
     expire(&base, &out).await;
     // Same size, different content: the sample on disk does not match.
     let other = format!("{base}/file/new.bin?size={SIZE}&seed=9");
@@ -129,7 +127,8 @@ async fn link_to_a_different_file_starts_over() {
 #[tokio::test(flavor = "multi_thread")]
 async fn patch_url_checks_the_new_link() {
     let base = start().await;
-    let out = workdir("patch").join("f.bin");
+    let dir = workdir("patch");
+    let out = dir.join("f.bin");
     expire(&base, &out).await;
 
     let wrong = request(format!("{base}/file/new.bin?size={SIZE}&seed=9"), &out);
@@ -160,7 +159,8 @@ async fn patch_url_checks_the_new_link() {
 #[tokio::test(flavor = "multi_thread")]
 async fn patch_url_without_an_interrupted_download_fails() {
     let base = start().await;
-    let out = workdir("patch-nothing").join("f.bin");
+    let dir = workdir("patch-nothing");
+    let out = dir.join("f.bin");
     let req = request(format!("{base}/file/new.bin?size={SIZE}"), &out);
     assert!(matches!(
         patch_url(&req, &opts()).await,
