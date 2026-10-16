@@ -317,6 +317,9 @@ impl Job<'_> {
             return Ok((0, 0));
         }
 
+        if let Some(size) = remote.size {
+            check_space(self.part, size.saturating_sub(resumed_from))?;
+        }
         let ctx = Arc::new(Ctx {
             file: OutputFile::open(self.part, remote.size)?,
             http: self.http.clone(),
@@ -582,6 +585,27 @@ impl Job<'_> {
         State::new(&self.req.url, size, ctx.remote().0.validators, segments)
             .save(self.state_path)?;
         Ok(())
+    }
+}
+
+/// Fails with [`Error::DiskFull`] when the disk holding `part` has less than `need` bytes
+/// free. The file is sparse, so space is only taken as data arrives and a full disk would
+/// otherwise show up much later, in the middle of the download.
+fn check_space(part: &Path, need: u64) -> Result<()> {
+    let dir = match part.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d,
+        _ => Path::new("."),
+    };
+    match fs4::available_space(dir) {
+        Ok(free) if free < need => Err(Error::DiskFull {
+            need: Some(need),
+            free: Some(free),
+        }),
+        Ok(_) => Ok(()),
+        Err(e) => {
+            tracing::debug!("could not read free space: {e}");
+            Ok(())
+        }
     }
 }
 

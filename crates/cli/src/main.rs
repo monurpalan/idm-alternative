@@ -175,6 +175,10 @@ async fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
+        Err(e @ Error::DiskFull { .. }) => {
+            eprintln!("dm: {e}; free some space and run the same command again to resume");
+            ExitCode::FAILURE
+        }
         Err(Error::Cancelled) => {
             eprintln!("dm: cancelled; run the same command again to resume");
             ExitCode::from(130)

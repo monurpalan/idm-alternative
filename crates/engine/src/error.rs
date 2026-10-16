@@ -5,7 +5,15 @@ pub enum Error {
     #[error("network: {0}")]
     Http(#[from] wreq::Error),
     #[error("disk: {0}")]
-    Io(#[from] std::io::Error),
+    Io(std::io::Error),
+    /// Not enough room for the rest of the file (`need`/`free` known when checked before
+    /// writing), or a write failed because the disk filled up. Progress is kept: the
+    /// download resumes once space is freed.
+    #[error("{}", disk_full_message(*.need, *.free))]
+    DiskFull {
+        need: Option<u64>,
+        free: Option<u64>,
+    },
     #[error("server returned HTTP {0}")]
     Status(u16),
     /// The link stopped working (HTTP 401, 403 or 410), even after following the original
@@ -50,8 +58,65 @@ impl Error {
                 | Error::Io(_)
                 | Error::Cancelled
                 | Error::LinkExpired(_)
+                | Error::DiskFull { .. }
         )
     }
 }
 
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        // ERROR_HANDLE_DISK_FULL (39) and ERROR_DISK_FULL (112) on Windows.
+        if e.kind() == std::io::ErrorKind::StorageFull
+            || (cfg!(windows) && matches!(e.raw_os_error(), Some(39 | 112)))
+        {
+            Error::DiskFull {
+                need: None,
+                free: None,
+            }
+        } else {
+            Error::Io(e)
+        }
+    }
+}
+
+fn disk_full_message(need: Option<u64>, free: Option<u64>) -> String {
+    match (need, free) {
+        (Some(need), Some(free)) => format!(
+            "not enough disk space: {} MiB more needed, {} MiB free",
+            need.div_ceil(1 << 20),
+            free >> 20
+        ),
+        _ => "the disk is full".to_owned(),
+    }
+}
+
 pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn full_disk_writes_become_disk_full() {
+        let full = Error::from(std::io::Error::from(std::io::ErrorKind::StorageFull));
+        assert!(matches!(full, Error::DiskFull { need: None, .. }));
+        assert_eq!(full.to_string(), "the disk is full");
+        #[cfg(windows)]
+        assert!(matches!(
+            Error::from(std::io::Error::from_raw_os_error(112)),
+            Error::DiskFull { .. }
+        ));
+        assert!(matches!(
+            Error::from(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+            Error::Io(_)
+        ));
+        let checked = Error::DiskFull {
+            need: Some(3 << 20),
+            free: Some(1 << 20),
+        };
+        assert_eq!(
+            checked.to_string(),
+            "not enough disk space: 3 MiB more needed, 1 MiB free"
+        );
+    }
+}

@@ -16,6 +16,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-util = "0.7"
 tracing.workspace = true
+fs4 = "1.1.0"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

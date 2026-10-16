@@ -1,4 +1,4 @@
-//! Choosing the file name from the server's answer before downloading.
+//! Where a download goes: the file name from the server, files already there, free space.
 
 mod common;
 
@@ -77,4 +77,27 @@ async fn second_download_of_the_same_file_is_refused() {
     first.await.expect("join").expect("first download");
     common::assert_verified(&out, 9, size);
     assert!(!dir.join("f.bin.idma-lock").exists());
+}
+
+/// A file larger than the free space is refused before anything is written, instead of
+/// failing halfway (the output is sparse, so space is only taken as data arrives).
+#[tokio::test]
+async fn file_larger_than_free_space_is_refused() {
+    let base = start().await;
+    let dir = common::workdir("disk-full");
+    let out = dir.join("huge.bin");
+    let size: u64 = 1 << 50; // 1 PiB
+    let req = common::request(format!("{base}/file/huge.bin?size={size}"), &out);
+    match common::get(&req, &common::opts(4)).await {
+        Err(idma_engine::Error::DiskFull {
+            need: Some(need),
+            free: Some(free),
+        }) => {
+            assert_eq!(need, size);
+            assert!(free < size);
+        }
+        other => panic!("expected DiskFull, got {other:?}"),
+    }
+    assert!(!dir.join("huge.bin.idma-part").exists());
+    assert!(!out.exists());
 }
