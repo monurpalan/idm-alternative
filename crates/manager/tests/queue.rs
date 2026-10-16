@@ -395,3 +395,40 @@ async fn dash_task_downloads_the_chosen_representation() {
     );
     m.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stream_subtitles_are_saved_next_to_the_video() {
+    let base = start_server().await;
+    let w = WorkDir::new("stream-subs");
+    let m = Manager::open(&w.db(), w.config()).await.expect("open");
+    let q = "segments=3&subs=1&seg_size=64K";
+    let t = m
+        .add(NewTask {
+            url: format!("{base}/hls/v360.m3u8?{q}"),
+            name: Some("Film".into()),
+            start: true,
+            stream: Some(idma_manager::Stream {
+                subtitles: vec![idma_manager::Subtitle {
+                    id: format!("{base}/hls/subs.m3u8?{q}"),
+                    language: Some("tr".into()),
+                }],
+                ..idma_manager::Stream::default()
+            }),
+            ..NewTask::default()
+        })
+        .await
+        .expect("add");
+    let done = wait_for(&m, t.id, 20, |t| {
+        matches!(t.status, Status::Done | Status::Error)
+    })
+    .await;
+    assert_eq!(done.status, Status::Done, "{:?}", done.error);
+    let video = done.path.expect("path");
+    let subs = video.with_file_name("Film.tr.vtt");
+    let text = std::fs::read_to_string(&subs).expect("subtitles saved");
+    assert_eq!(text.matches(" --> ").count(), 3);
+
+    m.remove(t.id, true).await.expect("remove");
+    assert!(!video.exists() && !subs.exists(), "removed with the video");
+    m.close().await;
+}

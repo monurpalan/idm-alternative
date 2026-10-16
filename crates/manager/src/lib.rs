@@ -27,7 +27,9 @@ use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 
 use db::{Db, Insert};
-pub use task::{Category, ErrorKind, NewTask, Status, Stream, Task, TaskId, TaskProgress};
+pub use task::{
+    Category, ErrorKind, NewTask, Status, Stream, Subtitle, Task, TaskId, TaskProgress,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -171,6 +173,17 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// `film.mp4` → `film.<label>.<ext>`, the name players look for next to a video.
+fn subtitle_path(video: &Path, label: &str, ext: &str) -> PathBuf {
+    let stem = video
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    video.with_file_name(idma_engine::name::sanitize(&format!(
+        "{stem}.{label}.{ext}"
+    )))
+}
+
 /// Failures that may pass by themselves: the network, or a server that is busy or erroring.
 /// Not: a missing file (4xx), a changed file, a full disk, an expired link or a checksum
 /// mismatch, which need the user.
@@ -217,7 +230,9 @@ fn delete_files_of(path: &Path) {
         let prefix = format!("{}.", stem.to_string_lossy());
         for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if name.starts_with(&prefix) && (name.ends_with(".part") || name.ends_with(".ytdl")) {
+            let partial = name.ends_with(".part") || name.ends_with(".ytdl");
+            let subtitles = name.ends_with(".vtt") || name.ends_with(".ttml");
+            if name.starts_with(&prefix) && (partial || subtitles) {
                 std::fs::remove_file(entry.path()).ok();
             }
         }
@@ -774,6 +789,9 @@ impl Inner {
                 path
             }
         };
+        let subtitles = stream.subtitles.clone();
+        let is_dash = stream.dash.is_some();
+        let video_path = path.clone();
         let (tx, rx) = watch::channel(Progress::default());
         let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
         let result = match stream.dash {
@@ -801,7 +819,35 @@ impl Inner {
         };
         drop(tx);
         reporter.await.ok();
-        Ok(result?)
+        let outcome = result?;
+        // Subtitles go next to the video; a subtitle that fails does not fail the download.
+        for (i, sub) in subtitles.iter().enumerate() {
+            let source = if is_dash {
+                idma_engine::SubtitleSource::Dash {
+                    manifest: task.url.clone(),
+                    representation: sub.id.clone(),
+                }
+            } else {
+                idma_engine::SubtitleSource::Hls {
+                    playlist: sub.id.clone(),
+                }
+            };
+            let label = sub.language.clone().unwrap_or_else(|| (i + 1).to_string());
+            let out = subtitle_path(&video_path, &label, "vtt");
+            match idma_engine::download_subtitles(&source, &out, &task.headers, &opts).await {
+                Ok(_) => {
+                    // A DASH text track can be TTML rather than WebVTT.
+                    let is_xml = std::fs::read(&out)
+                        .map(|b| b.iter().find(|c| !c.is_ascii_whitespace()) == Some(&b'<'))
+                        .unwrap_or(false);
+                    if is_xml {
+                        std::fs::rename(&out, subtitle_path(&video_path, &label, "ttml")).ok();
+                    }
+                }
+                Err(e) => tracing::warn!(id = task.id, "subtitles {label} not saved: {e}"),
+            }
+        }
+        Ok(outcome)
     }
 
     /// A page of a site yt-dlp knows: yt-dlp downloads the chosen format; the file's real

@@ -241,3 +241,21 @@ async fn joins_real_video_and_audio_with_ffmpeg() {
         .expect("duration");
     assert!((7.5..=8.6).contains(&seconds), "{seconds} s");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn joins_hls_subtitle_segments() {
+    let base = start().await;
+    let dir = workdir("hls-subs");
+    let out = dir.join("film.tr.vtt");
+    let source = idma_engine::SubtitleSource::Hls {
+        playlist: format!("{base}/hls/subs.m3u8?segments=5&subs=1"),
+    };
+    idma_engine::download_subtitles(&source, &out, &[], &Options::default())
+        .await
+        .expect("subtitles");
+    let text = std::fs::read_to_string(&out).expect("read");
+    assert_eq!(text.matches("WEBVTT").count(), 1, "{text}");
+    assert_eq!(text.matches(" --> ").count(), 5);
+    assert!(text.find("Altyazı 0").expect("0") < text.find("Altyazı 4").expect("4"));
+    assert!(text.contains("00:00:16.000 --> 00:00:18.000"));
+}

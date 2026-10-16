@@ -32,6 +32,8 @@ pub struct Params {
     pub init_size: Size,
     pub seed: u64,
     pub audio: u8,
+    /// Add a Turkish WebVTT text representation (`s`) as one file.
+    pub subs: u8,
 }
 
 impl Default for Params {
@@ -43,6 +45,7 @@ impl Default for Params {
             init_size: Size(4096),
             seed: 1,
             audio: 0,
+            subs: 0,
         }
     }
 }
@@ -114,6 +117,11 @@ pub(crate) async fn manifest(
     if p.audio == 1 {
         body.push_str(&reps("audio", &[("a", 0)]));
     }
+    if p.subs == 1 {
+        body.push_str(&format!(
+            "<AdaptationSet contentType=\"text\" mimeType=\"text/vtt\" lang=\"tr\"><Representation id=\"s\" bandwidth=\"256\"><BaseURL>s/whole.vtt?{q}</BaseURL></Representation></AdaptationSet>",
+        ));
+    }
     body.push_str("</Period></MPD>");
     let url = app.url(&uri.to_string());
     url.gets.fetch_add(1, Ordering::Relaxed);
@@ -128,6 +136,34 @@ pub(crate) async fn segment(
     Path((rep, file)): Path<(String, String)>,
     Query(p): Query<Params>,
 ) -> Response {
+    if file == "whole.vtt" {
+        let cues: String = (0..p.segments as u32)
+            .map(|i| {
+                crate::hls::subtitle_segment(i)
+                    .split_once(
+                        "
+
+",
+                    )
+                    .map(|(_, cue)| {
+                        format!(
+                            "{cue}
+"
+                        )
+                    })
+                    .unwrap_or_default()
+            })
+            .collect();
+        return (
+            [(header::CONTENT_TYPE, "text/vtt")],
+            format!(
+                "WEBVTT
+
+{cues}"
+            ),
+        )
+            .into_response();
+    }
     let (offset, len) = if file == "init.mp4" {
         (0, p.init_size.0)
     } else {

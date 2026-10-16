@@ -54,6 +54,18 @@ pub struct Stream {
     /// `audio` an audio representation id.
     #[serde(default)]
     pub dash: Option<String>,
+    /// Subtitle tracks saved next to the video when it is done.
+    #[serde(default)]
+    pub subtitles: Vec<Subtitle>,
+}
+
+/// A subtitle track of a stream.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct Subtitle {
+    /// HLS: the rendition's playlist; DASH: the text representation id.
+    pub id: String,
+    /// Language code, used in the file name (`film.tr.vtt`).
+    pub language: Option<String>,
 }
 
 /// What a failure needs from the user; the UI offers the matching fix.

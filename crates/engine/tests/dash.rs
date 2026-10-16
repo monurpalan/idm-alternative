@@ -183,3 +183,31 @@ async fn joins_real_dash_video_and_audio() {
         .expect("duration");
     assert!((7.5..=8.6).contains(&seconds), "{seconds} s");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn saves_a_dash_text_representation() {
+    let base = start().await;
+    let dir = workdir("dash-subs");
+    let out = dir.join("film.tr.vtt");
+    let source = idma_engine::SubtitleSource::Dash {
+        manifest: format!("{base}/dash/manifest.mpd?segments=3&subs=1"),
+        representation: "s".into(),
+    };
+    idma_engine::download_subtitles(&source, &out, &[], &Options::default())
+        .await
+        .expect("subtitles");
+    let text = std::fs::read_to_string(&out).expect("read");
+    assert!(text.starts_with("WEBVTT"));
+    assert_eq!(text.matches(" --> ").count(), 3);
+    // The manifest lists it with its language.
+    let (mpd, _) = idma_engine::fetch_text(
+        &format!("{base}/dash/manifest.mpd?segments=3&subs=1"),
+        &[],
+        &Options::default(),
+        1 << 20,
+    )
+    .await
+    .expect("mpd");
+    let streams = idma_media::parse_mpd("u", &mpd).expect("parse");
+    assert_eq!(streams.subtitles[0].language.as_deref(), Some("tr"));
+}

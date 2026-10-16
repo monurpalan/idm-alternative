@@ -21,6 +21,8 @@
 	let video = $state('');
 	let audio = $state('');
 	let name = $state('');
+	/** Ids of the subtitle tracks to save. */
+	let subtitles = $state(new Set<string>());
 	let ffmpeg = $state(true);
 	let busy = $state(false);
 	let dialog: HTMLDialogElement | undefined = $state();
@@ -46,10 +48,13 @@
 				start: true,
 				login: null,
 				headers: media.headers,
-				stream:
-					info.format === 'dash'
-						? { audio: audio || null, dash: video }
-						: { audio: audio || null }
+				stream: {
+					audio: audio || null,
+					dash: info.format === 'dash' ? video : null,
+					subtitles: info.subtitles
+						.filter((s) => s.id && subtitles.has(s.id))
+						.map((s) => ({ id: s.id!, language: s.language }))
+				}
 			});
 			dialog?.close();
 		} catch (e) {
@@ -67,6 +72,7 @@
 			info = await inspectMedia(url, media.headers);
 			video = info.video[0]?.id ?? '';
 			audio = (info.audio.find((a) => a.default) ?? info.audio[0])?.id ?? '';
+			subtitles = new Set();
 		} catch (e) {
 			error = String(e);
 		} finally {
@@ -149,9 +155,25 @@
 		{/if}
 
 		{#if info.subtitles.length}
-			<p class="note">
-				Subtitles offered ({info.subtitles.map(trackName).join(', ')}) are not saved yet.
-			</p>
+			<fieldset>
+				<legend>Subtitles (saved next to the video)</legend>
+				{#each info.subtitles as s (s.id ?? s.name)}
+					<label class="option">
+						<input
+							type="checkbox"
+							disabled={!s.id}
+							checked={!!s.id && subtitles.has(s.id)}
+							onchange={() => {
+								const next = new Set(subtitles);
+								if (s.id && next.has(s.id)) next.delete(s.id);
+								else if (s.id) next.add(s.id);
+								subtitles = next;
+							}}
+						/>
+						{trackName(s)}
+					</label>
+				{/each}
+			</fieldset>
 		{/if}
 
 		<label class="field">

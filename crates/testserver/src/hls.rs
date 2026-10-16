@@ -37,6 +37,8 @@ pub struct Params {
     pub key: u8,
     /// Add an audio rendition (`a`).
     pub audio: u8,
+    /// Add a WebVTT subtitle rendition (`subs`), one cue per segment.
+    pub subs: u8,
     /// Per-response rate for segments.
     pub rate: Option<Size>,
     /// Segment number that fails with 500 on its first request (retry tests).
@@ -52,6 +54,7 @@ impl Default for Params {
             variants: "360,720".into(),
             key: 0,
             audio: 0,
+            subs: 0,
             rate: None,
             fail_once: None,
         }
@@ -98,12 +101,20 @@ pub(crate) async fn master(
             "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aud\",NAME=\"Main\",LANGUAGE=\"en\",DEFAULT=YES,URI=\"a.m3u8?{query}\"\n"
         ));
     }
+    if p.subs == 1 {
+        out.push_str(&format!(
+            "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"Türkçe\",LANGUAGE=\"tr\",URI=\"subs.m3u8?{query}\"\n"
+        ));
+    }
     for h in p
         .variants
         .split(',')
         .filter_map(|h| h.trim().parse::<u32>().ok())
     {
-        let audio = if p.audio == 1 { ",AUDIO=\"aud\"" } else { "" };
+        let mut audio = if p.audio == 1 { ",AUDIO=\"aud\"" } else { "" }.to_owned();
+        if p.subs == 1 {
+            audio.push_str(",SUBTITLES=\"subs\"");
+        }
         out.push_str(&format!(
             "#EXT-X-STREAM-INF:BANDWIDTH={},RESOLUTION={}x{h}{audio}\nv{h}.m3u8?{query}\n",
             h * 5000,
@@ -133,8 +144,9 @@ pub(crate) async fn media_playlist(
             p.seed
         ));
     }
+    let ext = if track == "subs" { "vtt" } else { "ts" };
     for i in 0..p.segments {
-        out.push_str(&format!("#EXTINF:4.000,\n{track}/{i}.ts?{query}\n"));
+        out.push_str(&format!("#EXTINF:4.000,\n{track}/{i}.{ext}?{query}\n"));
     }
     out.push_str("#EXT-X-ENDLIST\n");
     count(&app, &uri, out.len() as u64);
@@ -165,6 +177,12 @@ pub(crate) async fn segment(
     Path((track, file)): Path<(String, String)>,
     Query(p): Query<Params>,
 ) -> Response {
+    if let Some(i) = file
+        .strip_suffix(".vtt")
+        .and_then(|n| n.parse::<u32>().ok())
+    {
+        return ([(header::CONTENT_TYPE, "text/vtt")], subtitle_segment(i)).into_response();
+    }
     let Some(i) = file.strip_suffix(".ts").and_then(|n| n.parse::<u32>().ok()) else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -225,6 +243,21 @@ pub(crate) async fn segment(
         body,
     )
         .into_response()
+}
+
+/// WebVTT segment `i`: one cue, `Altyazı i`, at seconds `4i` to `4i + 2`.
+pub fn subtitle_segment(i: u32) -> String {
+    let t = |s: u32| format!("00:{:02}:{:02}.000", s / 60, s % 60);
+    format!(
+        "WEBVTT
+X-TIMESTAMP-MAP=MPEGTS:900000,LOCAL:00:00:00.000
+
+{} --> {}
+Altyazı {i}
+",
+        t(i * 4),
+        t(i * 4 + 2)
+    )
 }
 
 #[cfg(test)]
