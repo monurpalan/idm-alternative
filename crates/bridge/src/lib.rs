@@ -28,6 +28,11 @@ pub const APP_ID: &str = "io.github.monurpalan.idma";
 /// Name of the native messaging host, as registered with the browsers.
 pub const HOST_NAME: &str = "io.github.monurpalan.idma";
 
+/// The extension's ID in Chromium browsers (fixed by the public key in its manifest), and in
+/// Firefox; the host's registration allows only these to start it.
+pub const CHROMIUM_EXTENSION_ID: &str = "calgjlgiljgeegibddigkflnpegdhhle";
+pub const FIREFOX_EXTENSION_ID: &str = "idm-alternative@monurpalan.github.io";
+
 /// File in the app's data folder holding the current token.
 pub const TOKEN_FILE: &str = "bridge.token";
 

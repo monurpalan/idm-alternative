@@ -25,13 +25,22 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: |
+            app/package-lock.json
+            extension/package-lock.json
       # The app embeds the built web UI at compile time, so it is built before any cargo step.
       - name: Web UI
         working-directory: app
         run: |
           npm ci
           npm run check
+          npm run build
+      - name: Browser extension
+        working-directory: extension
+        run: |
+          npm ci
+          npm run check
+          npm test
           npm run build
       - name: Format
         run: cargo fmt --all --check

@@ -29,12 +29,13 @@ An open-source download manager that aims to match Internet Download Manager fea
 crates/
   engine/       download engine (library)
   manager/      download list, queue and events on top of the engine
+  bridge/       messages and the named pipe between browser host and app
+  native-host/  `idma-host`, the native messaging host the browser starts
   cli/          `dm` command-line front end
   testserver/   HTTP server reproducing hostile download scenarios
   bench/        benchmark runner
 app/            Tauri 2 + SvelteKit desktop app (early: a skeleton list)
-extension/      browser extension (planned)
-native-host/    native messaging host (planned)
+extension/      browser extension (MV3; Chromium and Firefox builds)
 docs/           architecture and design decisions
 ```
 

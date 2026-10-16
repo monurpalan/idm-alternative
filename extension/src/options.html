@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="color-scheme" content="light dark" />
+		<title>idm-alternative</title>
+		<style>
+			body {
+				font: 14px system-ui, 'Segoe UI', sans-serif;
+				margin: 16px;
+				max-width: 560px;
+			}
+			label {
+				display: block;
+				margin: 12px 0 4px;
+			}
+			.check {
+				display: flex;
+				gap: 8px;
+				align-items: center;
+			}
+			textarea,
+			input[type='number'] {
+				width: 100%;
+				box-sizing: border-box;
+				font: inherit;
+				padding: 6px;
+			}
+			textarea {
+				height: 64px;
+			}
+			small {
+				opacity: 0.7;
+			}
+			.ok {
+				color: #16a34a;
+			}
+			.bad {
+				color: #c62828;
+			}
+			.buttons {
+				margin-top: 16px;
+				display: flex;
+				gap: 8px;
+				align-items: center;
+			}
+		</style>
+	</head>
+	<body>
+		<p id="status">Checking the connection to the app…</p>
+		<form id="form">
+			<label class="check"><input type="checkbox" id="enabled" /> Hand downloads to idm-alternative</label>
+			<label for="min">Leave downloads smaller than this to the browser (KB)</label>
+			<input type="number" id="min" min="0" placeholder="no minimum" />
+			<label for="extensions">File types to take over</label>
+			<textarea id="extensions"></textarea>
+			<small>Separated by spaces. Empty: every download.</small>
+			<label for="excluded">Never take downloads from these sites</label>
+			<textarea id="excluded" placeholder="example.com"></textarea>
+			<small>One per line; subdomains included. Hold Alt while clicking to skip once.</small>
+			<div class="buttons">
+				<button type="submit">Save</button>
+				<button type="button" id="reset">Defaults</button>
+				<span id="saved"></span>
+			</div>
+		</form>
+		<script src="options.js"></script>
+	</body>
+</html>
