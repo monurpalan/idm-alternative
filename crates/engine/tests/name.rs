@@ -55,3 +55,26 @@ async fn no_ranges_is_not_resumable() {
     assert_eq!(p.name, "a.bin");
     assert!(!p.resumable);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn second_download_of_the_same_file_is_refused() {
+    let base = start().await;
+    let dir = common::workdir("in-use");
+    let out = dir.join("f.bin");
+    let size = 4 * MB;
+    let url = format!("{base}/file/f.bin?size={size}&seed=9&rate=2M");
+    let req = common::request(url, &out);
+    let opts = common::opts(2);
+    let first = tokio::spawn({
+        let (req, opts) = (common::request(req.url.clone(), &out), opts.clone());
+        async move { common::get(&req, &opts).await }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    match common::get(&req, &opts).await {
+        Err(idma_engine::Error::InUse(p)) => assert_eq!(p, out),
+        other => panic!("expected InUse, got {other:?}"),
+    }
+    first.await.expect("join").expect("first download");
+    common::assert_verified(&out, 9, size);
+    assert!(!dir.join("f.bin.idma-lock").exists());
+}

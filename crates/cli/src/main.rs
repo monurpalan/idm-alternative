@@ -4,7 +4,9 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use idma_engine::{Browser, CancellationToken, Error, Limiter, Options, Progress, Request};
+use idma_engine::{
+    Browser, CancellationToken, Conflict, Error, Limiter, Options, Progress, Request,
+};
 
 /// Command-line front end for the idm-alternative download engine.
 #[derive(Parser)]
@@ -20,12 +22,17 @@ enum Command {
     Get {
         url: String,
         /// Output file name, or path; by default the name the server suggests
-        /// (`Content-Disposition`) or the last part of the URL.
+        /// (`Content-Disposition`) or the last part of the URL. An existing file with this
+        /// exact name is replaced.
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Folder to save into (default: the current folder).
         #[arg(short = 'd', long = "dir")]
         dir: Option<PathBuf>,
+        /// Without `-o`: replace an existing file of the same name instead of saving as
+        /// `name (1).ext`.
+        #[arg(long)]
+        overwrite: bool,
         /// Maximum simultaneous connections.
         #[arg(short, long, default_value_t = 16)]
         connections: usize,
@@ -71,6 +78,7 @@ async fn main() -> ExitCode {
         url,
         output,
         dir,
+        overwrite,
         connections,
         limit,
         headers,
@@ -112,10 +120,16 @@ async fn main() -> ExitCode {
         Some(o) => dir.join(o),
         None => match idma_engine::probe(&url, &headers, &opts).await {
             Ok(p) => {
+                let conflict = if overwrite {
+                    Conflict::Overwrite
+                } else {
+                    Conflict::Rename
+                };
+                let path = idma_engine::target(&dir, &p.name, &url, conflict);
                 if !quiet {
-                    eprintln!("saving as {}", p.name);
+                    eprintln!("saving as {}", path.display());
                 }
-                dir.join(p.name)
+                path
             }
             Err(e) => {
                 eprintln!("dm: {e}");

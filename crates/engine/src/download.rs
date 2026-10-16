@@ -30,8 +30,9 @@ const MIN_LIMITED_CONN_RATE: u64 = 32 << 10;
 
 pub struct Request {
     pub url: String,
-    /// Final file path. While downloading, data goes to `<output>.idma-part` and resume
-    /// information to `<output>.idma-state`.
+    /// Final file path. While downloading, data goes to `<output>.idma-part`, resume
+    /// information to `<output>.idma-state`, and `<output>.idma-lock` keeps a second
+    /// download of the same file away. See [`crate::target`] for choosing a free path.
     pub output: PathBuf,
     pub headers: Vec<(String, String)>,
 }
@@ -118,6 +119,7 @@ pub async fn download(
     cancel: &CancellationToken,
 ) -> Result<Outcome> {
     let started = Instant::now();
+    let _lock = crate::place::Lock::acquire(&req.output)?;
     let http = Http::new(&http_config(&req.headers, opts))?;
     let part = sibling(&req.output, ".idma-part");
     let state_path = sibling(&req.output, ".idma-state");

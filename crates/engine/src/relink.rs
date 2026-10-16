@@ -64,6 +64,7 @@ pub(crate) async fn same_content(
 /// interrupted attempt used; this is for confirming a refreshed link before resuming, e.g.
 /// right after the browser captured it.
 pub async fn patch_url(req: &Request, opts: &Options) -> Result<()> {
+    let _lock = crate::place::Lock::acquire(&req.output)?;
     let state_path = sibling(&req.output, ".idma-state");
     let part = sibling(&req.output, ".idma-part");
     let mut state = State::load(&state_path).ok_or_else(|| {

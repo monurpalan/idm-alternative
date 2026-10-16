@@ -33,6 +33,9 @@ pub enum Error {
     TooManyFailures { attempts: u32, last: String },
     #[error("state file: {0}")]
     State(String),
+    /// Another download is writing the same file.
+    #[error("{} is already being downloaded", .0.display())]
+    InUse(std::path::PathBuf),
     #[error("cancelled")]
     Cancelled,
 }
