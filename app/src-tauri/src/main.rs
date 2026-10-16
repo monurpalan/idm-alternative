@@ -44,23 +44,55 @@ async fn list_tasks(app: State<'_, App>) -> CmdResult<Vec<Task>> {
 }
 
 /// What the "Add URL" dialog shows before the user decides.
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 struct ProbeView {
     url: String,
     name: String,
     size: Option<u64>,
     resumable: bool,
+    /// The server asks for a user name and password first.
+    needs_login: bool,
+    realm: Option<String>,
+}
+
+/// HTTP Basic credentials typed by the user.
+#[derive(Deserialize)]
+struct Login {
+    user: String,
+    password: String,
+}
+
+fn login_headers(login: Option<&Login>) -> Vec<(String, String)> {
+    login
+        .map(|l| idma_engine::basic_auth(&l.user, &l.password))
+        .into_iter()
+        .collect()
 }
 
 #[tauri::command]
-async fn probe(app: State<'_, App>, url: String) -> CmdResult<ProbeView> {
-    let p = app.manager.probe(&url, &[]).await.map_err(msg)?;
-    Ok(ProbeView {
-        url: p.url,
-        name: p.name,
-        size: p.size,
-        resumable: p.resumable,
-    })
+async fn probe(app: State<'_, App>, url: String, login: Option<Login>) -> CmdResult<ProbeView> {
+    match app
+        .manager
+        .probe(&url, &login_headers(login.as_ref()))
+        .await
+    {
+        Ok(p) => Ok(ProbeView {
+            url: p.url,
+            name: p.name,
+            size: p.size,
+            resumable: p.resumable,
+            ..ProbeView::default()
+        }),
+        Err(idma_manager::Error::Engine(idma_engine::Error::AuthRequired { realm })) => {
+            Ok(ProbeView {
+                url,
+                needs_login: true,
+                realm,
+                ..ProbeView::default()
+            })
+        }
+        Err(e) => Err(msg(e)),
+    }
 }
 
 #[derive(Deserialize)]
@@ -69,18 +101,29 @@ struct AddRequest {
     name: Option<String>,
     dir: Option<PathBuf>,
     start: bool,
+    login: Option<Login>,
 }
 
 #[tauri::command]
 async fn add_task(app: State<'_, App>, request: AddRequest) -> CmdResult<Task> {
     app.manager
         .add(NewTask {
+            headers: login_headers(request.login.as_ref()),
             url: request.url,
             name: request.name.filter(|n| !n.trim().is_empty()),
             dir: request.dir,
             start: request.start,
             ..NewTask::default()
         })
+        .await
+        .map_err(msg)
+}
+
+/// Credentials for a download whose server asked for them; it continues with them.
+#[tauri::command]
+async fn set_login(app: State<'_, App>, id: TaskId, login: Login) -> CmdResult<()> {
+    app.manager
+        .set_login(id, &login.user, &login.password)
         .await
         .map_err(msg)
 }
@@ -434,6 +477,7 @@ fn main() {
             move_task,
             set_speed_limit,
             refresh_link,
+            set_login,
             open_file,
             show_in_folder,
             get_settings,

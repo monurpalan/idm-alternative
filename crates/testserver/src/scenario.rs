@@ -111,6 +111,9 @@ pub struct Scenario {
     pub redirect_unique: bool,
     /// Send `Content-Disposition` with this filename.
     pub cd: Option<String>,
+    /// `user:pass`: requests without these Basic credentials get `401` with
+    /// `WWW-Authenticate`, like a password-protected folder.
+    pub auth: Option<String>,
     /// Delay before the response headers, in milliseconds.
     pub latency_ms: u64,
 }
@@ -134,6 +137,7 @@ impl Default for Scenario {
             redirect: 0,
             redirect_unique: false,
             cd: None,
+            auth: None,
             latency_ms: 0,
         }
     }

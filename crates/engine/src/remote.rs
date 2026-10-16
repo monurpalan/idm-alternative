@@ -227,7 +227,7 @@ impl Http {
             StatusCode::OK => (resp.content_length(), false),
             // Only an empty file makes `bytes=0-` unsatisfiable.
             StatusCode::RANGE_NOT_SATISFIABLE if start == 0 => (Some(0), false),
-            s => return Err(status_error(s)),
+            _ => return Err(status_error(&resp)),
         };
         let remote = Remote {
             url: final_url,
@@ -300,7 +300,7 @@ impl Http {
                     Err(Error::FileChanged)
                 }
             }
-            s => Err(status_error(s)),
+            _ => Err(status_error(&resp)),
         }
     }
 }
@@ -313,8 +313,18 @@ impl Http {
     }
 }
 
-fn status_error(s: StatusCode) -> Error {
+fn status_error(resp: &Response) -> Error {
+    let s = resp.status();
     match s {
+        // A login prompt, not a link that stopped working: signed links that expire answer
+        // 401 without asking for credentials.
+        StatusCode::UNAUTHORIZED
+            if let Some(challenge) = resp.headers().get(header::WWW_AUTHENTICATE) =>
+        {
+            Error::AuthRequired {
+                realm: challenge.to_str().ok().and_then(realm),
+            }
+        }
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::GONE => {
             Error::LinkExpired(s.as_u16())
         }
@@ -329,6 +339,24 @@ fn range_value(start: u64, end: Option<u64>) -> HeaderValue {
         None => format!("bytes={start}-"),
     };
     HeaderValue::from_str(&v).unwrap_or_else(|_| HeaderValue::from_static("bytes=0-"))
+}
+
+/// The `realm` of a `WWW-Authenticate` challenge, shown to the user.
+fn realm(challenge: &str) -> Option<String> {
+    let start = challenge.to_ascii_lowercase().find("realm=")? + "realm=".len();
+    let rest = &challenge[start..];
+    let value = match rest.strip_prefix('"') {
+        Some(quoted) => quoted.split('"').next()?,
+        None => rest.split([',', ' ']).next()?,
+    };
+    Some(value.to_owned()).filter(|v| !v.is_empty())
+}
+
+/// An `Authorization` header for HTTP Basic credentials.
+pub fn basic_auth(user: &str, password: &str) -> (String, String) {
+    use base64::Engine;
+    let token = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"));
+    ("Authorization".to_owned(), format!("Basic {token}"))
 }
 
 fn is_html(resp: &Response) -> bool {

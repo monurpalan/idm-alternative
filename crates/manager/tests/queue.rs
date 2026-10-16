@@ -287,3 +287,39 @@ async fn settings_persist_and_category_folders_apply() {
         Manager::read_setting(&w.db(), "nope").await.expect("read");
     assert!(missing.is_none());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn login_prompt_then_credentials_continue() {
+    let base = start_server().await;
+    let w = WorkDir::new("login");
+    let m = Manager::open(&w.db(), w.config()).await.expect("open");
+    let size = MB;
+    let t = m
+        .add(task(
+            format!("{base}/file/private.zip?size={size}&seed=41&auth=ali:s3cret"),
+            true,
+        ))
+        .await
+        .expect("add");
+    let failed = wait_for(&m, t.id, 10, |t| t.status == Status::Error).await;
+    assert_eq!(failed.error_kind, Some(idma_manager::ErrorKind::Auth));
+
+    m.set_login(t.id, "ali", "wrong").await.expect("login");
+    let again = wait_for(&m, t.id, 10, |t| t.status == Status::Error).await;
+    assert_eq!(again.error_kind, Some(idma_manager::ErrorKind::Auth));
+
+    m.set_login(t.id, "ali", "s3cret").await.expect("login");
+    let done = wait_for(&m, t.id, 20, |t| t.status == Status::Done).await;
+    assert_eq!(done.error_kind, None);
+    assert_eq!(
+        done.headers
+            .iter()
+            .filter(|(k, _)| k.eq_ignore_ascii_case("authorization"))
+            .count(),
+        1,
+        "credentials replace earlier ones"
+    );
+    let path = done.path.expect("path");
+    assert_eq!(verify_file(&path, 41, size).expect("verify"), Verdict::Ok);
+    m.close().await;
+}

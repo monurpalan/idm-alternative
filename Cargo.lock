@@ -2397,6 +2397,7 @@ name = "idma-engine"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "fs4",
  "futures-util",
  "idma-testserver",
@@ -2437,6 +2438,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "bytes",
  "clap",
  "futures-util",

@@ -246,3 +246,48 @@ async fn downloads_through_a_socks5_proxy() {
         "segments must use separate tunnels"
     );
 }
+
+#[tokio::test]
+async fn login_prompt_is_not_an_expired_link() {
+    let base = start_plain().await;
+    let dir = workdir("auth");
+    let out = dir.join("secret.bin");
+    let size = 2 * MB;
+    let url = format!("{base}/file/secret.bin?size={size}&seed=12&auth=ali:s3cret");
+    let opts = Options {
+        connections: 4,
+        ..Options::default()
+    };
+    match get(url.clone(), &out, &opts).await {
+        Err(Error::AuthRequired { realm }) => assert_eq!(realm.as_deref(), Some("idma test")),
+        other => panic!("expected AuthRequired, got {other:?}"),
+    }
+    let with = |user: &str, pass: &str| Request {
+        url: url.clone(),
+        output: out.clone(),
+        headers: vec![idma_engine::basic_auth(user, pass)],
+    };
+    let wrong = tokio::time::timeout(
+        LIMIT,
+        download(&with("ali", "nope"), &opts, None, &CancellationToken::new()),
+    )
+    .await
+    .expect("hung");
+    assert!(
+        matches!(wrong, Err(Error::AuthRequired { .. })),
+        "{wrong:?}"
+    );
+    tokio::time::timeout(
+        LIMIT,
+        download(
+            &with("ali", "s3cret"),
+            &opts,
+            None,
+            &CancellationToken::new(),
+        ),
+    )
+    .await
+    .expect("hung")
+    .expect("download with credentials");
+    assert_eq!(verify_file(&out, 12, size).expect("verify"), Verdict::Ok);
+}

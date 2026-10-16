@@ -19,6 +19,8 @@ export interface Task {
 	received: number;
 	status: Status;
 	error: string | null;
+	/** What the failure needs from the user, when it is something they can fix. */
+	error_kind: 'auth' | 'expired' | 'changed' | 'disk' | 'checksum' | null;
 	category: Category;
 	connections: number;
 	speed_limit: number | null;
@@ -45,6 +47,14 @@ export interface Probe {
 	name: string;
 	size: number | null;
 	resumable: boolean;
+	/** The server asks for a user name and password first. */
+	needs_login: boolean;
+	realm: string | null;
+}
+
+export interface Login {
+	user: string;
+	password: string;
 }
 
 export interface Settings {
@@ -69,13 +79,16 @@ export type ManagerEvent =
 	| { type: 'removed'; data: TaskId };
 
 export const listTasks = () => invoke<Task[]>('list_tasks');
-export const probe = (url: string) => invoke<Probe>('probe', { url });
+export const probe = (url: string, login: Login | null = null) =>
+	invoke<Probe>('probe', { url, login });
 export const addTask = (request: {
 	url: string;
 	name: string | null;
 	dir: string | null;
 	start: boolean;
+	login: Login | null;
 }) => invoke<Task>('add_task', { request });
+export const setLogin = (id: TaskId, login: Login) => invoke<void>('set_login', { id, login });
 export const startTasks = (ids: TaskId[]) => invoke<void>('start_tasks', { ids });
 export const pauseTasks = (ids: TaskId[]) => invoke<void>('pause_tasks', { ids });
 export const removeTasks = (ids: TaskId[], deleteFiles: boolean) =>

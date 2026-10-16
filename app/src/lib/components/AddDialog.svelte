@@ -3,7 +3,7 @@
 
 	import { onMount } from 'svelte';
 	import { open as pickFolder } from '@tauri-apps/plugin-dialog';
-	import { addTask, getSettings, probe, type Probe } from '../api.ts';
+	import { addTask, getSettings, probe, type Login, type Probe } from '../api.ts';
 	import { bytes } from '../format.ts';
 
 	let { url: initialUrl = '', onclose }: { url?: string; onclose: () => void } = $props();
@@ -19,6 +19,10 @@
 	let busy = $state(false);
 	/** The URL `info` belongs to; asking again for the same one is pointless. */
 	let asked = '';
+	/** Credentials for a server that asked for them. */
+	let user = $state('');
+	let password = $state('');
+	const login = (): Login | null => (user ? { user, password } : null);
 	let dialog: HTMLDialogElement | undefined = $state();
 
 	// Once, on opening; an effect would rerun whenever the fields it reads change.
@@ -31,18 +35,18 @@
 		if (initialUrl) check();
 	});
 
-	async function check() {
+	async function check(force = false) {
 		const u = url.trim();
-		if (!u || u === asked) return;
+		if (!u || (u === asked && !force)) return;
 		asked = u;
 		checking = true;
 		error = null;
 		info = null;
 		try {
-			const p = await probe(u);
+			const p = await probe(u, login());
 			if (asked !== u) return; // the URL changed meanwhile
 			info = p;
-			name = p.name;
+			if (!p.needs_login) name = p.name;
 		} catch (e) {
 			if (asked === u) error = String(e);
 		} finally {
@@ -66,7 +70,8 @@
 				// is made (and made unique) when the download starts.
 				name: info && name.trim() && name.trim() !== info.name ? name.trim() : null,
 				dir: dir || null,
-				start
+				start,
+				login: login()
 			});
 			onclose();
 		} catch (e) {
@@ -90,7 +95,7 @@
 			<input
 				type="url"
 				bind:value={url}
-				onblur={check}
+				onblur={() => check()}
 				onkeydown={(e) => {
 					if (e.key === 'Enter' && !info) {
 						e.preventDefault();
@@ -107,6 +112,10 @@
 				Asking the server…
 			{:else if error}
 				<span class="error">{error}</span>
+			{:else if info?.needs_login}
+				<span class="warn"
+					>The server asks for a user name and password{info.realm ? ` (${info.realm})` : ''}.</span
+				>
 			{:else if info}
 				{info.size !== null ? bytes(info.size) : 'Size unknown'}
 				· {info.resumable ? 'Can resume and use several connections' : 'Cannot resume (one connection)'}
@@ -115,9 +124,27 @@
 			{/if}
 		</div>
 
+		{#if info?.needs_login || user}
+			<div class="login">
+				<label>
+					User name
+					<input bind:value={user} autocomplete="username" />
+				</label>
+				<label>
+					Password
+					<input type="password" bind:value={password} autocomplete="current-password" />
+				</label>
+				<button type="button" onclick={() => check(true)} disabled={!user || checking}>Sign in</button>
+			</div>
+		{/if}
+
 		<label>
 			Save as
-			<input bind:value={name} placeholder="Name from the server" disabled={!info} />
+			<input
+				bind:value={name}
+				placeholder="Name from the server"
+				disabled={!info || info.needs_login}
+			/>
 		</label>
 
 		<label>
@@ -191,6 +218,19 @@
 	}
 	.error {
 		color: var(--danger);
+	}
+	.warn {
+		color: var(--fg);
+	}
+	.login {
+		display: grid;
+		grid-template-columns: 1fr 1fr auto;
+		align-items: end;
+		gap: 8px;
+		margin-bottom: 10px;
+	}
+	.login label {
+		margin-bottom: 0;
 	}
 	.buttons {
 		display: flex;

@@ -23,6 +23,11 @@ pub enum Error {
         "the link has expired or access was denied (HTTP {0}); a fresh link resumes the download"
     )]
     LinkExpired(u16),
+    /// The server asks for a user name and password (HTTP 401 with `WWW-Authenticate`).
+    /// Sending them (e.g. [`crate::basic_auth`] as an `Authorization` header) continues the
+    /// download.
+    #[error("the server asks for a user name and password{}", .realm.as_ref().map(|r| format!(" ({r})")).unwrap_or_default())]
+    AuthRequired { realm: Option<String> },
     #[error("server is busy (HTTP {0})")]
     Busy(u16),
     #[error("the file on the server changed since the download started")]
@@ -62,6 +67,7 @@ impl Error {
                 | Error::Io(_)
                 | Error::Cancelled
                 | Error::LinkExpired(_)
+                | Error::AuthRequired { .. }
                 | Error::DiskFull { .. }
         )
     }

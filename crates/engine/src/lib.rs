@@ -29,7 +29,7 @@ pub use error::{Error, Result};
 pub use limit::Limiter;
 pub use place::{Conflict, target, target_avoiding};
 pub use relink::patch_url;
-pub use remote::Browser;
+pub use remote::{Browser, basic_auth};
 pub use tokio_util::sync::CancellationToken;
 
 /// Engine version, reported by the CLI and the app.

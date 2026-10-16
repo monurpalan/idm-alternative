@@ -42,6 +42,57 @@ impl Status {
     }
 }
 
+/// What a failure needs from the user; the UI offers the matching fix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ErrorKind {
+    /// The server asks for a user name and password.
+    Auth,
+    /// The link stopped working: a fresh link continues the download.
+    Expired,
+    /// The file on the server changed (or a new link led to another file).
+    Changed,
+    /// Not enough disk space.
+    Disk,
+    /// The finished file does not match the given checksum.
+    Checksum,
+}
+
+impl ErrorKind {
+    pub(crate) fn of(e: &idma_engine::Error) -> Option<Self> {
+        use idma_engine::Error as E;
+        Some(match e {
+            E::AuthRequired { .. } => ErrorKind::Auth,
+            E::LinkExpired(_) => ErrorKind::Expired,
+            E::FileChanged | E::HtmlResponse => ErrorKind::Changed,
+            E::DiskFull { .. } => ErrorKind::Disk,
+            E::ChecksumMismatch { .. } => ErrorKind::Checksum,
+            _ => return None,
+        })
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            ErrorKind::Auth => "auth",
+            ErrorKind::Expired => "expired",
+            ErrorKind::Changed => "changed",
+            ErrorKind::Disk => "disk",
+            ErrorKind::Checksum => "checksum",
+        }
+    }
+
+    pub(crate) fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "auth" => ErrorKind::Auth,
+            "expired" => ErrorKind::Expired,
+            "changed" => ErrorKind::Changed,
+            "disk" => ErrorKind::Disk,
+            "checksum" => ErrorKind::Checksum,
+            _ => return None,
+        })
+    }
+}
+
 /// IDM's categories, picked from the file extension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -135,6 +186,8 @@ pub struct Task {
     pub received: u64,
     pub status: Status,
     pub error: Option<String>,
+    /// What kind of failure `error` is, when the user can do something about it.
+    pub error_kind: Option<ErrorKind>,
     pub category: Category,
     pub connections: usize,
     /// This download's own speed limit, bytes per second.

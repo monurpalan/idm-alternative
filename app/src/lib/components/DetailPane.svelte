@@ -3,7 +3,7 @@
 	// (the engine's live splitting, one bar per connection's range), its own speed limit and
 	// "refresh link" for links that expired.
 
-	import { refreshLink, setSpeedLimit, type Task } from '../api.ts';
+	import { refreshLink, setLogin, setSpeedLimit, type Task } from '../api.ts';
 	import { downloads, HISTORY, row } from '../downloads.svelte.ts';
 	import { bytes, duration, speed } from '../format.ts';
 
@@ -14,6 +14,19 @@
 	let limitKb = $state('');
 	let newUrl = $state('');
 	let refreshing = $state(false);
+	let user = $state('');
+	let password = $state('');
+
+	async function signIn(e: SubmitEvent) {
+		e.preventDefault();
+		try {
+			await setLogin(task.id, { user, password });
+			password = '';
+			onerror(null);
+		} catch (err) {
+			onerror(String(err));
+		}
+	}
 	let graph: HTMLCanvasElement | undefined = $state();
 	let map: HTMLCanvasElement | undefined = $state();
 
@@ -173,8 +186,22 @@
 			<span class="unit">KB/s</span>
 			<button type="submit">Set</button>
 		</form>
+		{#if task.error_kind === 'auth'}
+			<form class="inline login" onsubmit={signIn}>
+				<label for="user">Login</label>
+				<input id="user" bind:value={user} placeholder="user name" autocomplete="username" />
+				<input
+					type="password"
+					bind:value={password}
+					placeholder="password"
+					autocomplete="current-password"
+					aria-label="Password"
+				/>
+				<button type="submit" disabled={!user}>Continue</button>
+			</form>
+		{/if}
 		{#if task.status !== 'done'}
-			<form class="inline two" onsubmit={refresh}>
+			<form class="inline two" class:attention={task.error_kind === 'expired'} onsubmit={refresh}>
 				<label for="newurl">New link</label>
 				<input id="newurl" type="url" bind:value={newUrl} placeholder="Paste a fresh link to the same file" />
 				<button type="submit" disabled={refreshing || !newUrl.trim()}>Refresh</button>
@@ -198,6 +225,11 @@
 		border-top: 1px solid var(--line);
 		background: var(--panel);
 		overflow: hidden;
+	}
+	/* Error, login and new-link rows can outgrow the pane: scroll rather than cut off. */
+	.facts {
+		min-height: 0;
+		overflow-y: auto;
 	}
 	h3 {
 		margin: 0 0 6px;
@@ -234,6 +266,12 @@
 	}
 	.inline.two {
 		grid-template-columns: 92px 1fr auto;
+	}
+	.inline.login {
+		grid-template-columns: 92px 1fr 1fr auto;
+	}
+	.attention input {
+		border-color: var(--accent);
 	}
 	.inline label {
 		color: var(--muted);

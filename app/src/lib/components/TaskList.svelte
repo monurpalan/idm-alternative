@@ -101,7 +101,11 @@
 			case 'done':
 				return 'Complete';
 			case 'error':
-				return 'Error';
+				return t.error_kind === 'auth'
+					? 'Login needed'
+					: t.error_kind === 'expired'
+						? 'Link expired'
+						: 'Error';
 		}
 	}
 </script>

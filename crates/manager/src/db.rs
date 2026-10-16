@@ -9,7 +9,7 @@ use sqlx::sqlite::{
 };
 
 use crate::Result;
-use crate::task::{Category, Status, Task, TaskId};
+use crate::task::{Category, ErrorKind, Status, Task, TaskId};
 
 #[derive(Clone)]
 pub(crate) struct Db {
@@ -104,15 +104,36 @@ impl Db {
             .collect()
     }
 
+    /// Also clears any recorded failure kind.
     pub(crate) async fn set_status(
         &self,
         id: TaskId,
         status: Status,
         error: Option<&str>,
     ) -> Result<()> {
-        sqlx::query("UPDATE tasks SET status = ?, error = ? WHERE id = ?")
+        self.set_failure(id, status, error, None).await
+    }
+
+    pub(crate) async fn set_failure(
+        &self,
+        id: TaskId,
+        status: Status,
+        error: Option<&str>,
+        kind: Option<ErrorKind>,
+    ) -> Result<()> {
+        sqlx::query("UPDATE tasks SET status = ?, error = ?, error_kind = ? WHERE id = ?")
             .bind(status.as_str())
             .bind(error)
+            .bind(kind.map(ErrorKind::as_str))
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn set_headers(&self, id: TaskId, headers: &[(String, String)]) -> Result<()> {
+        sqlx::query("UPDATE tasks SET headers = ? WHERE id = ?")
+            .bind(serde_json::to_string(headers)?)
             .bind(id)
             .execute(&self.pool)
             .await?;
@@ -175,7 +196,7 @@ impl Db {
 
     pub(crate) async fn finish(&self, id: TaskId, size: u64, at: i64) -> Result<()> {
         sqlx::query(
-            "UPDATE tasks SET status = 'done', error = NULL, size = ?, received = ?,
+            "UPDATE tasks SET status = 'done', error = NULL, error_kind = NULL, size = ?, received = ?,
                               finished_at = ? WHERE id = ?",
         )
         .bind(size as i64)
@@ -238,7 +259,8 @@ impl Db {
     /// Back to the queue with nothing downloaded, keeping the chosen path.
     pub(crate) async fn reset(&self, id: TaskId) -> Result<()> {
         sqlx::query(
-            "UPDATE tasks SET status = 'queued', error = NULL, received = 0, finished_at = NULL
+            "UPDATE tasks SET status = 'queued', error = NULL, error_kind = NULL, received = 0,
+                              finished_at = NULL
              WHERE id = ?",
         )
         .bind(id)
@@ -271,6 +293,10 @@ fn task(r: &SqliteRow) -> Result<Task> {
         received: r.try_get::<i64, _>("received")? as u64,
         status: Status::parse(r.try_get("status")?),
         error: r.try_get("error")?,
+        error_kind: r
+            .try_get::<Option<String>, _>("error_kind")?
+            .as_deref()
+            .and_then(ErrorKind::parse),
         category: Category::parse(r.try_get("category")?),
         connections: r.try_get::<i64, _>("connections")? as usize,
         speed_limit: u64_opt("speed_limit")?,

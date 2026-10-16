@@ -26,7 +26,7 @@ use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 
 use db::{Db, Insert};
-pub use task::{Category, NewTask, Status, Task, TaskId, TaskProgress};
+pub use task::{Category, ErrorKind, NewTask, Status, Task, TaskId, TaskProgress};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -500,6 +500,24 @@ impl Manager {
         Ok(())
     }
 
+    /// Sends these credentials (HTTP Basic) with every request of the download from now on,
+    /// replacing earlier ones, and queues it: for a server that asked for a login.
+    pub async fn set_login(&self, id: TaskId, user: &str, password: &str) -> Result<()> {
+        let task = self.get(id).await?;
+        let was_running = self.inner.stop(id, Stop::Pause).await;
+        let mut headers: Vec<(String, String)> = task
+            .headers
+            .into_iter()
+            .filter(|(k, _)| !k.eq_ignore_ascii_case("authorization"))
+            .collect();
+        headers.push(idma_engine::basic_auth(user, password));
+        self.inner.db.set_headers(id, &headers).await?;
+        if was_running || task.status != Status::Done {
+            self.inner.set_status(id, Status::Queued, None).await?;
+        }
+        self.inner.fill().await
+    }
+
     /// Stops every running download so it resumes on the next [`Manager::open`], and closes
     /// the database.
     pub async fn close(&self) {
@@ -636,8 +654,12 @@ impl Inner {
                 }
                 None => {
                     tracing::warn!(id, "download failed: {e}");
+                    let kind = match e {
+                        Error::Engine(e) => ErrorKind::of(e),
+                        _ => None,
+                    };
                     self.db
-                        .set_status(id, Status::Error, Some(&e.to_string()))
+                        .set_failure(id, Status::Error, Some(&e.to_string()), kind)
                         .await
                 }
             },

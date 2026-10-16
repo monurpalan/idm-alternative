@@ -13,6 +13,7 @@ use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Version, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use base64::Engine as _;
 use bytes::Bytes;
 use serde::Serialize;
 
@@ -171,6 +172,22 @@ async fn serve_file(
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
+
+    if let Some(expected) = &sc.auth {
+        let given = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Basic "))
+            .and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok());
+        if given.as_deref() != Some(expected.as_bytes()) {
+            return (
+                StatusCode::UNAUTHORIZED,
+                [(header::WWW_AUTHENTICATE, "Basic realm=\"idma test\"")],
+                "login required\n",
+            )
+                .into_response();
+        }
+    }
 
     if let Some(ttl) = sc.ttl {
         let first = *url
