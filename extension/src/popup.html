@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="color-scheme" content="light dark" />
+		<title>idm-alternative</title>
+		<style>
+			body {
+				font: 13px system-ui, 'Segoe UI', sans-serif;
+				margin: 0;
+				width: 360px;
+			}
+			h1 {
+				font-size: 13px;
+				font-weight: 600;
+				margin: 0;
+				padding: 10px 12px;
+				border-bottom: 1px solid #8884;
+			}
+			ul {
+				list-style: none;
+				margin: 0;
+				padding: 0;
+				max-height: 380px;
+				overflow-y: auto;
+			}
+			li {
+				display: grid;
+				grid-template-columns: auto 1fr auto;
+				gap: 8px;
+				align-items: center;
+				padding: 7px 12px;
+				border-bottom: 1px solid #8882;
+			}
+			.kind {
+				font-size: 10px;
+				font-weight: 600;
+				padding: 2px 5px;
+				border-radius: 4px;
+				background: #2563eb22;
+				color: #2563eb;
+			}
+			.name {
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+			.size {
+				display: block;
+				opacity: 0.6;
+				font-size: 11px;
+			}
+			button {
+				font: inherit;
+				padding: 3px 10px;
+				cursor: pointer;
+			}
+			p {
+				margin: 0;
+				padding: 14px 12px;
+				opacity: 0.7;
+			}
+			.error {
+				color: #c62828;
+				opacity: 1;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>Media on this page</h1>
+		<ul id="list"></ul>
+		<p id="empty" hidden>No video or audio found yet. Start playing it, then open this again.</p>
+		<p id="error" class="error" hidden></p>
+		<script src="popup.js"></script>
+	</body>
+</html>

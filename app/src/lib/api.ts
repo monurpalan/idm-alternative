@@ -107,6 +107,17 @@ export interface CapturedLinks {
 	links: { url: string; text: string }[];
 }
 
+/** Video or audio the extension saw a page play. */
+export interface CapturedMedia {
+	page: string | null;
+	title: string | null;
+	items: { url: string; kind: 'hls' | 'dash' | 'video' | 'audio'; size: number | null; mime: string | null }[];
+	headers: Headers;
+}
+
+export const onCapturedMedia = (handler: (m: CapturedMedia) => void): Promise<UnlistenFn> =>
+	listen<CapturedMedia>('capture-media', (e) => handler(e.payload));
+
 export const onCapture = (handler: (c: Capture) => void): Promise<UnlistenFn> =>
 	listen<Capture>('capture', (e) => handler(e.payload));
 export const onCapturedLinks = (handler: (l: CapturedLinks) => void): Promise<UnlistenFn> =>

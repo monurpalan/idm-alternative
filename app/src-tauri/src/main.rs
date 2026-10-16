@@ -555,6 +555,21 @@ async fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma
                 .ok();
             Reply::ok()
         }
+        Request::Media(media) => {
+            show_main(handle);
+            handle
+                .emit(
+                    "capture-media",
+                    serde_json::json!({
+                        "page": media.page,
+                        "title": media.title,
+                        "items": media.items,
+                        "headers": media.request_headers(),
+                    }),
+                )
+                .ok();
+            Reply::ok()
+        }
         Request::Hello { .. } => Reply::error("unexpected hello"),
     }
 }

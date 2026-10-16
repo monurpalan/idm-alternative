@@ -17,6 +17,44 @@ pub enum Request {
         referrer: Option<String>,
         links: Vec<Link>,
     },
+    /// Video or audio the extension saw a page load (files, or HLS/DASH playlists).
+    Media(MediaCapture),
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MediaCapture {
+    /// The page playing it; sent as the referrer.
+    pub page: Option<String>,
+    pub title: Option<String>,
+    pub items: Vec<MediaItem>,
+    /// `Cookie` header value for the media's site.
+    pub cookies: Option<String>,
+    pub user_agent: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MediaItem {
+    pub url: String,
+    /// `hls`, `dash`, `video` or `audio`.
+    pub kind: String,
+    #[serde(default)]
+    pub size: Option<u64>,
+    #[serde(default)]
+    pub mime: Option<String>,
+}
+
+impl MediaCapture {
+    /// Request headers for fetching the media as the page did.
+    pub fn request_headers(&self) -> Vec<(String, String)> {
+        Capture {
+            referrer: self.page.clone(),
+            cookies: self.cookies.clone(),
+            user_agent: self.user_agent.clone(),
+            ..Capture::default()
+        }
+        .request_headers()
+    }
 }
 
 /// Everything needed to download what the browser was downloading, as the browser would.
@@ -112,6 +150,21 @@ mod tests {
         let Request::Download(c) = r else {
             panic!("not a download")
         };
+        let m: Request = serde_json::from_str(
+            r#"{"type":"media","page":"https://x/watch","items":[{"url":"https://cdn/x.m3u8","kind":"hls"}],"cookies":"a=1"}"#,
+        )
+        .expect("media");
+        let Request::Media(m) = m else {
+            panic!("not media")
+        };
+        assert_eq!(m.items[0].kind, "hls");
+        assert_eq!(
+            m.request_headers(),
+            vec![
+                ("Cookie".to_owned(), "a=1".to_owned()),
+                ("Referer".to_owned(), "https://x/watch".to_owned())
+            ]
+        );
         assert_eq!(c.url, "https://x/a.zip");
         assert_eq!(
             c.request_headers(),

@@ -12,12 +12,17 @@ const common = {
 	name: 'idm-alternative',
 	version: pkg.version,
 	description: 'Hands downloads to the idm-alternative download manager.',
-	permissions: ['downloads', 'nativeMessaging', 'cookies', 'contextMenus', 'scripting', 'storage'],
+	permissions: ['downloads', 'nativeMessaging', 'cookies', 'contextMenus', 'scripting', 'storage', 'webRequest'],
 	host_permissions: ['<all_urls>'],
 	content_scripts: [
 		{ matches: ['<all_urls>'], js: ['content.js'], run_at: 'document_start', all_frames: true }
 	],
 	options_ui: { page: 'options.html', open_in_tab: false },
+	action: {
+		default_title: 'idm-alternative',
+		default_popup: 'popup.html',
+		default_icon: { 16: 'icons/icon-16.png', 32: 'icons/icon-32.png' }
+	},
 	icons: { 16: 'icons/icon-16.png', 48: 'icons/icon-48.png', 128: 'icons/icon-128.png' }
 };
 
@@ -42,7 +47,7 @@ for (const [name, manifest] of Object.entries(targets)) {
 	rmSync(out, { recursive: true, force: true });
 	mkdirSync(out, { recursive: true });
 	await build({
-		entryPoints: ['src/background.ts', 'src/content.ts', 'src/options.ts'],
+		entryPoints: ['src/background.ts', 'src/content.ts', 'src/options.ts', 'src/popup.ts'],
 		bundle: true,
 		format: 'iife',
 		target: 'es2022',
@@ -50,6 +55,7 @@ for (const [name, manifest] of Object.entries(targets)) {
 		logLevel: 'warning'
 	});
 	cpSync('src/options.html', `${out}/options.html`);
+	cpSync('src/popup.html', `${out}/popup.html`);
 	cpSync('icons', `${out}/icons`, { recursive: true });
 	writeFileSync(`${out}/manifest.json`, JSON.stringify(manifest, null, '\t') + '\n');
 	console.log(`built ${out}`);

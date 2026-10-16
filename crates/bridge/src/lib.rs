@@ -18,7 +18,7 @@ mod pipe;
 mod register;
 
 pub use frame::{MAX_FRAME, read_frame, read_json, write_frame, write_json};
-pub use message::{Capture, Link, Reply, Request};
+pub use message::{Capture, Link, MediaCapture, MediaItem, Reply, Request};
 #[cfg(windows)]
 pub use pipe::{connect, serve};
 #[cfg(windows)]

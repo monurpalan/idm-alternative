@@ -5,6 +5,7 @@
 		moveTask,
 		onCapture,
 		onCapturedLinks,
+		onCapturedMedia,
 		onNotice,
 		onSettings,
 		openFile,
@@ -67,7 +68,17 @@
 			// The browser handed over a download: confirm it like IDM does.
 			onCapture((c) => (adding = { url: c.url, name: c.filename, headers: c.headers })),
 			onCapturedLinks((l) => (picking = l)),
-			onNotice((text) => (info = text))
+			onNotice((text) => (info = text)),
+			onCapturedMedia((m) => {
+				const item = m.items[0];
+				if (!item) return;
+				if (item.kind === 'video' || item.kind === 'audio') {
+					adding = { url: item.url, name: null, headers: m.headers };
+				} else {
+					// Quality selection for streams is not there yet.
+					info = `${item.kind.toUpperCase()} streams cannot be downloaded yet`;
+				}
+			})
 		];
 		return () => {
 			stop();

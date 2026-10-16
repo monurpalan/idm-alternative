@@ -3,6 +3,7 @@
 
 import { DEFAULT_SETTINGS, baseName, cookieHeader, shouldCapture, type Settings } from './filter.ts';
 import { api } from './api.ts';
+import { classify, remember, type MediaItem } from './media.ts';
 
 const HOST = 'io.github.monurpalan.idma';
 /** Alt held this recently (by any page) means "let the browser download this one". */
@@ -136,3 +137,47 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 		if (!reply.ok) console.warn('idm-alternative: the app could not take the links:', reply.error);
 	}
 });
+
+// Media in each tab's traffic, for the popup (and later the button over videos). Kept in
+// session storage: a Manifest V3 background can be stopped between events.
+
+const mediaKey = (tabId: number) => `media:${tabId}`;
+/** Updates run one after another, so two responses arriving together do not lose one. */
+let mediaQueue: Promise<unknown> = Promise.resolve();
+
+function updateMedia(tabId: number, change: (list: MediaItem[]) => MediaItem[]) {
+	mediaQueue = mediaQueue.then(async () => {
+		const key = mediaKey(tabId);
+		const stored = await api.storage.session.get(key);
+		const list = change((stored[key] as MediaItem[] | undefined) ?? []);
+		if (list.length) await api.storage.session.set({ [key]: list });
+		else await api.storage.session.remove(key);
+		await api.action.setBadgeText({ tabId, text: list.length ? String(list.length) : '' }).catch(() => {});
+	}).catch((e) => console.warn('idm-alternative: media list:', e));
+}
+
+api.action.setBadgeBackgroundColor({ color: '#2563eb' }).catch(() => {});
+
+api.webRequest.onHeadersReceived.addListener(
+	(d) => {
+		if (d.tabId < 0 || d.statusCode >= 400) return;
+		const header = (name: string) =>
+			d.responseHeaders?.find((h) => h.name.toLowerCase() === name)?.value ?? null;
+		const length = header('content-length');
+		const item = classify({
+			url: d.url,
+			contentType: header('content-type'),
+			contentLength: length !== null && /^\d+$/.test(length) ? Number(length) : null,
+			contentRange: header('content-range')
+		});
+		if (item) updateMedia(d.tabId, (list) => remember(list, item));
+	},
+	{ urls: ['<all_urls>'], types: ['media', 'xmlhttprequest', 'object', 'other'] },
+	['responseHeaders']
+);
+
+// A new page starts a new list.
+api.tabs.onUpdated.addListener((tabId, change) => {
+	if (change.status === 'loading' && change.url) updateMedia(tabId, () => []);
+});
+api.tabs.onRemoved.addListener((tabId) => updateMedia(tabId, () => []));
