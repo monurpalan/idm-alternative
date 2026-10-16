@@ -29,12 +29,12 @@ const LAST_MODIFIED_BASE: u64 = 1_767_225_600;
 /// Per-URL counters. The key is the full request URI, so every distinct test URL
 /// gets its own state (connection numbering, TTL clock, validator generation).
 #[derive(Default)]
-struct UrlState {
+pub(crate) struct UrlState {
     first_seen: Mutex<Option<Instant>>,
-    gets: AtomicU64,
+    pub(crate) gets: AtomicU64,
     active: AtomicU32,
     peak_active: AtomicU32,
-    bytes_sent: AtomicU64,
+    pub(crate) bytes_sent: AtomicU64,
     generation: AtomicU64,
     h2_gets: AtomicU64,
     /// Distinct client addresses, i.e. TCP connections (needs connect info).
@@ -43,14 +43,14 @@ struct UrlState {
 }
 
 #[derive(Default)]
-struct AppState {
+pub(crate) struct AppState {
     urls: Mutex<HashMap<String, Arc<UrlState>>>,
     next_conn_id: AtomicU64,
     next_hop: AtomicU64,
 }
 
 impl AppState {
-    fn url(&self, key: &str) -> Arc<UrlState> {
+    pub(crate) fn url(&self, key: &str) -> Arc<UrlState> {
         let mut urls = self.urls.lock().unwrap_or_else(PoisonError::into_inner);
         Arc::clone(urls.entry(key.to_owned()).or_default())
     }
@@ -60,6 +60,10 @@ impl AppState {
 pub fn router() -> Router {
     Router::new()
         .route("/file/{name}", get(serve_file))
+        .route("/hls/master.m3u8", get(crate::hls::master))
+        .route("/hls/key", get(crate::hls::key))
+        .route("/hls/{playlist}", get(crate::hls::media_playlist))
+        .route("/hls/{track}/{segment}", get(crate::hls::segment))
         .route("/_stats", get(stats))
         .route("/_reset", post(reset))
         .with_state(Arc::new(AppState::default()))

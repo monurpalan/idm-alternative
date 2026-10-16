@@ -5,10 +5,13 @@
 //! connections, missing range support, expiring links, changing validators, HTML error
 //! pages, connection limits, redirects and more.
 //!
+//! `GET /hls/master.m3u8?<params>` serves a synthetic HLS stream (see [`hls`]).
+//!
 //! `GET /_stats` reports per-URL request counts, peak concurrency and bytes sent;
 //! `POST /_reset` clears them.
 
 pub mod content;
+pub mod hls;
 pub mod scenario;
 mod server;
 mod tls;

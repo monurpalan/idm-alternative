@@ -13,6 +13,7 @@ mod checksum;
 mod download;
 pub mod error;
 mod file;
+mod hls;
 mod limit;
 pub mod name;
 mod place;
@@ -26,6 +27,7 @@ pub use download::{
     Options, Outcome, Phase, Probe, Progress, Request, SegmentView, download, fetch_text, probe,
 };
 pub use error::{Error, Result};
+pub use hls::{StreamRequest, download_hls};
 pub use limit::Limiter;
 pub use place::{Conflict, target, target_avoiding};
 pub use relink::patch_url;

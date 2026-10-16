@@ -306,6 +306,26 @@ impl Http {
 }
 
 impl Http {
+    /// A GET for a whole resource or `[start, end)` of it (`end` exclusive), failing on any
+    /// status but 2xx: for stream segments, which are fetched whole and not resumed.
+    pub(crate) async fn segment(
+        &self,
+        url: &str,
+        range: Option<(u64, u64)>,
+        slot: u64,
+    ) -> Result<Response> {
+        let mut h = HeaderMap::new();
+        if let Some((start, end)) = range {
+            h.insert(header::RANGE, range_value(start, Some(end)));
+        }
+        let resp = self.get(url, h, slot).await?;
+        if resp.status().is_success() {
+            Ok(resp)
+        } else {
+            Err(status_error(&resp))
+        }
+    }
+
     /// A whole small resource as text (a playlist), and the URL it came from after
     /// redirects. Fails past `limit` bytes.
     pub async fn text(&self, url: &str, limit: usize) -> Result<(String, String)> {
