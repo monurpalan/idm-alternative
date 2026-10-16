@@ -196,6 +196,15 @@ impl Db {
         Ok(())
     }
 
+    pub(crate) async fn set_queue_pos(&self, id: TaskId, pos: i64) -> Result<()> {
+        sqlx::query("UPDATE tasks SET queue_pos = ? WHERE id = ?")
+            .bind(pos)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub(crate) async fn set_url(&self, id: TaskId, url: &str) -> Result<()> {
         sqlx::query("UPDATE tasks SET url = ? WHERE id = ?")
             .bind(url)

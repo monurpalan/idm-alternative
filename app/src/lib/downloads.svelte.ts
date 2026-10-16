@@ -24,7 +24,15 @@ export const VIEWS: { id: View; label: string }[] = [
 	{ id: 'finished', label: 'Finished' }
 ];
 
-export type SortKey = 'name' | 'size' | 'progress' | 'speed' | 'eta' | 'status' | 'added';
+export type SortKey =
+	| 'queue'
+	| 'name'
+	| 'size'
+	| 'progress'
+	| 'speed'
+	| 'eta'
+	| 'status'
+	| 'added';
 
 /** A row: the stored task with live numbers folded in. */
 export interface Row {
@@ -83,6 +91,12 @@ const STATUS_ORDER = { downloading: 0, queued: 1, paused: 2, error: 3, done: 4 }
 
 export function compare(a: Row, b: Row, key: SortKey): number {
 	switch (key) {
+		case 'queue':
+			// Unfinished ones in queue order, finished ones after them.
+			return (
+				Number(a.task.status === 'done') - Number(b.task.status === 'done') ||
+				a.task.queue_pos - b.task.queue_pos
+			);
 		case 'name':
 			return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
 		case 'size':

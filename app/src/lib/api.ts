@@ -70,6 +70,10 @@ export const startTasks = (ids: TaskId[]) => invoke<void>('start_tasks', { ids }
 export const pauseTasks = (ids: TaskId[]) => invoke<void>('pause_tasks', { ids });
 export const removeTasks = (ids: TaskId[], deleteFiles: boolean) =>
 	invoke<void>('remove_tasks', { ids, deleteFiles });
+export const startAll = () => invoke<void>('start_all');
+export const pauseAll = () => invoke<void>('pause_all');
+export const moveTask = (id: TaskId, to: 'top' | 'up' | 'down' | 'bottom') =>
+	invoke<void>('move_task', { id, to });
 export const restartTask = (id: TaskId) => invoke<void>('restart_task', { id });
 export const openFile = (id: TaskId) => invoke<void>('open_file', { id });
 export const showInFolder = (id: TaskId) => invoke<void>('show_in_folder', { id });

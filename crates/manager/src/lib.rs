@@ -58,6 +58,11 @@ pub struct Config {
     pub conflict: Conflict,
     /// Client settings every download starts from (browser profile, proxy, timeouts…).
     pub engine: Options,
+    /// A download that fails for a reason that may pass (network, server busy or erroring)
+    /// is retried this many times before it stays failed.
+    pub max_retries: u32,
+    /// Wait before the first retry; doubles with each one, up to five minutes.
+    pub retry_delay: Duration,
 }
 
 impl Default for Config {
@@ -68,6 +73,8 @@ impl Default for Config {
             connections: 16,
             conflict: Conflict::Rename,
             engine: Options::default(),
+            max_retries: 5,
+            retry_delay: Duration::from_secs(5),
         }
     }
 }
@@ -82,6 +89,19 @@ pub enum Event {
     Progress(TaskProgress),
     Removed(TaskId),
 }
+
+/// Where to move a download in the queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Move {
+    Top,
+    Up,
+    Down,
+    Bottom,
+}
+
+/// Longest wait between automatic retries.
+const MAX_RETRY_DELAY: Duration = Duration::from_secs(300);
 
 /// How often running downloads report progress.
 const PROGRESS_EVERY: Duration = Duration::from_millis(250);
@@ -105,7 +125,16 @@ struct Inner {
     scheduling: tokio::sync::Mutex<()>,
     /// Held while choosing a download's path, so two downloads never get the same one.
     naming: tokio::sync::Mutex<()>,
+    /// Downloads waiting to be retried after a failure that may pass.
+    retries: Mutex<HashMap<TaskId, Retry>>,
     closed: AtomicBool,
+}
+
+struct Retry {
+    /// Failures in a row so far.
+    attempts: u32,
+    /// Not started again before this.
+    at: Instant,
 }
 
 struct Running {
@@ -126,6 +155,26 @@ enum Stop {
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Failures that may pass by themselves: the network, or a server that is busy or erroring.
+/// Not: a missing file (4xx), a changed file, a full disk, an expired link or a checksum
+/// mismatch, which need the user.
+fn retryable(e: &Error) -> bool {
+    use idma_engine::Error as E;
+    match e {
+        Error::Engine(e) => match e {
+            E::Http(_)
+            | E::Busy(_)
+            | E::Truncated
+            | E::Stalled(_)
+            | E::TooManyFailures { .. }
+            | E::BadRange(_) => true,
+            E::Status(code) => *code >= 500 || *code == 408 || *code == 429,
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 /// The file and the engine's partial data and state next to it.
@@ -160,6 +209,7 @@ impl Manager {
             running: Mutex::new(HashMap::new()),
             scheduling: tokio::sync::Mutex::new(()),
             naming: tokio::sync::Mutex::new(()),
+            retries: Mutex::new(HashMap::new()),
             closed: AtomicBool::new(false),
         });
         inner.fill().await?;
@@ -239,6 +289,8 @@ impl Manager {
     /// Queues a paused, failed or queued download; it starts when a slot is free.
     pub async fn start(&self, id: TaskId) -> Result<()> {
         let task = self.get(id).await?;
+        // Started by hand: no waiting for a scheduled retry.
+        lock(&self.inner.retries).remove(&id);
         if matches!(task.status, Status::Paused | Status::Error) {
             self.inner.set_status(id, Status::Queued, None).await?;
         }
@@ -249,6 +301,7 @@ impl Manager {
     /// queue. Returns once the download has stopped.
     pub async fn pause(&self, id: TaskId) -> Result<()> {
         let task = self.get(id).await?;
+        lock(&self.inner.retries).remove(&id);
         if !self.inner.stop(id, Stop::Pause).await && task.status == Status::Queued {
             self.inner.set_status(id, Status::Paused, None).await?;
         }
@@ -259,6 +312,7 @@ impl Manager {
     /// and any partial data go too; otherwise files stay where they are.
     pub async fn remove(&self, id: TaskId, delete_files: bool) -> Result<()> {
         let task = self.get(id).await?;
+        lock(&self.inner.retries).remove(&id);
         self.inner.stop(id, Stop::Remove).await;
         self.inner.db.delete(id).await?;
         if delete_files && let Some(path) = &task.path {
@@ -272,6 +326,7 @@ impl Manager {
     /// deleted and the download is queued.
     pub async fn restart(&self, id: TaskId) -> Result<()> {
         let task = self.get(id).await?;
+        lock(&self.inner.retries).remove(&id);
         // Stopped like a removal: the download's own end is not recorded.
         self.inner.stop(id, Stop::Remove).await;
         if let Some(path) = &task.path {
@@ -292,6 +347,67 @@ impl Manager {
     ) -> Result<idma_engine::Probe> {
         let opts = lock(&self.inner.config).engine.clone();
         Ok(idma_engine::probe(url, headers, &opts).await?)
+    }
+
+    /// Queues every paused or failed download.
+    pub async fn start_all(&self) -> Result<()> {
+        for t in self.list().await? {
+            if matches!(t.status, Status::Paused | Status::Error) {
+                lock(&self.inner.retries).remove(&t.id);
+                self.inner.set_status(t.id, Status::Queued, None).await?;
+            }
+        }
+        self.inner.fill().await
+    }
+
+    /// Pauses every running and queued download.
+    pub async fn pause_all(&self) -> Result<()> {
+        // Queued ones first, so stopping a running one does not start the next.
+        let tasks = self.list().await?;
+        for status in [Status::Queued, Status::Downloading] {
+            for t in tasks.iter().filter(|t| t.status == status) {
+                self.pause(t.id).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Moves a download in the queue order, among the downloads that are not finished.
+    pub async fn move_task(&self, id: TaskId, to: Move) -> Result<()> {
+        let tasks = self.list().await?; // in queue order
+        let order: Vec<&Task> = tasks.iter().filter(|t| t.status != Status::Done).collect();
+        let Some(i) = order.iter().position(|t| t.id == id) else {
+            return Ok(());
+        };
+        let mut changed = vec![];
+        match to {
+            Move::Top => {
+                let first = tasks.first().map_or(0, |t| t.queue_pos);
+                self.inner.db.set_queue_pos(id, first - 1).await?;
+                changed.push(id);
+            }
+            Move::Bottom => {
+                let last = tasks.last().map_or(0, |t| t.queue_pos);
+                self.inner.db.set_queue_pos(id, last + 1).await?;
+                changed.push(id);
+            }
+            Move::Up | Move::Down => {
+                let j = if to == Move::Up {
+                    i.checked_sub(1)
+                } else {
+                    Some(i + 1).filter(|j| *j < order.len())
+                };
+                let Some(j) = j else { return Ok(()) };
+                let (a, b) = (order[i], order[j]);
+                self.inner.db.set_queue_pos(a.id, b.queue_pos).await?;
+                self.inner.db.set_queue_pos(b.id, a.queue_pos).await?;
+                changed.extend([a.id, b.id]);
+            }
+        }
+        for id in changed {
+            self.inner.emit(Event::Updated(self.get(id).await?));
+        }
+        Ok(())
     }
 
     /// Limit for all downloads together, bytes per second; takes effect at once.
@@ -410,7 +526,17 @@ impl Inner {
         if free == 0 {
             return Ok(());
         }
-        for mut task in self.db.queued(free).await? {
+        let waiting: Vec<TaskId> = {
+            let now = Instant::now();
+            lock(&self.retries)
+                .iter()
+                .filter(|(_, r)| r.at > now)
+                .map(|(id, _)| *id)
+                .collect()
+        };
+        let queued = self.db.queued(free + waiting.len()).await?;
+        let startable = queued.into_iter().filter(|t| !waiting.contains(&t.id));
+        for mut task in startable.take(free) {
             self.db
                 .set_status(task.id, Status::Downloading, None)
                 .await?;
@@ -456,19 +582,29 @@ impl Inner {
         let result = self.download(task, &cancel, limiter).await;
         let why = *lock(&stop);
         let recorded = match (&result, why) {
-            (Ok(outcome), _) => self.db.finish(id, outcome.size, now_ms()).await,
+            (Ok(outcome), _) => {
+                lock(&self.retries).remove(&id);
+                self.db.finish(id, outcome.size, now_ms()).await
+            }
             (Err(Error::Engine(idma_engine::Error::Cancelled)), Some(Stop::Pause)) => {
                 self.db.set_status(id, Status::Paused, None).await
             }
             // Stays "downloading" so the next open resumes it.
             (Err(Error::Engine(idma_engine::Error::Cancelled)), Some(Stop::Shutdown)) => Ok(()),
             (Err(Error::Engine(idma_engine::Error::Cancelled)), Some(Stop::Remove)) => Ok(()),
-            (Err(e), _) => {
-                tracing::warn!(id, "download failed: {e}");
-                self.db
-                    .set_status(id, Status::Error, Some(&e.to_string()))
-                    .await
-            }
+            (Err(e), _) => match self.schedule_retry(id, e) {
+                Some(delay) => {
+                    tracing::info!(id, "download failed, retrying in {delay:?}: {e}");
+                    let note = format!("{e} (retrying in {} s)", delay.as_secs().max(1));
+                    self.db.set_status(id, Status::Queued, Some(&note)).await
+                }
+                None => {
+                    tracing::warn!(id, "download failed: {e}");
+                    self.db
+                        .set_status(id, Status::Error, Some(&e.to_string()))
+                        .await
+                }
+            },
         };
         if let Err(e) = recorded {
             tracing::error!(id, "could not record the end of a download: {e}");
@@ -482,6 +618,39 @@ impl Inner {
         if let Err(e) = self.fill().await {
             tracing::error!("could not start queued downloads: {e}");
         }
+    }
+
+    /// After a failure: when it may pass and retries are left, records when to try again,
+    /// wakes the queue then, and returns the wait.
+    fn schedule_retry(self: &Arc<Self>, id: TaskId, e: &Error) -> Option<Duration> {
+        let (max, base) = {
+            let cfg = lock(&self.config);
+            (cfg.max_retries, cfg.retry_delay)
+        };
+        let mut retries = lock(&self.retries);
+        let attempts = retries.get(&id).map_or(0, |r| r.attempts) + 1;
+        if !retryable(e) || attempts > max {
+            retries.remove(&id);
+            return None;
+        }
+        let delay = base
+            .saturating_mul(1 << (attempts - 1).min(16))
+            .min(MAX_RETRY_DELAY);
+        retries.insert(
+            id,
+            Retry {
+                attempts,
+                at: Instant::now() + delay,
+            },
+        );
+        let inner = Arc::clone(self);
+        tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            if let Err(e) = inner.fill().await {
+                tracing::error!("could not start queued downloads: {e}");
+            }
+        });
+        Some(delay)
     }
 
     async fn download(

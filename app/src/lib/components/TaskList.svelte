@@ -20,6 +20,7 @@
 	} = $props();
 
 	const COLUMNS: { key: SortKey; label: string; numeric?: boolean }[] = [
+		{ key: 'queue', label: '#', numeric: true },
 		{ key: 'name', label: 'Name' },
 		{ key: 'size', label: 'Size', numeric: true },
 		{ key: 'progress', label: 'Progress' },
@@ -29,6 +30,16 @@
 		{ key: 'added', label: 'Added', numeric: true }
 	];
 
+	/** 1-based place of each unfinished download in the queue. */
+	const queuePos = $derived.by(() => {
+		const pos = new Map<TaskId, number>();
+		downloads.tasks
+			.filter((t) => t.status !== 'done')
+			.sort((a, b) => a.queue_pos - b.queue_pos)
+			.forEach((t, i) => pos.set(t.id, i + 1));
+		return pos;
+	});
+
 	/** Where a Shift-click range starts. */
 	let anchor: TaskId | null = null;
 
@@ -37,7 +48,7 @@
 		else {
 			sortKey = key;
 			// Big numbers and recent dates first; names A→Z.
-			sortDesc = key !== 'name' && key !== 'status';
+			sortDesc = key !== 'name' && key !== 'status' && key !== 'queue';
 		}
 	}
 
@@ -83,7 +94,8 @@
 				}
 				return r.task.path ? 'Downloading' : 'Connecting';
 			case 'queued':
-				return 'Queued';
+				// Waiting for an automatic retry after a failure that may pass.
+				return t.error ? 'Retrying' : 'Queued';
 			case 'paused':
 				return 'Paused';
 			case 'done':
@@ -97,7 +109,7 @@
 <div class="scroll">
 	<table>
 		<colgroup>
-			<col class="c-name" /><col class="c-size" /><col class="c-progress" /><col
+			<col class="c-queue" /><col class="c-name" /><col class="c-size" /><col class="c-progress" /><col
 				class="c-speed"
 			/><col class="c-eta" /><col class="c-status" /><col class="c-added" />
 		</colgroup>
@@ -126,6 +138,7 @@
 					ondblclick={() => onopen(t)}
 					oncontextmenu={(e) => context(e, t)}
 				>
+					<td class="numeric muted">{queuePos.get(t.id) ?? ''}</td>
 					<td class="name" title={r.task.url}>{r.name}</td>
 					<td class="numeric">{bytes(r.size)}</td>
 					<td>
@@ -164,8 +177,17 @@
 		table-layout: fixed;
 		font-variant-numeric: tabular-nums;
 	}
+	.c-queue {
+		width: 38px;
+	}
 	.c-name {
 		width: auto;
+	}
+	.muted {
+		color: var(--muted);
+	}
+	tr.selected .muted {
+		color: inherit;
 	}
 	.c-size,
 	.c-speed {

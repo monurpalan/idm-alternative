@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use idma_manager::{Config, Event, Manager, NewTask, Status, Task, TaskId, TaskProgress};
+use idma_manager::{Config, Event, Manager, Move, NewTask, Status, Task, TaskId, TaskProgress};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager as _, RunEvent, State};
 use tauri_plugin_opener::OpenerExt;
@@ -94,6 +94,21 @@ async fn remove_tasks(app: State<'_, App>, ids: Vec<TaskId>, delete_files: bool)
         app.manager.remove(id, delete_files).await.map_err(msg)?;
     }
     Ok(())
+}
+
+#[tauri::command]
+async fn start_all(app: State<'_, App>) -> CmdResult<()> {
+    app.manager.start_all().await.map_err(msg)
+}
+
+#[tauri::command]
+async fn pause_all(app: State<'_, App>) -> CmdResult<()> {
+    app.manager.pause_all().await.map_err(msg)
+}
+
+#[tauri::command]
+async fn move_task(app: State<'_, App>, id: TaskId, to: Move) -> CmdResult<()> {
+    app.manager.move_task(id, to).await.map_err(msg)
 }
 
 #[tauri::command]
@@ -287,6 +302,9 @@ fn main() {
             pause_tasks,
             remove_tasks,
             restart_task,
+            start_all,
+            pause_all,
+            move_task,
             set_speed_limit,
             refresh_link,
             open_file,

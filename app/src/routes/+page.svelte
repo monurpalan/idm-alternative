@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import {
+		moveTask,
 		openFile,
+		pauseAll,
 		pauseTasks,
 		removeTasks,
 		restartTask,
 		showInFolder,
+		startAll,
 		startTasks,
 		type Task,
 		type TaskId
@@ -28,8 +31,8 @@
 
 	let view = $state<View>('all');
 	let search = $state('');
-	let sortKey = $state<SortKey>('added');
-	let sortDesc = $state(true);
+	let sortKey = $state<SortKey>('queue');
+	let sortDesc = $state(false);
 	let adding = $state<{ url: string } | null>(null);
 	let removing = $state<TaskId[] | null>(null);
 	let menu = $state<{ x: number; y: number; items: Item[] } | null>(null);
@@ -107,6 +110,27 @@
 					label: 'Pause',
 					action: () => run(pauseTasks(ids(canPause))),
 					disabled: !sel.some(canPause)
+				},
+				{
+					label: 'Move to top',
+					action: () => run(moveTask(task.id, 'top')),
+					disabled: !one || one.status === 'done',
+					separated: true
+				},
+				{
+					label: 'Move up',
+					action: () => run(moveTask(task.id, 'up')),
+					disabled: !one || one.status === 'done'
+				},
+				{
+					label: 'Move down',
+					action: () => run(moveTask(task.id, 'down')),
+					disabled: !one || one.status === 'done'
+				},
+				{
+					label: 'Move to bottom',
+					action: () => run(moveTask(task.id, 'bottom')),
+					disabled: !one || one.status === 'done'
 				},
 				{
 					label: 'Copy address',
@@ -193,6 +217,14 @@
 			disabled={!selectedTasks.length}
 			title="Delete">Remove</button
 		>
+		<span class="sep"></span>
+		<button onclick={() => run(startAll())} title="Queue every paused or failed download"
+			>Start all</button
+		>
+		<button onclick={() => run(pauseAll())} title="Pause every running and queued download"
+			>Pause all</button
+		>
+		<span class="sep"></span>
 		<button
 			class="toggle"
 			aria-pressed={showDetails}
@@ -288,6 +320,12 @@
 	}
 	main.split {
 		grid-template-rows: 1fr 230px;
+	}
+	.sep {
+		width: 1px;
+		align-self: stretch;
+		margin: 2px 4px;
+		background: var(--line);
 	}
 	.toggle[aria-pressed='true'] {
 		background: var(--selected);
