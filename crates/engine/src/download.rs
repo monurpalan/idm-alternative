@@ -253,6 +253,20 @@ async fn verify(
     }
 }
 
+/// Fetches a small text resource such as a playlist with the same client settings a
+/// download would use. Returns the text and the URL after redirects (relative links in a
+/// playlist are relative to that).
+pub async fn fetch_text(
+    url: &str,
+    headers: &[(String, String)],
+    opts: &Options,
+    limit: usize,
+) -> Result<(String, String)> {
+    Http::new(&http_config(headers, opts))?
+        .text(url, limit)
+        .await
+}
+
 pub(crate) fn http_config(headers: &[(String, String)], opts: &Options) -> HttpConfig {
     HttpConfig {
         user_agent: opts.user_agent.clone(),

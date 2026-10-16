@@ -17,6 +17,7 @@
 		startAll,
 		startTasks,
 		type CapturedLinks,
+		type CapturedMedia,
 		type Headers,
 		type Task,
 		type TaskId
@@ -26,6 +27,7 @@
 	import ContextMenu, { type Item } from '#lib/components/ContextMenu.svelte';
 	import DetailPane from '#lib/components/DetailPane.svelte';
 	import LinksDialog from '#lib/components/LinksDialog.svelte';
+	import MediaDialog from '#lib/components/MediaDialog.svelte';
 	import SettingsDialog from '#lib/components/SettingsDialog.svelte';
 	import Sidebar from '#lib/components/Sidebar.svelte';
 	import TaskList from '#lib/components/TaskList.svelte';
@@ -49,6 +51,7 @@
 		headers?: Headers | null;
 	} | null>(null);
 	let picking = $state<CapturedLinks | null>(null);
+	let streaming = $state<CapturedMedia | null>(null);
 	let removing = $state<TaskId[] | null>(null);
 	let menu = $state<{ x: number; y: number; items: Item[] } | null>(null);
 	let notice = $state<string | null>(null);
@@ -78,8 +81,7 @@
 					// Sites like YouTube go through yt-dlp, which is not there yet.
 					info = 'Downloading from this site is not supported yet';
 				} else {
-					// Quality selection for streams is not there yet.
-					info = `${item.kind.toUpperCase()} streams cannot be downloaded yet`;
+					streaming = m;
 				}
 			})
 		];
@@ -210,7 +212,7 @@
 	}
 
 	function keydown(e: KeyboardEvent) {
-		if (adding || removing || settingsOpen || picking || inField(e)) return;
+		if (adding || removing || settingsOpen || picking || streaming || inField(e)) return;
 		const ctrl = e.ctrlKey || e.metaKey;
 		if (ctrl && e.key.toLowerCase() === 'a') {
 			e.preventDefault();
@@ -332,6 +334,10 @@
 		}}
 		onclose={() => (removing = null)}
 	/>
+{/if}
+
+{#if streaming}
+	<MediaDialog media={streaming} onclose={() => (streaming = null)} />
 {/if}
 
 {#if picking}

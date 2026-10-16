@@ -1,0 +1,15 @@
+[package]
+name = "idma-media"
+description = "Reading HLS and DASH playlists: which qualities, audio tracks and subtitles a stream offers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+roxmltree = "0.21"
+serde.workspace = true
+url = "2"
+
+[lints]
+workspace = true

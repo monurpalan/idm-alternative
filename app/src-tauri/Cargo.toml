@@ -18,6 +18,7 @@ tauri-build = { version = "2", features = [] }
 idma-bridge = { version = "0.1.0", path = "../../crates/bridge" }
 idma-engine = { version = "0.1.0", path = "../../crates/engine" }
 idma-manager = { path = "../../crates/manager" }
+idma-media = { version = "0.1.0", path = "../../crates/media" }
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }

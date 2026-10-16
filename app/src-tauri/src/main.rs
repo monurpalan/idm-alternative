@@ -230,6 +230,22 @@ async fn refresh_in_browser(handle: AppHandle, app: State<'_, App>, id: TaskId) 
     opened.map_err(msg)
 }
 
+/// What an HLS or DASH stream offers (qualities, audio, subtitles), read with the page's
+/// headers.
+#[tauri::command]
+async fn inspect_media(
+    app: State<'_, App>,
+    url: String,
+    headers: Option<Vec<(String, String)>>,
+) -> CmdResult<idma_media::Streams> {
+    let opts = app.manager.config().engine;
+    let (text, final_url) =
+        idma_engine::fetch_text(&url, &headers.unwrap_or_default(), &opts, 8 << 20)
+            .await
+            .map_err(msg)?;
+    idma_media::parse(&final_url, &text).map_err(msg)
+}
+
 /// Continues a download from a fresh link to the same file.
 #[tauri::command]
 async fn refresh_link(app: State<'_, App>, id: TaskId, url: String) -> CmdResult<()> {
@@ -711,6 +727,7 @@ fn main() {
             set_speed_limit,
             refresh_link,
             refresh_in_browser,
+            inspect_media,
             set_login,
             open_file,
             show_in_folder,

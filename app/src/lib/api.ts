@@ -120,6 +120,38 @@ export interface CapturedMedia {
 	headers: Headers;
 }
 
+/** What a stream offers; see `idma-media`. */
+export interface StreamInfo {
+	format: 'hls' | 'dash';
+	video: {
+		id: string;
+		bandwidth: number;
+		width: number | null;
+		height: number | null;
+		codecs: string | null;
+		frame_rate: number | null;
+		audio_group: string | null;
+	}[];
+	audio: StreamTrack[];
+	subtitles: StreamTrack[];
+	duration: number | null;
+	live: boolean;
+	encryption: string | null;
+}
+
+export interface StreamTrack {
+	id: string | null;
+	name: string | null;
+	language: string | null;
+	group: string | null;
+	default: boolean;
+	bandwidth: number | null;
+	codecs: string | null;
+}
+
+export const inspectMedia = (url: string, headers: Headers) =>
+	invoke<StreamInfo>('inspect_media', { url, headers });
+
 export const onCapturedMedia = (handler: (m: CapturedMedia) => void): Promise<UnlistenFn> =>
 	listen<CapturedMedia>('capture-media', (e) => handler(e.payload));
 

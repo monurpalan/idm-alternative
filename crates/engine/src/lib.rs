@@ -23,7 +23,7 @@ mod state;
 
 pub use checksum::{Algorithm, Checksum};
 pub use download::{
-    Options, Outcome, Phase, Probe, Progress, Request, SegmentView, download, probe,
+    Options, Outcome, Phase, Probe, Progress, Request, SegmentView, download, fetch_text, probe,
 };
 pub use error::{Error, Result};
 pub use limit::Limiter;

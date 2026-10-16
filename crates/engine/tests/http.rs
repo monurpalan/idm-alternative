@@ -291,3 +291,16 @@ async fn login_prompt_is_not_an_expired_link() {
     .expect("download with credentials");
     assert_eq!(verify_file(&out, 12, size).expect("verify"), Verdict::Ok);
 }
+
+#[tokio::test]
+async fn fetches_a_small_text_after_redirects() {
+    let base = start_plain().await;
+    let url = format!("{base}/file/page.html?size=100&html_error_after=0&redirect=1");
+    let (text, final_url) = idma_engine::fetch_text(&url, &[], &Options::default(), 64 << 10)
+        .await
+        .expect("fetch");
+    assert!(text.contains("Session expired"), "{text}");
+    assert!(final_url.contains("redirect=0"), "{final_url}");
+    let too_small = idma_engine::fetch_text(&url, &[], &Options::default(), 10).await;
+    assert!(too_small.is_err());
+}

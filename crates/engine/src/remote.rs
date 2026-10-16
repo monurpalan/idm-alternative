@@ -306,6 +306,26 @@ impl Http {
 }
 
 impl Http {
+    /// A whole small resource as text (a playlist), and the URL it came from after
+    /// redirects. Fails past `limit` bytes.
+    pub async fn text(&self, url: &str, limit: usize) -> Result<(String, String)> {
+        use futures_util::StreamExt;
+        let resp = self.get(url, HeaderMap::new(), 0).await?;
+        if !resp.status().is_success() {
+            return Err(status_error(&resp));
+        }
+        let final_url = resp.uri().to_string();
+        let mut body = Vec::new();
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            body.extend_from_slice(&chunk?);
+            if body.len() > limit {
+                return Err(Error::State(format!("{url} is larger than {limit} bytes")));
+            }
+        }
+        Ok((String::from_utf8_lossy(&body).into_owned(), final_url))
+    }
+
     /// Downloads `[start, end)` whole; for small checks, not for file data.
     pub async fn fetch(&self, remote: &Remote, start: u64, end: u64, slot: u64) -> Result<Vec<u8>> {
         let resp = self.range(remote, start, Some(end), slot).await?;
