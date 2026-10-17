@@ -5,6 +5,7 @@
 // No console window in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod clipboard;
 mod schedule;
 mod settings;
 mod tools;
@@ -36,6 +37,9 @@ struct App {
     awaiting_link: Mutex<Option<(TaskId, std::time::Instant)>>,
     /// What to do when all downloads finish (one shot).
     when_done: Mutex<schedule::Armed>,
+    /// Listening to the clipboard while the setting is on.
+    #[cfg(windows)]
+    clipboard: Mutex<Option<clipboard::Watcher>>,
 }
 
 /// How long "refresh in browser" waits for the user to start the download again.
@@ -337,6 +341,9 @@ async fn apply_settings(handle: &AppHandle, new: Settings) -> CmdResult<Settings
     if new.browser_integration != old.browser_integration {
         set_browser_integration(&app.data, new.browser_integration)?;
     }
+    if new.watch_clipboard != old.watch_clipboard {
+        watch_clipboard(handle, new.watch_clipboard);
+    }
     if new.start_with_windows != old.start_with_windows {
         let autostart = handle.autolaunch();
         if new.start_with_windows {
@@ -356,6 +363,53 @@ async fn apply_settings(handle: &AppHandle, new: Settings) -> CmdResult<Settings
     }
     handle.emit("settings", &new).ok();
     Ok(new)
+}
+
+/// Starts or stops listening to the clipboard. A copied download link (one not on the list
+/// yet, and not the same as the last one) brings the window up with "Add URL" for it.
+fn watch_clipboard(handle: &AppHandle, on: bool) {
+    #[cfg(windows)]
+    {
+        let app = handle.state::<App>();
+        let mut slot = lock(&app.clipboard);
+        if !on {
+            // Dropping the watcher stops it.
+            slot.take();
+            return;
+        }
+        if slot.is_some() {
+            return;
+        }
+        let handle = handle.clone();
+        let last = Mutex::new(String::new());
+        let started = clipboard::Watcher::start(move |text| {
+            let Some(url) = clipboard::link_in(&text) else {
+                return;
+            };
+            if std::mem::replace(&mut *lock(&last), url.clone()) == url {
+                return;
+            }
+            let handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                let app = handle.state::<App>();
+                let listed = app
+                    .manager
+                    .list()
+                    .await
+                    .is_ok_and(|tasks| tasks.iter().any(|t| t.url == url));
+                if !listed {
+                    show_main(&handle);
+                    handle.emit("clipboard", url).ok();
+                }
+            });
+        });
+        match started {
+            Ok(w) => *slot = Some(w),
+            Err(e) => tracing::warn!("could not watch the clipboard: {e}"),
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (handle, on);
 }
 
 /// Registers the native messaging host with the browsers, or removes the registration.
@@ -962,9 +1016,14 @@ fn main() {
                 tray: Mutex::new(Some(tray)),
                 awaiting_link: Mutex::new(None),
                 when_done: Mutex::new(schedule::Armed::default()),
+                #[cfg(windows)]
+                clipboard: Mutex::new(None),
                 ffmpeg,
             });
             tauri::async_runtime::spawn(daily_checks(app.handle().clone()));
+            if lock(&app.state::<App>().settings).watch_clipboard {
+                watch_clipboard(app.handle(), true);
+            }
             tauri::async_runtime::spawn(schedule::run_scheduler(app.handle().clone()));
             tauri::async_runtime::spawn(schedule::run_when_done(app.handle().clone()));
             if std::env::args().any(|a| a == HIDDEN_ARG)

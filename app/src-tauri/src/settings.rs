@@ -41,6 +41,8 @@ pub struct Settings {
     /// Look for a new version of the app once a day and offer it.
     pub check_updates: bool,
     pub schedule: crate::schedule::Schedule,
+    /// Offer copied download links, like IDM. Off unless the user turns it on.
+    pub watch_clipboard: bool,
 }
 
 impl Default for Settings {
@@ -61,6 +63,7 @@ impl Default for Settings {
             update_tools: true,
             check_updates: true,
             schedule: crate::schedule::Schedule::default(),
+            watch_clipboard: false,
         }
     }
 }

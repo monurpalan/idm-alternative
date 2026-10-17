@@ -5,6 +5,7 @@
 		moveTask,
 		onCapture,
 		onUpdate,
+		onClipboard,
 		getWhenDone,
 		setWhenDone,
 		onWhenDone,
@@ -104,6 +105,10 @@
 			onCapturedLinks((l) => (picking = l)),
 			onNotice((text) => (info = text)),
 			onUpdate((u) => (update = u)),
+			// A copied link: offer it, unless the user is already adding something.
+			onClipboard((url) => {
+				if (!adding) adding = { url, name: null, headers: null };
+			}),
 			onWhenDone((a) => (whenDone = a)),
 			onCountdown((c) => (countdown = c)),
 			onCapturedMedia((m) => {

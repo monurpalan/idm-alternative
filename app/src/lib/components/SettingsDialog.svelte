@@ -251,6 +251,10 @@
 				</div>
 				{#if updateStatus}<p class="small">{updateStatus}</p>{/if}
 				<label class="check">
+					<input type="checkbox" bind:checked={s.watch_clipboard} />
+					Offer download links I copy (archives, programs, video, music, documents)
+				</label>
+				<label class="check">
 					<input type="checkbox" bind:checked={s.browser_integration} />
 					Take downloads from the browser extension (registers with Chrome, Edge, Brave,
 					Vivaldi, Opera and Firefox)

@@ -74,6 +74,7 @@ export interface Settings {
 	update_tools: boolean;
 	check_updates: boolean;
 	schedule: Schedule;
+	watch_clipboard: boolean;
 }
 
 /** List changes; progress comes separately, batched (see `onManagerEvent`). */
@@ -229,6 +230,10 @@ export const installUpdate = () => invoke<void>('install_update');
 /** The daily check found a new version of the app. */
 export const onUpdate = (handler: (u: AppUpdate) => void): Promise<UnlistenFn> =>
 	listen<AppUpdate>('update', (e) => handler(e.payload));
+
+/** A download link was copied (while watching the clipboard is on). */
+export const onClipboard = (handler: (url: string) => void): Promise<UnlistenFn> =>
+	listen<string>('clipboard', (e) => handler(e.payload));
 
 /** yt-dlp or deno was updated in the background. */
 export const onToolsUpdated = (handler: () => void): Promise<UnlistenFn> =>
