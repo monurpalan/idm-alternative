@@ -136,41 +136,46 @@ so that price is only paid while the window is open.
 
 ## Benchmarks
 
-`dm` (the engine's command-line front end) against IDM 6.43, aria2 and curl, measured with
-[`idma-bench`](bench/README.md) on 2026-10-16. Every file was verified byte for byte (local) or by
-size and SHA-256 (internet). Medians of 3 runs (internet 1000 MiB: 2), clients in shuffled order.
+`dm` (the engine's command-line front end) against IDM 6.43, Gopeed 1.9.3, AB Download Manager
+1.11.1, aria2 and curl, measured with [`idma-bench`](bench/README.md) on 2026-10-18. Every file was
+verified byte for byte (local) or by size and SHA-256 (internet). Medians of 3 runs, clients in a
+new shuffled order each round. Free Download Manager is not in the table: it has no command line
+or local API to start a download from.
 
-**Real internet** (Linode Frankfurt, from Turkey, ~470 Mbit/s line):
+**Seconds, lower is better** ([local](bench/results/2026-10-18_011811.md),
+[internet](bench/results/2026-10-18_011946.md)). `dm x8` uses IDM's and AB DM's default of 8
+connections; the others use their defaults (dm, aria2 and Gopeed 16).
 
-| File | dm | aria2 (16 conns) | IDM (8 conns) | curl |
-|---|---:|---:|---:|---:|
-| 1000 MiB | **13.98 s** | 14.32 s | 19.90 s | 28.79 s |
-| 100 MiB | **2.68 s** | 3.26 s | 5.48 s | 4.41 s |
+| Scenario | dm | dm x8 | IDM | aria2 | Gopeed | AB DM¹ | curl |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Internet, 100 MiB² | **2.58** | 2.68 | 4.31 | 2.96 | 12.78 | 2.77 | 4.60 |
+| Clean, 1 GiB, local³ | 3.54 | **2.80** | 5.99 | 6.88 | 16.12 | 8.38 | 3.87 |
+| 4 MiB/s per connection, 256 MiB | **4.05** | 8.04 | 9.75 | 4.20 | 4.17 | 8.04 | 64.03 |
+| One connection crawls at 64 KiB/s | **2.40** | 4.43 | 8.61 | 10.28 | 10.10 | 31.58 | 32.03 |
+| Server allows 4 connections | 8.35 | **8.14** | 9.04 | 8.27 | 13.18 | 9.23 | 32.03 |
+| Connections reset every 4 MiB | **1.50** | 3.09 | 4.82 | 3.14 | 7.51 | 9.87 | fails |
+| No range support, 128 MiB | **8.03** | 8.03 | 8.88 | 8.12 | 8.12 | 8.12 | 8.03 |
+| Says it has ranges, sends the whole file | **8.03** | 8.03 | 8.92 | 8.11 | **corrupt** | 8.12 | 8.02 |
 
-**Local test server**, seconds ([full table](bench/results/2026-10-16_111231.md)). `dm x8` uses
-IDM's default of 8 connections; *after* is the time between the server sending the last byte and
-the client exiting:
-
-| Scenario | dm | dm x8 | IDM | IDM after | aria2 |
-|---|---:|---:|---:|---:|---:|
-| Clean, 1 GiB | **3.15** | 4.44 | 7.50 | 2.74 | 8.91 |
-| 4 MiB/s per connection | **4.04** | 8.05 | 10.08 | 0.42 | 5.27 |
-| One connection crawls at 64 KiB/s | **2.40** | 4.43 | 8.80 | 2.37 | 10.28 |
-| Server allows 4 connections | 8.35 | **8.15** | 9.29 | 0.39 | 8.23 |
-| Connections reset every 4 MiB | **1.50** | 3.10 | 4.94 | 0.44 | 1.58 |
-| No range support | **8.03** | 8.03 | 9.12 | 0.31 | 8.12 |
+1. AB DM's own time from its download record (added → complete). Started through its command-line
+   tool, which takes about a second more; with it the times are ~1 s higher.
+2. Linode Frankfurt, from Turkey, ~470 Mbit/s line. On 2026-10-16, 1000 MiB took dm 13.98 s,
+   aria2 14.32 s, IDM 19.90 s, curl 28.79 s.
+3. The clean local run mostly measures the disk (a DRAM-less SSD that slows down while it writes
+   back): the same client swings by a factor of two between runs.
 
 What this does and does not say:
 
-- **Much of IDM's gap is not network speed.** IDM downloads parts into its own temporary folder and
-  joins them into the file afterwards (2.7 s for 1 GiB on this disk), and the measurement includes
-  IDM starting and exiting. With equal connections and that time left out, dm is 8–17 % faster on
-  plain downloads and about 30 % faster when a connection crawls or keeps dropping — the cases the
-  engine's work stealing targets.
-- **aria2 ties dm on a plain internet download** (the two 1000 MiB rounds split one each).
-- **One machine, one line, one server.** IDM was run with default settings; more connections in
-  IDM would narrow the gap. Browser integration, site compatibility and video — where IDM is
-  strong — are not measured here.
+- **Where dm stands out is a bad connection.** When one connection crawls, dm finishes in 2.4 s
+  because a finished connection takes over the slow one's range; Gopeed and aria2 wait for it
+  (~10 s), AB DM much longer (31.6 s). The same holds, less sharply, when connections keep dropping.
+- **Gopeed wrote a corrupt file** when a server advertises ranges but answers every request with
+  the whole file (all three runs); everyone else noticed and fell back to one connection.
+- **On a plain download the field is close.** aria2 and AB DM are within 15 % of dm on the internet
+  run. IDM's gap is partly not network: it downloads parts into its own folder and joins them at
+  the end (~1–2.7 s per GiB here), and its start and exit are in the measurement.
+- **One machine, one line, one server.** Everyone ran with default settings. Browser integration,
+  site compatibility and video are not measured here.
 
 ## License
 

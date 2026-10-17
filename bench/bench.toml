@@ -51,6 +51,20 @@ program = "C:/Program Files (x86)/Internet Download Manager/IDMan.exe"
 args = ["/d", "{url}", "/p", "{dir}", "/f", "{file}", "/n", "/q"]
 ignore_exit_code = true
 
+# Gopeed and AB Download Manager are driven through the running app (see bench/README.md):
+# the scripts add the download and exit when the app reports it done. Off by default.
+[[client]]
+name = "Gopeed"
+program = "python"
+args = ["-I", "bench/clients/gopeed.py", "{url}", "{path}"]
+enabled = false
+
+[[client]]
+name = "AB DM"
+program = "python"
+args = ["-I", "bench/clients/abdm.py", "{url}", "{path}"]
+enabled = false
+
 # ---------------------------------------------------------------- scenarios
 # `query` is appended to `size` and `seed`; see crates/testserver/README.md.
 

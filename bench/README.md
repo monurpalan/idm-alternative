@@ -46,6 +46,23 @@ even after a successful download (`ignore_exit_code = true`), and never exits af
 (the timeout catches it). It downloads parts into `%APPDATA%\IDM\DwnlData` and joins them at the
 end, which shows in the *After* column.
 
+## Gopeed and AB Download Manager
+
+Neither has a command that downloads and waits, so `bench/clients/*.py` add the download to
+the running app and exit when it reports it done (`--client "Gopeed,AB DM"`; off by default).
+Their *CPU %* and *RAM* columns measure the script, not the app: ignore them.
+
+- **Gopeed** (1.9.3, `winget install monkeyWie.Gopeed.Web`): start its server first, allowing
+  the output folder: `gopeed -A 127.0.0.1 -P 9999 -d <data dir> -w C:\tmp\idma-bench`. Tasks
+  are added and polled through its REST API (`/api/v1/tasks`); default 16 connections.
+- **AB Download Manager** (1.11.1, from its GitHub release): the app must be running. Downloads
+  are added with `ABDownloadManagerCli download add http --start`, and the end is read from the
+  app's own record (`~/.abdm/config/download_db/downloadlist/<id>.json`). The CLI takes about a
+  second to start, which the measured time includes; the script prints AB DM's own time
+  (`completeTime - dateAdded`) as `abdm-ms`. Default 8 connections.
+- **Free Download Manager** has no command line or local API to add a download (`fdm.exe`
+  with any argument only opens the window), so it is not measured.
+
 ## Caveats
 
 - **Write to an SSD.** Many connections writing one file on an HDD measure seek time, not the
