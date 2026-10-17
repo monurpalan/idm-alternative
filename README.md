@@ -169,8 +169,11 @@ What this does and does not say:
 - **Where dm stands out is a bad connection.** When one connection crawls, dm finishes in 2.4 s
   because a finished connection takes over the slow one's range; Gopeed and aria2 wait for it
   (~10 s), AB DM much longer (31.6 s). The same holds, less sharply, when connections keep dropping.
-- **Gopeed wrote a corrupt file** when a server advertises ranges but answers every request with
-  the whole file (all three runs); everyone else noticed and fell back to one connection.
+- **Gopeed 1.9.3 wrote a corrupt file** when a server advertises ranges but answers every request
+  with the whole file (all three runs, even with one connection); everyone else noticed and fell
+  back to one connection. It is Gopeed's known issue
+  [#1458](https://github.com/GopeedLab/gopeed/issues/1458): 2.0.0-beta.3 gets it right (checked
+  here, 6 of 6), but 1.9.3 is still its latest stable release.
 - **On a plain download the field is close.** aria2 and AB DM are within 15 % of dm on the internet
   run. IDM's gap is partly not network: it downloads parts into its own folder and joins them at
   the end (~1–2.7 s per GiB here), and its start and exit are in the measurement.
