@@ -43,14 +43,23 @@ async fn killed_process_resumes() {
     let url = format!("{base}/file/f.bin?size={size}&seed=5&rate=1M");
 
     let mut child = dm(&url, &out).spawn().expect("spawn dm");
-    tokio::time::sleep(Duration::from_secs(5)).await;
-    assert!(
-        child.try_wait().expect("try_wait").is_none(),
-        "dm finished before it could be killed"
-    );
+    // Kill once a checkpoint has recorded 8 MiB, not after a fixed time: on a slow CI machine
+    // the first checkpoints can come late.
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    while saved(&state) < 8 * MB {
+        assert!(
+            child.try_wait().expect("try_wait").is_none(),
+            "dm finished before it could be killed"
+        );
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no checkpoint of 8 MiB within 60 s"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     child.kill().expect("kill");
     child.wait().expect("wait");
-    assert!(state.exists(), "no state file after 5 s");
+    assert!(state.exists());
     assert!(!out.exists());
     let before = bytes_sent(&base).await;
 
@@ -64,8 +73,7 @@ async fn killed_process_resumes() {
     assert!(!state.exists());
 
     // Starting over would fetch the whole file again. Resuming keeps what the last
-    // checkpoint recorded: at least the first one (2 s at up to 4 MiB/s, minus ramp-up).
-    // Measured from the kill on, so a slow machine that checkpoints late does not fail it.
+    // checkpoint recorded, at least the 8 MiB waited for above.
     let again = bytes_sent(&base).await - before;
     assert!(
         again < size - 4 * MB,
@@ -74,6 +82,22 @@ async fn killed_process_resumes() {
         size / MB
     );
     std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Bytes the state file records as written, 0 while there is none.
+fn saved(state: &std::path::Path) -> u64 {
+    let Ok(text) = std::fs::read_to_string(state) else {
+        return 0;
+    };
+    let Ok(state) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return 0;
+    };
+    state["segments"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|s| s["written"].as_u64().unwrap_or(0) - s["start"].as_u64().unwrap_or(0))
+        .sum()
 }
 
 async fn bytes_sent(base: &str) -> u64 {

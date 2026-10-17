@@ -127,7 +127,26 @@ async fn html_error_page_is_not_written_as_data() {
 
 /// Downloads at a limited rate and interrupts the download after `after`, either cleanly
 /// (`cancel`) or by dropping it mid-flight like a killed process would.
-async fn interrupt(url: &str, out: &Path, after: Duration, cancel: bool) {
+/// Bytes the state file next to `out` records as written, 0 while there is none.
+fn saved(out: &Path) -> u64 {
+    let Ok(text) = std::fs::read_to_string(format!("{}.idma-state", out.display())) else {
+        return 0;
+    };
+    let Ok(state) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return 0;
+    };
+    state["segments"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|s| s["written"].as_u64().unwrap_or(0) - s["start"].as_u64().unwrap_or(0))
+        .sum()
+}
+
+/// Runs the download until its state file records at least `saved_at_least` bytes, then
+/// cancels it or drops it like a killed process. Waiting for the checkpoint instead of a fixed
+/// time keeps a slow CI machine from interrupting before anything was saved.
+async fn interrupt(url: &str, out: &Path, saved_at_least: u64, cancel: bool) {
     let o = Options {
         checkpoint_every: Duration::from_millis(200),
         ..opts(4)
@@ -136,9 +155,15 @@ async fn interrupt(url: &str, out: &Path, after: Duration, cancel: bool) {
     let req = request(url.to_owned(), out);
     let run = download(&req, &o, None, &token);
     tokio::pin!(run);
+    let checkpointed = async {
+        while saved(out) < saved_at_least {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
     tokio::select! {
         r = &mut run => panic!("finished before the interruption: {r:?}"),
-        () = tokio::time::sleep(after) => {}
+        () = checkpointed => {}
+        () = tokio::time::sleep(LIMIT) => panic!("nothing checkpointed within {LIMIT:?}"),
     }
     if cancel {
         token.cancel();
@@ -155,7 +180,7 @@ async fn interrupted_then_resumed(name: &str, cancel: bool) {
     let size = 16 * MB;
     // 4 connections at 1 MiB/s: about 4 s in total.
     let url = format!("{base}/file/f.bin?size={size}&seed=3&rate=1M");
-    interrupt(&url, &out, Duration::from_millis(1500), cancel).await;
+    interrupt(&url, &out, 2 * MB, cancel).await;
     assert!(PathBuf::from(format!("{}.idma-state", out.display())).exists());
 
     let started = Instant::now();
