@@ -55,6 +55,8 @@ Their *CPU %* and *RAM* columns measure the script, not the app: ignore them.
 - **Gopeed** (1.9.3, `winget install monkeyWie.Gopeed.Web`): start its server first, allowing
   the output folder: `gopeed -A 127.0.0.1 -P 9999 -d <data dir> -w C:\tmp\idma-bench`. Tasks
   are added and polled through its REST API (`/api/v1/tasks`); default 16 connections.
+- **Gopeed 2.0.0-beta.3** (`gopeed-web` zip from its GitHub release): the same, on port 9998;
+  this version names the option `-white-download-dirs` instead of `-w`.
 - **AB Download Manager** (1.11.1, from its GitHub release): the app must be running. Downloads
   are added with `ABDownloadManagerCli download add http --start`, and the end is read from the
   app's own record (`~/.abdm/config/download_db/downloadlist/<id>.json`). The CLI takes about a

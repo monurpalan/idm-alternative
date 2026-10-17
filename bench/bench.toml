@@ -59,6 +59,13 @@ program = "python"
 args = ["-I", "bench/clients/gopeed.py", "{url}", "{path}"]
 enabled = false
 
+# Gopeed 2.0 beta, its server on port 9998 (the stable 1.9.3 on 9999).
+[[client]]
+name = "Gopeed 2.0β"
+program = "python"
+args = ["-I", "bench/clients/gopeed.py", "{url}", "{path}", "http://127.0.0.1:9998"]
+enabled = false
+
 [[client]]
 name = "AB DM"
 program = "python"

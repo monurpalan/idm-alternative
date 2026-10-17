@@ -174,6 +174,21 @@ What this does and does not say:
   back to one connection. It is Gopeed's known issue
   [#1458](https://github.com/GopeedLab/gopeed/issues/1458): 2.0.0-beta.3 gets it right (checked
   here, 6 of 6), but 1.9.3 is still its latest stable release.
+- **Gopeed's times swing between sessions, and 2.0 is not faster.** A second session with both
+  versions and dm side by side ([local](bench/results/2026-10-18_014929.md),
+  [internet](bench/results/2026-10-18_015011.md)):
+
+  | Scenario | dm | Gopeed 1.9.3 | Gopeed 2.0.0-beta.3 |
+  |---|---:|---:|---:|
+  | Internet, 100 MiB | **2.55** | 5.09 | 5.64 |
+  | Clean, 1 GiB, local | **3.37** | 33.81 | 16.39 |
+  | One connection crawls | **2.48** | 13.14 | 23.26 |
+  | Connections reset every 4 MiB | **1.50** | 9.06 | 12.43 |
+  | Server allows 4 connections | **8.35** | 14.17 | 17.17 |
+  | Says it has ranges, sends the whole file | **8.03** | corrupt | 8.13 |
+
+  1.9.3 took 12.78 s on the internet run in the first session and 5.09 s here, so read Gopeed's
+  plain-download numbers loosely; its slowness with a bad connection repeats in both.
 - **On a plain download the field is close.** aria2 and AB DM are within 15 % of dm on the internet
   run. IDM's gap is partly not network: it downloads parts into its own folder and joins them at
   the end (~1–2.7 s per GiB here), and its start and exit are in the measurement.
