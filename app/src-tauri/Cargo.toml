@@ -15,6 +15,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+chrono = "0.4.45"
 idma-bridge = { version = "0.1.0", path = "../../crates/bridge" }
 idma-engine = { version = "0.1.0", path = "../../crates/engine" }
 idma-manager = { path = "../../crates/manager" }
@@ -31,6 +32,7 @@ tauri-plugin-updater = "2"
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+windows-sys = { version = "0.61", features = ["Win32_System_Power"] }
 zip = { version = "9.0.4", default-features = false, features = ["deflate"] }
 
 [lints]

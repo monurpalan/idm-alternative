@@ -14,6 +14,8 @@
 
 	let { onclose }: { onclose: () => void } = $props();
 
+	const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
 	let s = $state<Settings | null>(null);
 	/** The limit as typed, in KB/s; empty for none. */
 	let limitKb = $state('');
@@ -156,6 +158,40 @@
 						<input bind:value={s.proxy} placeholder="none, or socks5://host:port" />
 					</label>
 				</div>
+			</fieldset>
+
+			<fieldset>
+				<legend>Scheduler</legend>
+				<label class="check">
+					<input type="checkbox" bind:checked={s.schedule.enabled} />
+					Start and stop the queue at set times
+				</label>
+				<div class="grid">
+					<label>
+						Start at
+						<input type="time" bind:value={s.schedule.start} disabled={!s.schedule.enabled} />
+					</label>
+					<label>
+						Stop at
+						<input type="time" bind:value={s.schedule.stop} disabled={!s.schedule.enabled} />
+					</label>
+				</div>
+				<div class="days" role="group" aria-label="Days">
+					{#each DAYS as day, i (day)}
+						<label class="day">
+							<input
+								type="checkbox"
+								bind:checked={s.schedule.days[i]}
+								disabled={!s.schedule.enabled}
+							/>
+							{day}
+						</label>
+					{/each}
+				</div>
+				<p class="small">
+					Leave a time empty to only start or only stop. "When done" in the toolbar can shut the
+					computer down after the queue finishes.
+				</p>
 			</fieldset>
 
 			<fieldset>
@@ -305,6 +341,17 @@
 	}
 	.muted {
 		color: var(--muted);
+	}
+	.days {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 12px;
+		margin-top: 6px;
+	}
+	.day {
+		display: flex;
+		align-items: center;
+		gap: 4px;
 	}
 	.update {
 		display: flex;

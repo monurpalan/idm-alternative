@@ -40,6 +40,7 @@ pub struct Settings {
     pub update_tools: bool,
     /// Look for a new version of the app once a day and offer it.
     pub check_updates: bool,
+    pub schedule: crate::schedule::Schedule,
 }
 
 impl Default for Settings {
@@ -59,6 +60,7 @@ impl Default for Settings {
             browser_integration: true,
             update_tools: true,
             check_updates: true,
+            schedule: crate::schedule::Schedule::default(),
         }
     }
 }
@@ -76,6 +78,7 @@ impl Settings {
             return Err("connections per download must be between 1 and 64".into());
         }
         self.browser()?;
+        self.schedule.validate()?;
         let proxy = self.proxy.trim();
         if !proxy.is_empty()
             && !["http://", "https://", "socks5://", "socks5h://"]

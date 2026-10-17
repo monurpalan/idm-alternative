@@ -5,6 +5,7 @@
 // No console window in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod schedule;
 mod settings;
 mod tools;
 mod tray;
@@ -33,6 +34,8 @@ struct App {
     /// A download waiting for the browser to capture a fresh link to it ("refresh in browser"),
     /// and since when.
     awaiting_link: Mutex<Option<(TaskId, std::time::Instant)>>,
+    /// What to do when all downloads finish (one shot).
+    when_done: Mutex<schedule::Armed>,
 }
 
 /// How long "refresh in browser" waits for the user to start the download again.
@@ -607,6 +610,43 @@ async fn install_update(handle: AppHandle, app: State<'_, App>) -> CmdResult<()>
         .map_err(|e| format!("{e}; restart the app to resume the downloads"))
 }
 
+/// Chooses what happens when all downloads finish. Downloads must run after the choice before
+/// it fires, unless some are running or queued already.
+#[tauri::command]
+async fn set_when_done(
+    handle: AppHandle,
+    app: State<'_, App>,
+    action: schedule::WhenDone,
+) -> CmdResult<()> {
+    let busy = app.manager.list().await.map_err(msg)?.iter().any(|t| {
+        matches!(
+            t.status,
+            idma_manager::Status::Downloading | idma_manager::Status::Queued
+        )
+    });
+    *lock(&app.when_done) = schedule::Armed {
+        action,
+        saw_work: busy,
+    };
+    handle.emit("when-done", action).ok();
+    Ok(())
+}
+
+#[tauri::command]
+fn get_when_done(app: State<'_, App>) -> schedule::WhenDone {
+    lock(&app.when_done).action
+}
+
+/// Stops a running countdown, or does its action right away.
+#[tauri::command]
+async fn end_countdown(handle: AppHandle, now: Option<schedule::WhenDone>) -> CmdResult<()> {
+    schedule::cancel_countdown();
+    if let Some(action) = now {
+        schedule::perform(&handle, action).await;
+    }
+    Ok(())
+}
+
 /// Brings the window back, also from the tray.
 fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -921,9 +961,12 @@ fn main() {
                 settings: Mutex::new(settings),
                 tray: Mutex::new(Some(tray)),
                 awaiting_link: Mutex::new(None),
+                when_done: Mutex::new(schedule::Armed::default()),
                 ffmpeg,
             });
             tauri::async_runtime::spawn(daily_checks(app.handle().clone()));
+            tauri::async_runtime::spawn(schedule::run_scheduler(app.handle().clone()));
+            tauri::async_runtime::spawn(schedule::run_when_done(app.handle().clone()));
             if std::env::args().any(|a| a == HIDDEN_ARG)
                 && let Some(w) = app.get_webview_window("main")
             {
@@ -958,6 +1001,9 @@ fn main() {
             install_tool,
             check_update,
             install_update,
+            set_when_done,
+            get_when_done,
+            end_countdown,
             inspect_page,
             set_login,
             open_file,

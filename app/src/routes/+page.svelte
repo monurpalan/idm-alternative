@@ -5,6 +5,11 @@
 		moveTask,
 		onCapture,
 		onUpdate,
+		getWhenDone,
+		setWhenDone,
+		onWhenDone,
+		onCountdown,
+		type WhenDone,
 		installUpdate,
 		type AppUpdate,
 		onCapturedLinks,
@@ -27,6 +32,7 @@
 	} from '#lib/api.ts';
 	import AddDialog from '#lib/components/AddDialog.svelte';
 	import ConfirmRemove from '#lib/components/ConfirmRemove.svelte';
+	import Countdown from '#lib/components/Countdown.svelte';
 	import ContextMenu, { type Item } from '#lib/components/ContextMenu.svelte';
 	import DetailPane from '#lib/components/DetailPane.svelte';
 	import LinksDialog from '#lib/components/LinksDialog.svelte';
@@ -68,6 +74,9 @@
 	/** A newer version of the app, found by the daily check. */
 	let update = $state<AppUpdate | null>(null);
 	let updating = $state(false);
+	/** What happens when all downloads finish (one shot). */
+	let whenDone = $state<WhenDone>('nothing');
+	let countdown = $state<{ action: WhenDone; seconds: number } | null>(null);
 
 	async function applyUpdate() {
 		updating = true;
@@ -85,6 +94,9 @@
 		getSettings()
 			.then((s) => (globalLimit = s.speed_limit))
 			.catch(() => {});
+		getWhenDone()
+			.then((a) => (whenDone = a))
+			.catch(() => {});
 		const unlisten = [
 			onSettings((s) => (globalLimit = s.speed_limit)),
 			// The browser handed over a download: confirm it like IDM does.
@@ -92,6 +104,8 @@
 			onCapturedLinks((l) => (picking = l)),
 			onNotice((text) => (info = text)),
 			onUpdate((u) => (update = u)),
+			onWhenDone((a) => (whenDone = a)),
+			onCountdown((c) => (countdown = c)),
 			onCapturedMedia((m) => {
 				const item = m.items[0];
 				if (!item) return;
@@ -293,6 +307,19 @@
 		<button onclick={() => run(pauseAll())} title="Pause every running and queued download"
 			>Pause all</button
 		>
+		<label class="when" title="One time: when nothing is downloading or waiting any more">
+			When done
+			<select
+				value={whenDone}
+				onchange={(e) => run(setWhenDone(e.currentTarget.value as WhenDone))}
+			>
+				<option value="nothing">do nothing</option>
+				<option value="exit">close the app</option>
+				<option value="sleep">sleep</option>
+				<option value="hibernate">hibernate</option>
+				<option value="shutdown">shut down</option>
+			</select>
+		</label>
 		<span class="sep"></span>
 		<button
 			class="toggle"
@@ -341,6 +368,14 @@
 		{/if}
 	</footer>
 </div>
+
+{#if countdown}
+	<Countdown
+		action={countdown.action}
+		seconds={countdown.seconds}
+		onclose={() => (countdown = null)}
+	/>
+{/if}
 
 {#if adding}
 	<AddDialog
@@ -434,6 +469,13 @@
 	}
 	main.split {
 		grid-template-rows: 1fr 230px;
+	}
+	.when {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		color: var(--muted);
+		white-space: nowrap;
 	}
 	.sep {
 		width: 1px;
