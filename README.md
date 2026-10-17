@@ -164,8 +164,9 @@ connections; the others use their defaults (dm, aria2 and Gopeed 16).
 3. The clean local run mostly measures the disk (a DRAM-less SSD that slows down while it writes
    back): the same client swings by a factor of two between runs.
 
-**Scenarios added to find where dm loses** (2026-10-18, [results](bench/results/2026-10-18_021842.md);
-dm after the fix: [results](bench/results/2026-10-18_024457.md)):
+**Scenarios added to find where dm loses** (2026-10-18; results: [per-client limit](bench/results/2026-10-18_020038.md),
+[403](bench/results/2026-10-18_021842.md), [latency](bench/results/2026-10-18_022025.md),
+[tiny](bench/results/2026-10-18_022033.md), [dm after the fix](bench/results/2026-10-18_024457.md)):
 
 | Scenario | dm | dm x8 | IDM | aria2 | Gopeed | AB DM⁴ | curl |
 |---|---:|---:|---:|---:|---:|---:|---:|
