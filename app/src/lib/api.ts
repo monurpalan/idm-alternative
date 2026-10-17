@@ -231,6 +231,9 @@ export const installUpdate = () => invoke<void>('install_update');
 export const onUpdate = (handler: (u: AppUpdate) => void): Promise<UnlistenFn> =>
 	listen<AppUpdate>('update', (e) => handler(e.payload));
 
+/** Tells the app the page listens, so it sends what came while the window was closed. */
+export const pageReady = () => invoke<void>('page_ready');
+
 /** A download link was copied (while watching the clipboard is on). */
 export const onClipboard = (handler: (url: string) => void): Promise<UnlistenFn> =>
 	listen<string>('clipboard', (e) => handler(e.payload));

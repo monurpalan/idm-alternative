@@ -91,12 +91,12 @@ pub async fn run_scheduler(handle: AppHandle) {
             if fire(&schedule.start) {
                 tracing::info!("scheduler: starting the queue");
                 app.manager.start_all().await.ok();
-                handle.emit("notice", "Scheduler: started the queue").ok();
+                crate::to_page(&handle, "notice", "Scheduler: started the queue", false);
             }
             if fire(&schedule.stop) {
                 tracing::info!("scheduler: stopping the queue");
                 app.manager.pause_all().await.ok();
-                handle.emit("notice", "Scheduler: paused the queue").ok();
+                crate::to_page(&handle, "notice", "Scheduler: paused the queue", false);
             }
         }
         prev = now;
@@ -174,13 +174,12 @@ pub async fn run_when_done(handle: AppHandle) {
 /// Shows the countdown in the window; does the action unless it is cancelled in time.
 async fn countdown(handle: &AppHandle, action: WhenDone) {
     let id = COUNTDOWN_ID.fetch_add(1, Ordering::SeqCst) + 1;
-    crate::show_main(handle);
-    handle
-        .emit(
-            "countdown",
-            serde_json::json!({ "action": action, "seconds": COUNTDOWN }),
-        )
-        .ok();
+    crate::to_page(
+        handle,
+        "countdown",
+        serde_json::json!({ "action": action, "seconds": COUNTDOWN }),
+        true,
+    );
     for _ in 0..COUNTDOWN {
         tokio::time::sleep(Duration::from_secs(1)).await;
         if COUNTDOWN_ID.load(Ordering::SeqCst) != id {

@@ -6,6 +6,7 @@
 		onCapture,
 		onUpdate,
 		onClipboard,
+		pageReady,
 		getWhenDone,
 		setWhenDone,
 		onWhenDone,
@@ -123,6 +124,11 @@
 				}
 			})
 		];
+		// Only once every listener is in place: a capture that opened the window must not be
+		// missed while it loads.
+		Promise.all(unlisten)
+			.then(() => pageReady())
+			.catch(() => {});
 		return () => {
 			stop();
 			unlisten.forEach((u) => u.then((f) => f()));

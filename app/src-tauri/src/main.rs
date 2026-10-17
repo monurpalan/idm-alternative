@@ -37,6 +37,8 @@ struct App {
     awaiting_link: Mutex<Option<(TaskId, std::time::Instant)>>,
     /// What to do when all downloads finish (one shot).
     when_done: Mutex<schedule::Armed>,
+    /// Events waiting for the page, which is closed while the app sits in the tray.
+    page: Mutex<Page>,
     /// Listening to the clipboard while the setting is on.
     #[cfg(windows)]
     clipboard: Mutex<Option<clipboard::Watcher>>,
@@ -398,8 +400,7 @@ fn watch_clipboard(handle: &AppHandle, on: bool) {
                     .await
                     .is_ok_and(|tasks| tasks.iter().any(|t| t.url == url));
                 if !listed {
-                    show_main(&handle);
-                    handle.emit("clipboard", url).ok();
+                    to_page(&handle, "clipboard", url, true);
                 }
             });
         });
@@ -610,7 +611,7 @@ async fn daily_checks(handle: AppHandle) {
             match find_update(&handle).await {
                 Ok(found) => {
                     if let Some(update) = found {
-                        handle.emit("update", update).ok();
+                        to_page(&handle, "update", update, false);
                     }
                     touch(&stamp);
                 }
@@ -702,11 +703,84 @@ async fn end_countdown(handle: AppHandle, now: Option<schedule::WhenDone>) -> Cm
 }
 
 /// Brings the window back, also from the tray.
+///
+/// In the tray the window does not exist (its WebView would keep 160 MB for nothing), so it
+/// is built again here; the page then asks for what it missed (`page_ready`).
 fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         w.show().ok();
         w.unminimize().ok();
         w.set_focus().ok();
+        return;
+    }
+    let Some(config) = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == "main")
+        .cloned()
+    else {
+        return;
+    };
+    // Built off the main thread: building a window in the tray or single-instance callbacks,
+    // which run on it, would deadlock on Windows.
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if app.get_webview_window("main").is_some() {
+            return;
+        }
+        match tauri::WebviewWindowBuilder::from_config(&app, &config).and_then(|b| b.build()) {
+            Ok(w) => {
+                w.set_focus().ok();
+            }
+            Err(e) => tracing::error!("could not open the window: {e}"),
+        }
+    });
+}
+
+/// Events the page must not miss while it is closed or still loading.
+#[derive(Default)]
+struct Page {
+    ready: bool,
+    waiting: Vec<(&'static str, serde_json::Value)>,
+}
+
+/// Sends `event` to the page now if it is open, otherwise when it has loaded; `show` brings
+/// the window up. For what the user has to see (a captured download, a countdown, a notice);
+/// the list and the settings the page reads afresh when it opens.
+fn to_page(handle: &AppHandle, event: &'static str, payload: impl Serialize, show: bool) {
+    let payload = serde_json::to_value(payload).unwrap_or_default();
+    let app = handle.state::<App>();
+    let ready = {
+        let mut page = lock(&app.page);
+        if !page.ready {
+            // Days in the tray must not pile up notices without end.
+            if page.waiting.len() >= 20 {
+                page.waiting.remove(0);
+            }
+            page.waiting.push((event, payload.clone()));
+        }
+        page.ready
+    };
+    if ready {
+        handle.emit(event, payload).ok();
+    }
+    if show {
+        show_main(handle);
+    }
+}
+
+/// The page has loaded and listens: hands it what came while it was closed.
+#[tauri::command]
+fn page_ready(handle: AppHandle, app: State<'_, App>) {
+    let waiting = {
+        let mut page = lock(&app.page);
+        page.ready = true;
+        std::mem::take(&mut page.waiting)
+    };
+    for (event, payload) in waiting {
+        handle.emit(event, payload).ok();
     }
 }
 
@@ -846,59 +920,59 @@ async fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma
                             .ok()
                             .and_then(|t| t.name)
                             .unwrap_or_default();
-                        handle
-                            .emit("notice", format!("Link refreshed: {name} continues"))
-                            .ok();
+                        to_page(
+                            handle,
+                            "notice",
+                            format!("Link refreshed: {name} continues"),
+                            false,
+                        );
                         return Reply::ok();
                     }
                     Err(e) => {
                         tracing::info!("captured link is not the awaited file: {e}");
-                        handle
-                            .emit(
-                                "notice",
-                                "That link leads to a different file, so it opens as a new download",
-                            )
-                            .ok();
+                        to_page(
+                            handle,
+                            "notice",
+                            "That link leads to a different file, so it opens as a new download",
+                            false,
+                        );
                     }
                 }
             }
-            show_main(handle);
-            handle
-                .emit(
-                    "capture",
-                    serde_json::json!({
-                        "url": capture.url,
-                        "filename": capture.filename,
-                        "size": capture.size,
-                        "headers": capture.request_headers(),
-                    }),
-                )
-                .ok();
+            to_page(
+                handle,
+                "capture",
+                serde_json::json!({
+                    "url": capture.url,
+                    "filename": capture.filename,
+                    "size": capture.size,
+                    "headers": capture.request_headers(),
+                }),
+                true,
+            );
             Reply::ok()
         }
         Request::Links { referrer, links } => {
-            show_main(handle);
-            handle
-                .emit(
-                    "capture-links",
-                    serde_json::json!({ "referrer": referrer, "links": links }),
-                )
-                .ok();
+            to_page(
+                handle,
+                "capture-links",
+                serde_json::json!({ "referrer": referrer, "links": links }),
+                true,
+            );
             Reply::ok()
         }
         Request::Media(media) => {
-            show_main(handle);
-            handle
-                .emit(
-                    "capture-media",
-                    serde_json::json!({
-                        "page": media.page,
-                        "title": media.title,
-                        "items": media.items,
-                        "headers": media.request_headers(),
-                    }),
-                )
-                .ok();
+            to_page(
+                handle,
+                "capture-media",
+                serde_json::json!({
+                    "page": media.page,
+                    "title": media.title,
+                    "items": media.items,
+                    "headers": media.request_headers(),
+                }),
+                true,
+            );
             Reply::ok()
         }
         Request::Hello { .. } => Reply::error("unexpected hello"),
@@ -1016,6 +1090,7 @@ fn main() {
                 tray: Mutex::new(Some(tray)),
                 awaiting_link: Mutex::new(None),
                 when_done: Mutex::new(schedule::Armed::default()),
+                page: Mutex::new(Page::default()),
                 #[cfg(windows)]
                 clipboard: Mutex::new(None),
                 ffmpeg,
@@ -1026,19 +1101,18 @@ fn main() {
             }
             tauri::async_runtime::spawn(schedule::run_scheduler(app.handle().clone()));
             tauri::async_runtime::spawn(schedule::run_when_done(app.handle().clone()));
-            if std::env::args().any(|a| a == HIDDEN_ARG)
-                && let Some(w) = app.get_webview_window("main")
-            {
-                w.hide().ok();
+            // The window is not in the config's start-up list (`create: false`): started for
+            // the tray, the app opens none.
+            if !std::env::args().any(|a| a == HIDDEN_ARG) {
+                show_main(app.handle());
             }
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event
-                && lock(&window.app_handle().state::<App>().settings).close_to_tray
-            {
-                api.prevent_close();
-                window.hide().ok();
+            // Closing to the tray closes the window for real (see `show_main`); the app keeps
+            // running because `RunEvent::ExitRequested` is turned down below.
+            if let WindowEvent::Destroyed = event {
+                lock(&window.app_handle().state::<App>().page).ready = false;
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -1060,6 +1134,7 @@ fn main() {
             install_tool,
             check_update,
             install_update,
+            page_ready,
             set_when_done,
             get_when_done,
             end_countdown,
@@ -1074,6 +1149,15 @@ fn main() {
         .expect("failed to start the app");
 
     app.run(|app, event| {
+        // The last window closing asks to exit (`code` none); with "keep running in the tray"
+        // the app stays. Quitting from the tray or "When done" asks with a code and exits.
+        if let RunEvent::ExitRequested {
+            code: None, api, ..
+        } = &event
+            && lock(&app.state::<App>().settings).close_to_tray
+        {
+            api.prevent_exit();
+        }
         if let RunEvent::Exit = event {
             // Running downloads stop here and resume on the next start.
             let manager = app.state::<App>().manager.clone();

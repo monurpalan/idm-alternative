@@ -86,10 +86,12 @@ Measured on the development machine (release build, Windows 11):
 | Installed | 24.2 MB (app 23.4 MB, browser host 0.7 MB) |
 | Idle memory, app process | 32 MB working set (8 MB private) |
 | Idle memory, WebView2 (6 processes) | 367 MB working set (160 MB private) |
+| Idle in the tray (window closed) | 5 MB private, no WebView2 processes |
 | 500 downloads in the list, 20 running (~10 MB/s) | UI 9% of a core, engine 18–22%; scrolling at 60 fps |
 
 Most of the memory is the WebView2 runtime that every Tauri app shares with Edge; IDM's
-native window needs far less. That is the price of the web UI.
+native window needs far less. In the tray the app closes its window and the WebView with it,
+so that price is only paid while the window is open.
 
 ## Benchmarks
 
