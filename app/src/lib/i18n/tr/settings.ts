@@ -71,5 +71,12 @@ export default {
 	'Offer download links I copy (archives, programs, video, music, documents)':
 		'Kopyaladığım indirme bağlantılarını öner (arşivler, programlar, video, müzik, belgeler)',
 	'Take downloads from the browser extension (registers with Chrome, Edge, Brave, Vivaldi, Opera and Firefox)':
-		'Tarayıcı eklentisinden gelen indirmeleri al (Chrome, Edge, Brave, Vivaldi, Opera ve Firefox’a kaydolur)'
+		'Tarayıcı eklentisinden gelen indirmeleri al (Chrome, Edge, Brave, Vivaldi, Opera ve Firefox’a kaydolur)',
+	'Export settings…': 'Ayarları dışa aktar…',
+	'Import settings…': 'Ayarları içe aktar…',
+	'Open the log folder': 'Kayıt klasörünü aç',
+	'Settings saved to {path}': 'Ayarlar kaydedildi: {path}',
+	'Could not save the settings: {e}': 'Ayarlar kaydedilemedi: {e}',
+	'Settings loaded and applied': 'Ayarlar yüklendi ve uygulandı',
+	'Could not load the settings: {e}': 'Ayarlar yüklenemedi: {e}'
 } satisfies Record<string, string>;

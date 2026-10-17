@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { open as pickFolder } from '@tauri-apps/plugin-dialog';
+	import { open as pickFile, open as pickFolder, save as pickSaveFile } from '@tauri-apps/plugin-dialog';
 	import {
 		getSettings,
 		checkUpdate,
+		exportSettings,
+		importSettings,
+		openLogs,
 		forgetLogin,
 		savedLogins,
 		type SavedLogin,
@@ -92,6 +95,38 @@
 			unlisten.then((f) => f());
 		};
 	});
+
+	/** What came of exporting or importing, shown under the buttons. */
+	let fileStatus = $state<string | null>(null);
+
+	const JSON_FILES = [{ name: 'JSON', extensions: ['json'] }];
+
+	async function exportFile() {
+		const path = await pickSaveFile({
+			defaultPath: 'idm-alternative-settings.json',
+			filters: JSON_FILES
+		});
+		if (!path) return;
+		try {
+			await exportSettings(path);
+			fileStatus = t('Settings saved to {path}', { path });
+		} catch (e) {
+			fileStatus = t('Could not save the settings: {e}', { e: String(e) });
+		}
+	}
+
+	async function importFile() {
+		const path = await pickFile({ filters: JSON_FILES });
+		if (typeof path !== 'string') return;
+		try {
+			const v = await importSettings(path);
+			s = v;
+			limitKb = v.speed_limit ? String(Math.round(v.speed_limit / 1024)) : '';
+			fileStatus = t('Settings loaded and applied');
+		} catch (e) {
+			fileStatus = t('Could not load the settings: {e}', { e: String(e) });
+		}
+	}
 
 	async function browse() {
 		if (!s) return;
@@ -323,6 +358,14 @@
 						'Take downloads from the browser extension (registers with Chrome, Edge, Brave, Vivaldi, Opera and Firefox)'
 					)}
 				</label>
+				<div class="files">
+					<button type="button" onclick={exportFile}>{t('Export settings…')}</button>
+					<button type="button" onclick={importFile}>{t('Import settings…')}</button>
+					<button type="button" onclick={() => openLogs().catch((e) => (fileStatus = String(e)))}
+						>{t('Open the log folder')}</button
+					>
+				</div>
+				{#if fileStatus}<p class="small">{fileStatus}</p>{/if}
 			</fieldset>
 		{:else if !error}
 			<p class="muted">{t('Loading…')}</p>
@@ -423,6 +466,12 @@
 		gap: 8px;
 		align-items: center;
 		min-height: 30px;
+	}
+	.files {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin-top: 6px;
 	}
 	.days {
 		display: flex;

@@ -87,6 +87,13 @@ export const addBatch = (request: {
 /** The interface's language now: the setting, or Windows' for 'system'. */
 export const uiLanguage = () => invoke<'en' | 'tr'>('ui_language');
 
+/** Opens the folder with the app's log files. */
+export const openLogs = () => invoke<void>('open_logs');
+/** Saves the settings to a JSON file (saved logins stay out). */
+export const exportSettings = (path: string) => invoke<void>('export_settings', { path });
+/** Applies a settings file; returns the settings now in force. */
+export const importSettings = (path: string) => invoke<Settings>('import_settings', { path });
+
 /** Opens the small progress window of a download. */
 export const showProgress = (id: TaskId) => invoke<void>('show_progress', { id });
 

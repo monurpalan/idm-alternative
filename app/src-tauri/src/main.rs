@@ -1231,13 +1231,92 @@ fn log_panics() {
     }));
 }
 
+/// The app's log: `<data>/logs/idma.log.<date>`, a file a day, the last week kept, and stderr
+/// for a console. `DM_LOG` sets the level (default `info`). The guard writes out what is
+/// still buffered when the app ends.
+fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    use tracing_subscriber::prelude::*;
+    let filter =
+        || tracing_subscriber::EnvFilter::try_from_env("DM_LOG").unwrap_or_else(|_| "info".into());
+    let console = tracing_subscriber::fmt::layer().with_filter(filter());
+    let file = idma_bridge::data_dir().and_then(|data| {
+        tracing_appender::rolling::Builder::new()
+            .rotation(tracing_appender::rolling::Rotation::DAILY)
+            .filename_prefix("idma")
+            .filename_suffix("log")
+            .max_log_files(7)
+            .build(data.join(LOG_DIR))
+            .ok()
+    });
+    match file {
+        Some(appender) => {
+            let (writer, guard) = tracing_appender::non_blocking(appender);
+            let file = tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(writer)
+                .with_filter(filter());
+            tracing_subscriber::registry()
+                .with(console)
+                .with(file)
+                .init();
+            Some(guard)
+        }
+        None => {
+            tracing_subscriber::registry().with(console).init();
+            None
+        }
+    }
+}
+
+/// Inside the data folder.
+const LOG_DIR: &str = "logs";
+
+/// Opens the folder with the app's logs (and `crash.log` beside it, one level up).
+#[tauri::command]
+fn open_logs(handle: AppHandle, app: State<'_, App>) -> CmdResult<()> {
+    let dir = app.data.join(LOG_DIR);
+    std::fs::create_dir_all(&dir).map_err(msg)?;
+    handle
+        .opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(msg)
+}
+
+/// The settings as a file to take to another computer or keep: everything in the settings
+/// dialog. Saved logins stay out (their passwords only open on this computer).
+#[derive(Serialize, Deserialize)]
+struct SettingsFile {
+    app: String,
+    version: u32,
+    settings: Settings,
+}
+
+#[tauri::command]
+fn export_settings(app: State<'_, App>, path: PathBuf) -> CmdResult<()> {
+    let file = SettingsFile {
+        app: "idm-alternative".into(),
+        version: 1,
+        settings: lock(&app.settings).clone(),
+    };
+    std::fs::write(&path, serde_json::to_vec_pretty(&file).map_err(msg)?).map_err(msg)
+}
+
+/// Reads a settings file and applies it; returns the settings now in force. Fields missing
+/// from the file keep their defaults.
+#[tauri::command]
+async fn import_settings(handle: AppHandle, path: PathBuf) -> CmdResult<Settings> {
+    let text = std::fs::read_to_string(&path).map_err(msg)?;
+    let file: SettingsFile = serde_json::from_str(&text)
+        .map_err(|e| format!("this is not an idm-alternative settings file ({e})"))?;
+    if file.app != "idm-alternative" {
+        return Err("this is not an idm-alternative settings file".into());
+    }
+    apply_settings(&handle, file.settings).await
+}
+
 fn main() {
     log_panics();
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_env("DM_LOG").unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    let _log = init_logging();
 
     let app = tauri::Builder::default()
         // A second launch (e.g. from the browser integration) shows the running window.
@@ -1361,6 +1440,9 @@ fn main() {
             check_update,
             install_update,
             page_ready,
+            open_logs,
+            export_settings,
+            import_settings,
             ui_language,
             show_progress,
             set_when_done,
