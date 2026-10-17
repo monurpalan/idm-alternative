@@ -16,11 +16,12 @@
 	let refreshing = $state(false);
 	let user = $state('');
 	let password = $state('');
+	let remember = $state(false);
 
 	async function signIn(e: SubmitEvent) {
 		e.preventDefault();
 		try {
-			await setLogin(task.id, { user, password });
+			await setLogin(task.id, { user, password, remember });
 			password = '';
 			onerror(null);
 		} catch (err) {
@@ -197,6 +198,10 @@
 					autocomplete="current-password"
 					aria-label="Password"
 				/>
+				<label class="remember" title="Downloads from this site log in by themselves">
+					<input type="checkbox" bind:checked={remember} />
+					Remember
+				</label>
 				<button type="submit" disabled={!user}>Continue</button>
 			</form>
 		{/if}
@@ -279,7 +284,13 @@
 		grid-template-columns: 92px 1fr auto;
 	}
 	.inline.login {
-		grid-template-columns: 92px 1fr 1fr auto;
+		grid-template-columns: 92px 1fr 1fr auto auto;
+	}
+	.remember {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		white-space: nowrap;
 	}
 	.attention input {
 		border-color: var(--accent);

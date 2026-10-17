@@ -240,6 +240,24 @@ fn delete_files_of(path: &Path) {
     }
 }
 
+/// The site a URL belongs to for saved logins: its host, with the port when it is not the
+/// scheme's default.
+pub fn site_of(url: &str) -> Option<String> {
+    let u = url::Url::parse(url).ok()?;
+    let host = u.host_str()?.to_ascii_lowercase();
+    Some(match u.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host,
+    })
+}
+
+/// A remembered login, as shown to the user (the password stays in the list).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct SavedLogin {
+    pub site: String,
+    pub user: String,
+}
+
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -582,6 +600,35 @@ impl Manager {
         self.inner.fill().await
     }
 
+    /// Remembers a login for `site` (see [`site_of`]); a download there that the server asks
+    /// to log in to uses it without asking.
+    pub async fn save_login(&self, site: &str, user: &str, password: &str) -> Result<()> {
+        self.inner.db.save_login(site, user, password).await
+    }
+
+    /// The login saved for the site of `url`.
+    pub async fn saved_login(&self, url: &str) -> Result<Option<(String, String)>> {
+        match site_of(url) {
+            Some(site) => self.inner.db.login(&site).await,
+            None => Ok(None),
+        }
+    }
+
+    pub async fn saved_logins(&self) -> Result<Vec<SavedLogin>> {
+        Ok(self
+            .inner
+            .db
+            .logins()
+            .await?
+            .into_iter()
+            .map(|(site, user)| SavedLogin { site, user })
+            .collect())
+    }
+
+    pub async fn forget_login(&self, site: &str) -> Result<()> {
+        self.inner.db.forget_login(site).await
+    }
+
     /// Stops every running download so it resumes on the next [`Manager::open`], and closes
     /// the database.
     pub async fn close(&self) {
@@ -688,6 +735,31 @@ impl Inner {
         Ok(())
     }
 
+    /// Puts the login saved for the task's site into its headers, unless that is the login
+    /// the server just turned down. Whether it did.
+    async fn use_saved_login(&self, id: TaskId) -> bool {
+        let Ok(Some(task)) = self.db.get(id).await else {
+            return false;
+        };
+        let Some(site) = site_of(&task.url) else {
+            return false;
+        };
+        let Ok(Some((user, password))) = self.db.login(&site).await else {
+            return false;
+        };
+        let auth = idma_engine::basic_auth(&user, &password);
+        if task.headers.iter().any(|h| h == &auth) {
+            return false;
+        }
+        let mut headers: Vec<(String, String)> = task
+            .headers
+            .into_iter()
+            .filter(|(k, _)| !k.eq_ignore_ascii_case("authorization"))
+            .collect();
+        headers.push(auth);
+        self.db.set_headers(id, &headers).await.is_ok()
+    }
+
     /// One download from start to end, then records how it ended and starts the next.
     async fn run(
         self: Arc<Self>,
@@ -699,7 +771,18 @@ impl Inner {
         let id = task.id;
         let result = self.download(task, &cancel, limiter).await;
         let why = *lock(&stop);
+        // The server asks to log in and a login is saved for the site: try it once.
+        let logged_in = why.is_none()
+            && matches!(
+                result,
+                Err(Error::Engine(idma_engine::Error::AuthRequired { .. }))
+            )
+            && self.use_saved_login(id).await;
         let recorded = match (&result, why) {
+            _ if logged_in => {
+                tracing::info!(id, "trying the saved login");
+                self.db.set_status(id, Status::Queued, None).await
+            }
             (Ok(outcome), _) => {
                 lock(&self.retries).remove(&id);
                 self.db.finish(id, outcome.size, now_ms()).await

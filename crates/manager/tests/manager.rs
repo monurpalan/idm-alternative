@@ -495,3 +495,49 @@ async fn cookies_are_stored_encrypted() {
     m.close().await;
     assert!(raw_headers(&w.db(), task.id).await.starts_with("dpapi:"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn saved_login_is_used_when_the_server_asks() {
+    let base = start_server().await;
+    let w = WorkDir::new("saved-login");
+    let m = Manager::open(&w.db(), w.config(2)).await.expect("open");
+    let site = idma_manager::site_of(&base).expect("site");
+    assert!(site.starts_with("127.0.0.1:"), "{site}");
+    m.save_login(&site, "ali", "s3cret").await.expect("save");
+    assert_eq!(
+        m.saved_logins().await.expect("list"),
+        vec![idma_manager::SavedLogin {
+            site: site.clone(),
+            user: "ali".into()
+        }]
+    );
+
+    let size = MB;
+    let task = m
+        .add(new_task(format!(
+            "{base}/file/locked.bin?size={size}&seed=31&auth=ali:s3cret"
+        )))
+        .await
+        .expect("add");
+    let done = wait_done(&m, task.id).await;
+    assert_file(&done, 31, size);
+
+    // A saved password the server turns down is tried once, then the user is asked.
+    m.save_login(&site, "ali", "wrong").await.expect("save");
+    let task = m
+        .add(new_task(format!(
+            "{base}/file/locked2.bin?size={size}&seed=32&auth=ali:s3cret"
+        )))
+        .await
+        .expect("add");
+    let t = wait_for(&m, task.id, 30, |t| {
+        matches!(t.status, Status::Done | Status::Error)
+    })
+    .await;
+    assert_eq!(t.status, Status::Error);
+    assert_eq!(t.error_kind, Some(idma_manager::ErrorKind::Auth));
+
+    m.forget_login(&site).await.expect("forget");
+    assert!(m.saved_logins().await.expect("list").is_empty());
+    m.close().await;
+}

@@ -4,6 +4,9 @@
 	import {
 		getSettings,
 		checkUpdate,
+		forgetLogin,
+		savedLogins,
+		type SavedLogin,
 		installTool,
 		onToolsUpdated,
 		setSettings,
@@ -25,6 +28,13 @@
 	let toolStatus = $state<ToolStatus | null>(null);
 	let installing = $state<'ytdlp' | 'deno' | null>(null);
 	let toolError = $state<string | null>(null);
+	let logins = $state<SavedLogin[]>([]);
+
+	async function forget(site: string) {
+		await forgetLogin(site).catch((e) => (error = String(e)));
+		logins = await savedLogins().catch(() => logins);
+	}
+
 	/** The result of "Check now". */
 	let updateStatus = $state<string | null>(null);
 
@@ -61,6 +71,9 @@
 				.catch(() => {});
 		refresh();
 		const unlisten = onToolsUpdated(refresh);
+		savedLogins()
+			.then((l) => (logins = l))
+			.catch(() => {});
 		getSettings()
 			.then((v) => {
 				s = v;
@@ -192,6 +205,21 @@
 					Leave a time empty to only start or only stop. "When done" in the toolbar can shut the
 					computer down after the queue finishes.
 				</p>
+			</fieldset>
+
+			<fieldset>
+				<legend>Saved logins</legend>
+				{#each logins as l (l.site)}
+					<div class="login-row">
+						<span>{l.site}</span>
+						<span class="muted">{l.user}</span>
+						<button type="button" onclick={() => forget(l.site)}>Forget</button>
+					</div>
+				{:else}
+					<p class="muted">
+						None yet. Tick “Remember for this site” when a server asks for a password.
+					</p>
+				{/each}
 			</fieldset>
 
 			<fieldset>
@@ -345,6 +373,13 @@
 	}
 	.muted {
 		color: var(--muted);
+	}
+	.login-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr auto;
+		gap: 8px;
+		align-items: center;
+		min-height: 30px;
 	}
 	.days {
 		display: flex;

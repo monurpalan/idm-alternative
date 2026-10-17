@@ -34,7 +34,8 @@
 	/** Credentials for a server that asked for them. */
 	let user = $state('');
 	let password = $state('');
-	const login = (): Login | null => (user ? { user, password } : null);
+	let remember = $state(false);
+	const login = (): Login | null => (user ? { user, password, remember } : null);
 	let dialog: HTMLDialogElement | undefined = $state();
 
 	// Once, on opening; an effect would rerun whenever the fields it reads change.
@@ -133,6 +134,7 @@
 					>The server asks for a user name and password{info.realm ? ` (${info.realm})` : ''}.</span
 				>
 			{:else if info}
+				{#if info.saved_login}Logs in as {info.saved_login} (saved for this site) ·{/if}
 				{info.size !== null ? bytes(info.size) : 'Size unknown'}
 				· {info.resumable ? 'Can resume and use several connections' : 'Cannot resume (one connection)'}
 			{:else}
@@ -151,6 +153,10 @@
 					<input type="password" bind:value={password} autocomplete="current-password" />
 				</label>
 				<button type="button" onclick={() => check(true)} disabled={!user || checking}>Sign in</button>
+				<label class="remember">
+					<input type="checkbox" bind:checked={remember} />
+					Remember for this site
+				</label>
 			</div>
 		{/if}
 
@@ -248,6 +254,13 @@
 		align-items: end;
 		gap: 8px;
 		margin-bottom: 10px;
+	}
+	.login .remember {
+		grid-column: 1 / -1;
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: 6px;
 	}
 	.login label {
 		margin-bottom: 0;

@@ -73,6 +73,8 @@ struct ProbeView {
     /// The server asks for a user name and password first.
     needs_login: bool,
     realm: Option<String>,
+    /// The login saved for the site answered it: its user name.
+    saved_login: Option<String>,
 }
 
 /// HTTP Basic credentials typed by the user.
@@ -80,6 +82,21 @@ struct ProbeView {
 struct Login {
     user: String,
     password: String,
+    /// Save it for the site, so its downloads log in by themselves.
+    #[serde(default)]
+    remember: bool,
+}
+
+/// Saves `login` for the site of `url` when the user asked to.
+async fn remember_login(app: &App, url: &str, login: Option<&Login>) -> CmdResult<()> {
+    let Some(login) = login.filter(|l| l.remember) else {
+        return Ok(());
+    };
+    let site = idma_manager::site_of(url).ok_or("this address has no site to remember")?;
+    app.manager
+        .save_login(&site, &login.user, &login.password)
+        .await
+        .map_err(msg)
 }
 
 fn login_headers(login: Option<&Login>) -> Vec<(String, String)> {
@@ -109,19 +126,38 @@ async fn probe(
     login: Option<Login>,
     headers: Option<Vec<(String, String)>>,
 ) -> CmdResult<ProbeView> {
+    let view = |p: idma_engine::Probe, saved_login| ProbeView {
+        url: p.url,
+        name: p.name,
+        size: p.size,
+        resumable: p.resumable,
+        saved_login,
+        ..ProbeView::default()
+    };
     match app
         .manager
-        .probe(&url, &request_headers(headers, login.as_ref()))
+        .probe(&url, &request_headers(headers.clone(), login.as_ref()))
         .await
     {
-        Ok(p) => Ok(ProbeView {
-            url: p.url,
-            name: p.name,
-            size: p.size,
-            resumable: p.resumable,
-            ..ProbeView::default()
-        }),
+        Ok(p) => Ok(view(p, None)),
         Err(idma_manager::Error::Engine(idma_engine::Error::AuthRequired { realm })) => {
+            // A saved login for the site: the download will use it, so ask with it too.
+            if login.is_none()
+                && let Ok(Some((user, password))) = app.manager.saved_login(&url).await
+            {
+                let saved = Login {
+                    user: user.clone(),
+                    password,
+                    remember: false,
+                };
+                if let Ok(p) = app
+                    .manager
+                    .probe(&url, &request_headers(headers, Some(&saved)))
+                    .await
+                {
+                    return Ok(view(p, Some(user)));
+                }
+            }
             Ok(ProbeView {
                 url,
                 needs_login: true,
@@ -148,6 +184,7 @@ struct AddRequest {
 
 #[tauri::command]
 async fn add_task(app: State<'_, App>, request: AddRequest) -> CmdResult<Task> {
+    remember_login(&app, &request.url, request.login.as_ref()).await?;
     app.manager
         .add(NewTask {
             headers: request_headers(request.headers, request.login.as_ref()),
@@ -165,10 +202,23 @@ async fn add_task(app: State<'_, App>, request: AddRequest) -> CmdResult<Task> {
 /// Credentials for a download whose server asked for them; it continues with them.
 #[tauri::command]
 async fn set_login(app: State<'_, App>, id: TaskId, login: Login) -> CmdResult<()> {
+    let task = app.manager.get(id).await.map_err(msg)?;
+    remember_login(&app, &task.url, Some(&login)).await?;
     app.manager
         .set_login(id, &login.user, &login.password)
         .await
         .map_err(msg)
+}
+
+/// Sites with a remembered login, for the settings.
+#[tauri::command]
+async fn saved_logins(app: State<'_, App>) -> CmdResult<Vec<idma_manager::SavedLogin>> {
+    app.manager.saved_logins().await.map_err(msg)
+}
+
+#[tauri::command]
+async fn forget_login(app: State<'_, App>, site: String) -> CmdResult<()> {
+    app.manager.forget_login(&site).await.map_err(msg)
 }
 
 #[tauri::command]
@@ -1140,6 +1190,8 @@ fn main() {
             end_countdown,
             inspect_page,
             set_login,
+            saved_logins,
+            forget_login,
             open_file,
             show_in_folder,
             get_settings,

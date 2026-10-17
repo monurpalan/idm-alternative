@@ -262,6 +262,51 @@ impl Db {
         Ok(())
     }
 
+    pub(crate) async fn save_login(&self, site: &str, user: &str, password: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO logins (site, user, password, saved_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT (site) DO UPDATE
+             SET user = excluded.user, password = excluded.password, saved_at = excluded.saved_at",
+        )
+        .bind(site)
+        .bind(user)
+        .bind(crate::secret::seal(password))
+        .bind(crate::now_ms())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The login saved for `site`; none also when its password cannot be decrypted.
+    pub(crate) async fn login(&self, site: &str) -> Result<Option<(String, String)>> {
+        let row = sqlx::query("SELECT user, password FROM logins WHERE site = ?")
+            .bind(site)
+            .fetch_optional(&self.pool)
+            .await?;
+        let Some(r) = row else { return Ok(None) };
+        let user: String = r.try_get("user")?;
+        let stored: String = r.try_get("password")?;
+        Ok(crate::secret::open(&stored).map(|password| (user, password)))
+    }
+
+    /// Saved sites and user names, newest first; never the passwords.
+    pub(crate) async fn logins(&self) -> Result<Vec<(String, String)>> {
+        let rows = sqlx::query("SELECT site, user FROM logins ORDER BY saved_at DESC")
+            .fetch_all(&self.pool)
+            .await?;
+        rows.iter()
+            .map(|r| Ok((r.try_get("site")?, r.try_get("user")?)))
+            .collect()
+    }
+
+    pub(crate) async fn forget_login(&self, site: &str) -> Result<()> {
+        sqlx::query("DELETE FROM logins WHERE site = ?")
+            .bind(site)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub(crate) async fn set_queue_pos(&self, id: TaskId, pos: i64) -> Result<()> {
         sqlx::query("UPDATE tasks SET queue_pos = ? WHERE id = ?")
             .bind(pos)
