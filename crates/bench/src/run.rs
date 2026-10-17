@@ -85,6 +85,18 @@ async fn url_stats(http: &reqwest::Client, base: &str, url_path: &str) -> Option
     all.into_iter().find(|s| s.url == url_path)
 }
 
+/// Seconds from `mark` (when the server had sent a share of the file) to `end` (client exit).
+/// A client that crosses the mark and exits within one sample period is never seen at the
+/// mark; `reached` (from a final sample after the exit) counts that as 0 instead of leaving
+/// it out, which would keep only the slow runs in the median.
+fn since(mark: Option<Duration>, reached: bool, end: Duration) -> Option<f64> {
+    match mark {
+        Some(t) => Some(end.saturating_sub(t).as_secs_f64()),
+        None if reached => Some(0.0),
+        None => None,
+    }
+}
+
 fn slug(s: &str) -> String {
     s.chars()
         .map(|c| {
@@ -226,8 +238,6 @@ pub async fn run_once(
     let elapsed = started.elapsed();
     result.secs = elapsed.as_secs_f64();
     result.mib_s = size as f64 / result.secs.max(1e-9) / (1u64 << 20) as f64;
-    result.tail_secs = t90.map(|t| elapsed.saturating_sub(t).as_secs_f64());
-    result.after_secs = t100.map(|t| elapsed.saturating_sub(t).as_secs_f64());
     if cpu_ms > 0 {
         result.cpu_avg_pct = Some((cpu_ms as f64 / (result.secs * 1000.0) * 100.0) as f32);
     }
@@ -239,6 +249,8 @@ pub async fn run_once(
         result.gets = s.gets;
         result.peak_conns = s.peak_active;
         result.overhead_pct = (s.bytes_sent as f64 / size.max(1) as f64 - 1.0) * 100.0;
+        result.tail_secs = since(t90, s.bytes_sent * 10 >= size * 9, elapsed);
+        result.after_secs = since(t100, s.bytes_sent >= size, elapsed);
     }
 
     let stderr = match stderr_task {
@@ -339,5 +351,23 @@ async fn verify_remote(
         },
         Ok(Err(e)) => result.detail = format!("output: {e}"),
         Err(e) => result.detail = e.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_mark_crossed_between_samples_counts_as_zero() {
+        let end = Duration::from_millis(1500);
+        assert_eq!(
+            since(Some(Duration::from_millis(1250)), true, end),
+            Some(0.25)
+        );
+        // Exited before the next sample: fast, not unknown.
+        assert_eq!(since(None, true, end), Some(0.0));
+        // Never got there (failed or killed).
+        assert_eq!(since(None, false, end), None);
     }
 }

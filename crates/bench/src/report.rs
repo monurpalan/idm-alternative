@@ -33,7 +33,7 @@ pub fn markdown(
         "# Benchmark — {}\n\n{repeat} run(s) per cell in shuffled client order, medians of \
          successful runs. *Tail* = time spent on the last 10 % of bytes. *After* = from the \
          server having sent the whole file to the client exiting (assembling parts, flushing, \
-         shutting down). *Overhead* = bytes sent beyond file size. These come from the local test \
+         shutting down; 0 = within one 50 ms sample). *Overhead* = bytes sent beyond file size. These come from the local test \
          server; internet scenarios (with a URL) leave them empty.\n",
         chrono::Local::now().format("%Y-%m-%d %H:%M")
     );
