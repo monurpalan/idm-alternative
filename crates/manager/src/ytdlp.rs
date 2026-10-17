@@ -39,6 +39,46 @@ pub fn selector(height: Option<u32>) -> String {
     }
 }
 
+/// How formats are ranked: the chosen height and frame rate first, then H.264 video and AAC
+/// audio, which every player opens. yt-dlp's own default puts AV1 and Opus first, which
+/// Windows' player cannot open without an extension. Its `-t mp4` preset ranks the codec
+/// before the resolution and so never goes past 1080p on YouTube; here a height only H.264
+/// lacks (1440p, 4K) still comes as VP9 or AV1.
+const FORMAT_SORT: &str = "res,fps,vcodec:h264,acodec:aac";
+
+/// A title without the `...` yt-dlp cuts long posts with (X: `user - start of the post...`),
+/// and without the cut word before it. Only when the title is a cut of the description, so a
+/// video named "Wait for it..." keeps its dots.
+fn tidy_title(title: &str, description: Option<&str>) -> String {
+    let title = title.trim();
+    let Some(cut) = title
+        .strip_suffix("...")
+        .or_else(|| title.strip_suffix('…'))
+    else {
+        return title.to_owned();
+    };
+    let body = cut.split_once(" - ").map_or(cut, |(_, b)| b).trim();
+    // What the description goes on with after the cut.
+    let Some(rest) = description
+        .map(str::trim)
+        .and_then(|d| d.strip_prefix(body))
+        .filter(|r| !body.is_empty() && !r.is_empty())
+    else {
+        return title.to_owned();
+    };
+    let word_cut = rest.starts_with(char::is_alphanumeric);
+    let kept = match cut.trim_end().rfind(char::is_whitespace) {
+        Some(i) if word_cut => &cut[..i],
+        _ => cut,
+    };
+    let kept = kept.trim_end_matches(|c: char| c.is_whitespace() || ",;:-–—".contains(c));
+    if kept.is_empty() {
+        title.to_owned()
+    } else {
+        kept.to_owned()
+    }
+}
+
 /// Netscape cookie file lines for a `Cookie` header sent to `url`.
 pub(crate) fn cookie_file(cookie_header: &str, url: &str) -> Option<String> {
     let host = url::Url::parse(url).ok()?.host_str()?.to_owned();
@@ -170,7 +210,9 @@ fn page_info(v: &serde_json::Value) -> PageInfo {
         f["vcodec"].as_str() == Some("none") && f["acodec"].as_str().is_some_and(|c| c != "none")
     });
     PageInfo {
-        title: v["title"].as_str().map(str::to_owned),
+        title: v["title"]
+            .as_str()
+            .map(|t| tidy_title(t, v["description"].as_str())),
         duration: v["duration"].as_f64(),
         heights,
         audio_only,
@@ -206,6 +248,8 @@ pub async fn run(
     let mut args = vec![
         "-f".to_owned(),
         format.to_owned(),
+        "-S".into(),
+        FORMAT_SORT.into(),
         "--merge-output-format".into(),
         "mp4".into(),
         "--continue".into(),
@@ -296,6 +340,38 @@ mod tests {
             "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
         );
         assert_eq!(selector(None), "bestaudio/best");
+    }
+
+    #[test]
+    fn cut_titles() {
+        let post = Some("The Orion spacecraft separated from the upper stage of the rocket.");
+        assert_eq!(
+            tidy_title(
+                "NASA - The Orion spacecraft separated from the upper stage of t...",
+                post
+            ),
+            "NASA - The Orion spacecraft separated from the upper stage of"
+        );
+        let post = Some("Bir gün, ne güzel bir gün");
+        assert_eq!(
+            tidy_title("Ali - Bir gün, ne güzel …", post),
+            "Ali - Bir gün, ne güzel"
+        );
+        assert_eq!(tidy_title("Ali - Bir gün, ...", post), "Ali - Bir gün");
+        // The last word is whole in the description: kept.
+        assert_eq!(
+            tidy_title("Ali - Bir gün, ne...", post),
+            "Ali - Bir gün, ne"
+        );
+        assert_eq!(tidy_title("Ali - Bir...", Some("Birdenbire")), "Ali");
+        // Not a cut of the description: kept as it is.
+        assert_eq!(
+            tidy_title("Wait for it...", Some("A cat")),
+            "Wait for it..."
+        );
+        assert_eq!(tidy_title("Wait for it...", None), "Wait for it...");
+        assert_eq!(tidy_title("Me at the zoo", post), "Me at the zoo");
+        assert_eq!(tidy_title("...", post), "...");
     }
 
     #[test]
