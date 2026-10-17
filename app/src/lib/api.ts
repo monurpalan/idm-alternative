@@ -71,6 +71,7 @@ export interface Settings {
 	start_with_windows: boolean;
 	notify: boolean;
 	browser_integration: boolean;
+	update_tools: boolean;
 }
 
 /** List changes; progress comes separately, batched (see `onManagerEvent`). */
@@ -192,6 +193,10 @@ export const inspectMedia = (url: string, headers: Headers) =>
 
 export const onCapturedMedia = (handler: (m: CapturedMedia) => void): Promise<UnlistenFn> =>
 	listen<CapturedMedia>('capture-media', (e) => handler(e.payload));
+
+/** yt-dlp or deno was updated in the background. */
+export const onToolsUpdated = (handler: () => void): Promise<UnlistenFn> =>
+	listen('tools', () => handler());
 
 export const onCapture = (handler: (c: Capture) => void): Promise<UnlistenFn> =>
 	listen<Capture>('capture', (e) => handler(e.payload));

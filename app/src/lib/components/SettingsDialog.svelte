@@ -4,6 +4,7 @@
 	import {
 		getSettings,
 		installTool,
+		onToolsUpdated,
 		setSettings,
 		tools,
 		type Settings,
@@ -37,15 +38,21 @@
 
 	onMount(() => {
 		dialog?.showModal();
-		tools()
-			.then((t) => (toolStatus = t))
-			.catch(() => {});
+		const refresh = () =>
+			tools()
+				.then((t) => (toolStatus = t))
+				.catch(() => {});
+		refresh();
+		const unlisten = onToolsUpdated(refresh);
 		getSettings()
 			.then((v) => {
 				s = v;
 				limitKb = v.speed_limit ? String(Math.round(v.speed_limit / 1024)) : '';
 			})
 			.catch((e) => (error = String(e)));
+		return () => {
+			unlisten.then((f) => f());
+		};
 	});
 
 	async function browse() {
@@ -159,6 +166,10 @@
 							</button>
 						</div>
 					{/each}
+					<label class="check">
+						<input type="checkbox" bind:checked={s.update_tools} />
+						Update yt-dlp and deno when a new version is out (checked once a day)
+					</label>
 					<p class="small">Downloaded from the projects' official GitHub releases and checked against their published SHA-256.</p>
 					{#if toolError}<p class="error">{toolError}</p>{/if}
 				{:else}

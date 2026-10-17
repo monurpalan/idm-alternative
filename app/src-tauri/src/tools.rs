@@ -16,6 +16,8 @@ pub enum Tool {
 
 struct Source {
     exe: &'static str,
+    /// GitHub's API answer for the latest release, which names its tag.
+    latest: &'static str,
     /// What the release offers for Windows x64.
     url: &'static str,
     /// The release's checksum file.
@@ -30,6 +32,7 @@ fn source(tool: Tool) -> Source {
     match tool {
         Tool::Ytdlp => Source {
             exe: "yt-dlp.exe",
+            latest: "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
             url: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
             sums: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS",
             file: "yt-dlp.exe",
@@ -37,6 +40,7 @@ fn source(tool: Tool) -> Source {
         },
         Tool::Deno => Source {
             exe: "deno.exe",
+            latest: "https://api.github.com/repos/denoland/deno/releases/latest",
             url: "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip",
             sums: "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip.sha256sum",
             file: "deno-x86_64-pc-windows-msvc.zip",
@@ -86,6 +90,47 @@ pub async fn version(exe: &Path) -> Option<String> {
     out.status
         .success()
         .then(|| text.lines().next().unwrap_or_default().trim().to_owned())
+}
+
+/// The version number in a tool's `--version` line (`deno 2.9.7 (stable…)`, `2026.08.19`) or
+/// a release tag (`v2.9.7`).
+pub fn version_number(text: &str) -> Option<&str> {
+    text.split_whitespace()
+        .map(|w| w.strip_prefix('v').unwrap_or(w))
+        .find(|w| w.starts_with(|c: char| c.is_ascii_digit()))
+}
+
+/// The version of the tool's latest release, from GitHub's API.
+pub async fn latest(tool: Tool, opts: &Options) -> Result<String, String> {
+    let headers = [(
+        "Accept".to_owned(),
+        "application/vnd.github+json".to_owned(),
+    )];
+    let (text, _) = idma_engine::fetch_text(source(tool).latest, &headers, opts, 1 << 20)
+        .await
+        .map_err(|e| format!("could not ask GitHub for the latest release: {e}"))?;
+    let release: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| format!("GitHub answered something unexpected: {e}"))?;
+    release["tag_name"]
+        .as_str()
+        .and_then(version_number)
+        .map(str::to_owned)
+        .ok_or_else(|| "GitHub's answer names no release".to_owned())
+}
+
+/// Updates the tool when it is set up and its latest release is a different version.
+/// Returns the new version, or `None` when it was already current or is not set up.
+pub async fn update(data: &Path, tool: Tool, opts: &Options) -> Result<Option<String>, String> {
+    let Some(exe) = installed(data, tool) else {
+        return Ok(None);
+    };
+    let have = version(&exe).await;
+    let latest = latest(tool, opts).await?;
+    if have.as_deref().and_then(version_number) == Some(latest.as_str()) {
+        return Ok(None);
+    }
+    let exe = install(data, tool, opts).await?;
+    Ok(version(&exe).await)
 }
 
 /// Downloads the latest release of `tool` into the tools folder, verified, and returns the
@@ -149,6 +194,35 @@ pub async fn install(data: &Path, tool: Tool, opts: &Options) -> Result<PathBuf,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Against GitHub: an older yt-dlp in `IDMA_TOOLS_TEST` (a folder with `tools/yt-dlp.exe`)
+    /// is replaced by the latest release, and a second run finds nothing to do.
+    #[tokio::test]
+    #[ignore = "downloads from GitHub"]
+    async fn updates_an_old_ytdlp() {
+        let data = PathBuf::from(std::env::var("IDMA_TOOLS_TEST").expect("IDMA_TOOLS_TEST"));
+        let opts = Options::default();
+        let latest = latest(Tool::Ytdlp, &opts).await.expect("latest");
+        let updated = update(&data, Tool::Ytdlp, &opts).await.expect("update");
+        assert_eq!(updated.as_deref(), Some(latest.as_str()));
+        assert_eq!(
+            update(&data, Tool::Ytdlp, &opts).await.expect("again"),
+            None
+        );
+        // Not set up: nothing to update.
+        assert_eq!(update(&data, Tool::Deno, &opts).await.expect("deno"), None);
+    }
+
+    #[test]
+    fn version_numbers() {
+        assert_eq!(version_number("2026.08.19"), Some("2026.08.19"));
+        assert_eq!(
+            version_number("deno 2.9.7 (stable, release, x86_64-pc-windows-msvc)"),
+            Some("2.9.7")
+        );
+        assert_eq!(version_number("v2.9.7"), Some("2.9.7"));
+        assert_eq!(version_number("deno"), None);
+    }
 
     #[test]
     fn checksum_files() {

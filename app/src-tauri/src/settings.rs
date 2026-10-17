@@ -35,6 +35,9 @@ pub struct Settings {
     pub notify: bool,
     /// Registered with the browsers, so the extension can hand downloads over.
     pub browser_integration: bool,
+    /// Update yt-dlp and deno when a new release is out (checked once a day). Sites like
+    /// YouTube change often and an old yt-dlp stops working.
+    pub update_tools: bool,
 }
 
 impl Default for Settings {
@@ -52,6 +55,7 @@ impl Default for Settings {
             start_with_windows: false,
             notify: true,
             browser_integration: true,
+            update_tools: true,
         }
     }
 }

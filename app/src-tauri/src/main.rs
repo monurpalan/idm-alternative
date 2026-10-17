@@ -476,6 +476,66 @@ async fn install_tool(app: State<'_, App>, tool: tools::Tool) -> CmdResult<Strin
     Ok(tools::version(&exe).await.unwrap_or_default())
 }
 
+/// How often the tools are checked for new releases, and how long after start the first check
+/// waits (so it does not compete with resuming downloads).
+const TOOL_CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+const TOOL_CHECK_DELAY: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Keeps yt-dlp and deno current while `update_tools` is on: once a day, and never while a
+/// download is running through them (Windows cannot replace a running program). The time of
+/// the last check is kept in `tools/last-check`, so restarting the app does not check again.
+async fn keep_tools_current(handle: AppHandle) {
+    tokio::time::sleep(TOOL_CHECK_DELAY).await;
+    loop {
+        let app = handle.state::<App>();
+        let stamp = tools::dir(&app.data).join("last-check");
+        let due = std::fs::metadata(&stamp)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_none_or(|age| age >= TOOL_CHECK_EVERY);
+        let wanted = lock(&app.settings).update_tools;
+        let busy = app.manager.list().await.is_ok_and(|tasks| {
+            tasks.iter().any(|t| {
+                t.status == idma_manager::Status::Downloading
+                    && t.stream.as_ref().is_some_and(|s| s.ytdlp.is_some())
+            })
+        });
+        if wanted && due && !busy {
+            let opts = app.manager.config().engine;
+            let mut changed = false;
+            let mut failed = false;
+            for tool in [tools::Tool::Ytdlp, tools::Tool::Deno] {
+                match tools::update(&app.data, tool, &opts).await {
+                    Ok(Some(v)) => {
+                        tracing::info!("updated {tool:?} to {v}");
+                        changed = true;
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        tracing::warn!("could not update {tool:?}: {e}");
+                        failed = true;
+                    }
+                }
+            }
+            if changed {
+                let settings = lock(&app.settings).clone();
+                app.manager
+                    .set_config(manager_config(&settings, app.ffmpeg.clone(), &app.data))
+                    .await
+                    .ok();
+                handle.emit("tools", ()).ok();
+            }
+            // A failed check (offline, GitHub busy) is tried again at the next wake-up.
+            if !failed && std::fs::create_dir_all(tools::dir(&app.data)).is_ok() {
+                std::fs::write(&stamp, b"").ok();
+            }
+        }
+        // Wake up hourly: the app may run for days, and a busy or offline check retries soon.
+        tokio::time::sleep(std::time::Duration::from_secs(60 * 60)).await;
+    }
+}
+
 /// Brings the window back, also from the tray.
 fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -791,6 +851,7 @@ fn main() {
                 awaiting_link: Mutex::new(None),
                 ffmpeg,
             });
+            tauri::async_runtime::spawn(keep_tools_current(app.handle().clone()));
             if std::env::args().any(|a| a == HIDDEN_ARG)
                 && let Some(w) = app.get_webview_window("main")
             {
