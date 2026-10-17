@@ -10,6 +10,7 @@
 //!   downloading; the next [`Manager::open`] queues them again and they resume from their
 //!   state files.
 
+pub mod batch;
 mod db;
 mod secret;
 mod task;

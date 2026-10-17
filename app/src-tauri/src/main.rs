@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod clipboard;
+mod scan;
 mod schedule;
 mod settings;
 mod tools;
@@ -197,6 +198,49 @@ async fn add_task(app: State<'_, App>, request: AddRequest) -> CmdResult<Task> {
         })
         .await
         .map_err(msg)
+}
+
+/// A batch address (`photo[001-100].jpg`): how many downloads it stands for, and the first
+/// and last. None for an ordinary address.
+#[derive(Serialize)]
+struct BatchView {
+    count: usize,
+    first: String,
+    last: String,
+}
+
+#[tauri::command]
+fn batch_preview(url: String) -> CmdResult<Option<BatchView>> {
+    if !idma_manager::batch::is_pattern(&url) {
+        return Ok(None);
+    }
+    let urls = idma_manager::batch::expand(&url)?;
+    Ok(Some(BatchView {
+        count: urls.len(),
+        first: urls.first().cloned().unwrap_or_default(),
+        last: urls.last().cloned().unwrap_or_default(),
+    }))
+}
+
+/// Adds every download a batch address stands for, each named by its server.
+#[tauri::command]
+async fn add_batch(app: State<'_, App>, request: AddRequest) -> CmdResult<usize> {
+    let urls = idma_manager::batch::expand(&request.url)?;
+    remember_login(&app, &request.url, request.login.as_ref()).await?;
+    let headers = request_headers(request.headers, request.login.as_ref());
+    for url in &urls {
+        app.manager
+            .add(NewTask {
+                url: url.clone(),
+                headers: headers.clone(),
+                dir: request.dir.clone(),
+                start: request.start,
+                ..NewTask::default()
+            })
+            .await
+            .map_err(msg)?;
+    }
+    Ok(urls.len())
 }
 
 /// Credentials for a download whose server asked for them; it continues with them.
@@ -789,6 +833,52 @@ fn show_main(app: &AppHandle) {
     });
 }
 
+/// At most this many progress windows open by themselves: starting a long queue must not
+/// cover the screen.
+const MAX_PROGRESS_WINDOWS: usize = 4;
+
+/// The small progress window of download `id` (see `routes/progress`). `asked`: the user
+/// asked for it, so the limit does not apply.
+fn open_progress(handle: &AppHandle, id: TaskId, asked: bool) {
+    let label = format!("progress-{id}");
+    if let Some(w) = handle.get_webview_window(&label) {
+        w.show().ok();
+        w.set_focus().ok();
+        return;
+    }
+    let open = handle
+        .webview_windows()
+        .keys()
+        .filter(|l| l.starts_with("progress-"))
+        .count();
+    if !asked && open >= MAX_PROGRESS_WINDOWS {
+        return;
+    }
+    let handle = handle.clone();
+    // Not on the main thread, for the same reason as `show_main`.
+    tauri::async_runtime::spawn(async move {
+        let built = tauri::WebviewWindowBuilder::new(
+            &handle,
+            &label,
+            tauri::WebviewUrl::App(format!("progress?id={id}").into()),
+        )
+        .title("Download")
+        .inner_size(440.0, 236.0)
+        .resizable(false)
+        .maximizable(false)
+        .build();
+        if let Err(e) = built {
+            tracing::warn!("could not open the progress window: {e}");
+        }
+    });
+}
+
+/// Opens the progress window of a download from the list.
+#[tauri::command]
+fn show_progress(handle: AppHandle, id: TaskId) {
+    open_progress(&handle, id, true);
+}
+
 /// Events the page must not miss while it is closed or still loading.
 #[derive(Default)]
 struct Page {
@@ -897,8 +987,15 @@ async fn forward_events(handle: AppHandle, mut events: broadcast::Receiver<Event
                                 pending.remove(&t.id);
                             }
                             let before = statuses.insert(t.id, t.status);
+                            if t.status == Status::Downloading
+                                && before != Some(Status::Downloading)
+                                && lock(&handle.state::<App>().settings).progress_windows
+                            {
+                                open_progress(&handle, t.id, false);
+                            }
                             if t.status == Status::Done && before == Some(Status::Downloading) {
                                 notify_done(&handle, t);
+                                scan_done(&handle, t);
                             }
                         }
                         Event::Removed(id) => {
@@ -938,6 +1035,45 @@ fn notify_done(handle: &AppHandle, task: &Task) {
     {
         tracing::warn!("could not show a notification: {e}");
     }
+}
+
+/// Scans a finished download when the settings say so; the user hears of anything but a
+/// clean result.
+fn scan_done(handle: &AppHandle, task: &Task) {
+    let app = handle.state::<App>();
+    let (on, scanner) = {
+        let s = lock(&app.settings);
+        (s.virus_scan, s.scanner.clone())
+    };
+    let Some(path) = task.path.clone().filter(|_| on) else {
+        return;
+    };
+    let name = task.name.clone().unwrap_or_else(|| task.url.clone());
+    let handle = handle.clone();
+    tauri::async_runtime::spawn(async move {
+        let text = match scan::scan(&path, &scanner).await {
+            Ok(scan::Verdict::Clean) => {
+                tracing::info!("virus scan of {}: clean", path.display());
+                return;
+            }
+            Ok(scan::Verdict::Threat) => {
+                format!("Microsoft Defender found a threat in {name} and dealt with it")
+            }
+            Ok(scan::Verdict::Other(code)) => {
+                format!("The virus scanner reported a problem with {name} (exit code {code})")
+            }
+            Err(e) => format!("Could not scan {name} for viruses: {e}"),
+        };
+        tracing::warn!("{text}");
+        handle
+            .notification()
+            .builder()
+            .title("Virus scan")
+            .body(&text)
+            .show()
+            .ok();
+        to_page(&handle, "notice", text, false);
+    });
 }
 
 /// Answers the browser extension (through the native host): pings, and downloads or link
@@ -1161,7 +1297,9 @@ fn main() {
         .on_window_event(|window, event| {
             // Closing to the tray closes the window for real (see `show_main`); the app keeps
             // running because `RunEvent::ExitRequested` is turned down below.
-            if let WindowEvent::Destroyed = event {
+            if let WindowEvent::Destroyed = event
+                && window.label() == "main"
+            {
                 lock(&window.app_handle().state::<App>().page).ready = false;
             }
         })
@@ -1185,11 +1323,14 @@ fn main() {
             check_update,
             install_update,
             page_ready,
+            show_progress,
             set_when_done,
             get_when_done,
             end_countdown,
             inspect_page,
             set_login,
+            batch_preview,
+            add_batch,
             saved_logins,
             forget_login,
             open_file,

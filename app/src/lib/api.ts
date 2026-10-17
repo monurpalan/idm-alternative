@@ -67,6 +67,26 @@ export interface SavedLogin {
 	user: string;
 }
 
+/** A batch address (`photo[001-100].jpg`): how many downloads, the first and the last. */
+export interface Batch {
+	count: number;
+	first: string;
+	last: string;
+}
+
+export const batchPreview = (url: string) => invoke<Batch | null>('batch_preview', { url });
+/** Adds every download of a batch address; returns how many. */
+export const addBatch = (request: {
+	url: string;
+	dir: string | null;
+	start: boolean;
+	login: Login | null;
+	headers?: Headers | null;
+}) => invoke<number>('add_batch', { request: { ...request, name: null, stream: null } });
+
+/** Opens the small progress window of a download. */
+export const showProgress = (id: TaskId) => invoke<void>('show_progress', { id });
+
 export const savedLogins = () => invoke<SavedLogin[]>('saved_logins');
 export const forgetLogin = (site: string) => invoke<void>('forget_login', { site });
 
@@ -88,6 +108,9 @@ export interface Settings {
 	check_updates: boolean;
 	schedule: Schedule;
 	watch_clipboard: boolean;
+	virus_scan: boolean;
+	scanner: string;
+	progress_windows: boolean;
 }
 
 /** List changes; progress comes separately, batched (see `onManagerEvent`). */

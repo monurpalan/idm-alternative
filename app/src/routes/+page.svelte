@@ -6,6 +6,7 @@
 		onCapture,
 		onUpdate,
 		onClipboard,
+		showProgress,
 		pageReady,
 		getWhenDone,
 		setWhenDone,
@@ -193,6 +194,11 @@
 					label: 'Show in folder',
 					action: () => run(showInFolder(task.id)),
 					disabled: !one || !one.path
+				},
+				{
+					label: 'Progress window',
+					action: () => run(showProgress(task.id)),
+					disabled: !one
 				},
 				{
 					label: 'Resume',

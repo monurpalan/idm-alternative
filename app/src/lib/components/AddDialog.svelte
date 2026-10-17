@@ -3,7 +3,17 @@
 
 	import { onMount } from 'svelte';
 	import { open as pickFolder } from '@tauri-apps/plugin-dialog';
-	import { addTask, getSettings, probe, type Headers, type Login, type Probe } from '../api.ts';
+	import {
+		addBatch,
+		addTask,
+		batchPreview,
+		getSettings,
+		probe,
+		type Batch,
+		type Headers,
+		type Login,
+		type Probe
+	} from '../api.ts';
 	import { bytes } from '../format.ts';
 
 	let {
@@ -26,6 +36,8 @@
 	let dir = $state('');
 	let defaultDir = $state('');
 	let info = $state<Probe | null>(null);
+	/** The address has ranges (`photo[001-100].jpg`): it stands for this many downloads. */
+	let batch = $state<Batch | null>(null);
 	let checking = $state(false);
 	let error = $state<string | null>(null);
 	let busy = $state(false);
@@ -55,7 +67,15 @@
 		checking = true;
 		error = null;
 		info = null;
+		batch = null;
 		try {
+			const b = await batchPreview(u);
+			if (asked !== u) return;
+			if (b) {
+				// Each file is asked about when its download starts.
+				batch = b;
+				return;
+			}
 			const p = await probe(u, login(), headers);
 			if (asked !== u) return; // the URL changed meanwhile
 			info = p;
@@ -77,6 +97,11 @@
 		if (!u) return;
 		busy = true;
 		try {
+			if (batch) {
+				await addBatch({ url: u, dir: dir || null, start, login: login(), headers });
+				onclose();
+				return;
+			}
 			await addTask({
 				url: u,
 				// Only send a name the user (or the browser) chose; otherwise the server's
@@ -119,7 +144,7 @@
 						check();
 					}
 				}}
-				placeholder="https://"
+				placeholder="https://   (photo[001-100].jpg adds a batch)"
 				required
 			/>
 		</label>
@@ -129,6 +154,10 @@
 				Asking the server…
 			{:else if error}
 				<span class="error">{error}</span>
+			{:else if batch}
+				Batch: <strong>{batch.count}</strong> downloads, from
+				<span class="ends" title={batch.first}>{batch.first.split('/').pop()}</span>
+				to <span class="ends" title={batch.last}>{batch.last.split('/').pop()}</span>
 			{:else if info?.needs_login}
 				<span class="warn"
 					>The server asks for a user name and password{info.realm ? ` (${info.realm})` : ''}.</span
@@ -164,7 +193,7 @@
 			Save as
 			<input
 				bind:value={name}
-				placeholder="Name from the server"
+				placeholder={batch ? 'Each from its server' : 'Name from the server'}
 				disabled={!info || info.needs_login}
 			/>
 		</label>
@@ -183,7 +212,7 @@
 				Download later
 			</button>
 			<button type="submit" class="primary" disabled={busy || !url.trim()}>
-				Start download
+				{batch ? `Start ${batch.count} downloads` : 'Start download'}
 			</button>
 		</div>
 	</form>

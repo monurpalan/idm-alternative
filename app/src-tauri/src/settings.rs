@@ -43,6 +43,12 @@ pub struct Settings {
     pub schedule: crate::schedule::Schedule,
     /// Offer copied download links, like IDM. Off unless the user turns it on.
     pub watch_clipboard: bool,
+    /// Scan each finished download for viruses.
+    pub virus_scan: bool,
+    /// The scanner's command line, `{file}` for the path; empty for Microsoft Defender.
+    pub scanner: String,
+    /// A small window per download while it runs, like IDM's.
+    pub progress_windows: bool,
 }
 
 impl Default for Settings {
@@ -64,6 +70,9 @@ impl Default for Settings {
             check_updates: true,
             schedule: crate::schedule::Schedule::default(),
             watch_clipboard: false,
+            virus_scan: false,
+            scanner: String::new(),
+            progress_windows: false,
         }
     }
 }

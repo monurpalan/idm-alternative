@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "progress",
+  "description": "What a download's progress window may do: the app's own commands, listening to events, setting its title and closing itself.",
+  "windows": ["progress-*"],
+  "permissions": ["core:default", "core:window:allow-set-title", "core:window:allow-close"]
+}

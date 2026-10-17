@@ -267,6 +267,10 @@
 					Start with Windows (in the tray)
 				</label>
 				<label class="check">
+					<input type="checkbox" bind:checked={s.progress_windows} />
+					Show a small progress window for each download
+				</label>
+				<label class="check">
 					<input type="checkbox" bind:checked={s.notify} />
 					Notify me when a download finishes
 				</label>
@@ -278,6 +282,18 @@
 					<button type="button" onclick={checkNow}>Check now</button>
 				</div>
 				{#if updateStatus}<p class="small">{updateStatus}</p>{/if}
+				<label class="check">
+					<input type="checkbox" bind:checked={s.virus_scan} />
+					Scan finished downloads for viruses
+				</label>
+				<label class="scanner">
+					Scanner
+					<input
+						bind:value={s.scanner}
+						disabled={!s.virus_scan}
+						placeholder="Microsoft Defender, or: &quot;C:\…\scan.exe&quot; {'{file}'}"
+					/>
+				</label>
 				<label class="check">
 					<input type="checkbox" bind:checked={s.watch_clipboard} />
 					Offer download links I copy (archives, programs, video, music, documents)
@@ -373,6 +389,9 @@
 	}
 	.muted {
 		color: var(--muted);
+	}
+	.scanner {
+		margin-left: 24px;
 	}
 	.login-row {
 		display: grid;
