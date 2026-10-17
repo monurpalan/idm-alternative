@@ -27,6 +27,7 @@ tauri-plugin-dialog = "2.8.3"
 tauri-plugin-notification = "2.7.0"
 tauri-plugin-opener = "2.7.2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

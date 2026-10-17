@@ -4,6 +4,9 @@
 		getSettings,
 		moveTask,
 		onCapture,
+		onUpdate,
+		installUpdate,
+		type AppUpdate,
 		onCapturedLinks,
 		onCapturedMedia,
 		onNotice,
@@ -62,6 +65,20 @@
 	let showDetails = $state(true);
 	let settingsOpen = $state(false);
 	let globalLimit = $state<number | null>(null);
+	/** A newer version of the app, found by the daily check. */
+	let update = $state<AppUpdate | null>(null);
+	let updating = $state(false);
+
+	async function applyUpdate() {
+		updating = true;
+		try {
+			// The app closes here and the new version starts.
+			await installUpdate();
+		} catch (e) {
+			notice = String(e);
+			updating = false;
+		}
+	}
 
 	onMount(() => {
 		const stop = downloads.connect();
@@ -74,6 +91,7 @@
 			onCapture((c) => (adding = { url: c.url, name: c.filename, headers: c.headers })),
 			onCapturedLinks((l) => (picking = l)),
 			onNotice((text) => (info = text)),
+			onUpdate((u) => (update = u)),
 			onCapturedMedia((m) => {
 				const item = m.items[0];
 				if (!item) return;
@@ -300,6 +318,13 @@
 	<footer>
 		{#if notice || downloads.error}
 			<span class="notice">{notice ?? downloads.error}</span>
+		{:else if update}
+			<span class="info">idm-alternative {update.version} is available.</span>
+			<button onclick={applyUpdate} disabled={updating}
+				>{updating ? 'Downloading…' : 'Install and restart'}</button
+			>
+			<span>Running downloads pause and continue after the restart.</span>
+			<button class="dismiss" onclick={() => (update = null)} aria-label="Later">×</button>
 		{:else if info}
 			<span class="info">{info}</span>
 			<button class="dismiss" onclick={() => (info = null)} aria-label="Dismiss">×</button>

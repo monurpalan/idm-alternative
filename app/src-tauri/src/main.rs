@@ -476,32 +476,48 @@ async fn install_tool(app: State<'_, App>, tool: tools::Tool) -> CmdResult<Strin
     Ok(tools::version(&exe).await.unwrap_or_default())
 }
 
-/// How often the tools are checked for new releases, and how long after start the first check
-/// waits (so it does not compete with resuming downloads).
-const TOOL_CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
-const TOOL_CHECK_DELAY: std::time::Duration = std::time::Duration::from_secs(60);
+/// How often the tools and the app are checked for new releases, and how long after start
+/// the first check waits (so it does not compete with resuming downloads).
+const CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+const CHECK_DELAY: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// Keeps yt-dlp and deno current while `update_tools` is on: once a day, and never while a
-/// download is running through them (Windows cannot replace a running program). The time of
-/// the last check is kept in `tools/last-check`, so restarting the app does not check again.
-async fn keep_tools_current(handle: AppHandle) {
-    tokio::time::sleep(TOOL_CHECK_DELAY).await;
+/// Whether the check whose time is kept in `stamp` is due.
+fn due(stamp: &Path) -> bool {
+    std::fs::metadata(stamp)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_none_or(|age| age >= CHECK_EVERY)
+}
+
+fn touch(stamp: &Path) {
+    if let Some(dir) = stamp.parent() {
+        std::fs::create_dir_all(dir).ok();
+    }
+    std::fs::write(stamp, b"").ok();
+}
+
+/// Once a day: keeps yt-dlp and deno current while `update_tools` is on, never while a
+/// download runs through them (Windows cannot replace a running program), and offers a new
+/// version of the app while `check_updates` is on. The times of the last checks are kept in
+/// files, so restarting the app does not check again.
+async fn daily_checks(handle: AppHandle) {
+    tokio::time::sleep(CHECK_DELAY).await;
     loop {
         let app = handle.state::<App>();
+        let (update_tools, check_updates) = {
+            let s = lock(&app.settings);
+            (s.update_tools, s.check_updates)
+        };
+
         let stamp = tools::dir(&app.data).join("last-check");
-        let due = std::fs::metadata(&stamp)
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| t.elapsed().ok())
-            .is_none_or(|age| age >= TOOL_CHECK_EVERY);
-        let wanted = lock(&app.settings).update_tools;
         let busy = app.manager.list().await.is_ok_and(|tasks| {
             tasks.iter().any(|t| {
                 t.status == idma_manager::Status::Downloading
                     && t.stream.as_ref().is_some_and(|s| s.ytdlp.is_some())
             })
         });
-        if wanted && due && !busy {
+        if update_tools && due(&stamp) && !busy {
             let opts = app.manager.config().engine;
             let mut changed = false;
             let mut failed = false;
@@ -527,13 +543,68 @@ async fn keep_tools_current(handle: AppHandle) {
                 handle.emit("tools", ()).ok();
             }
             // A failed check (offline, GitHub busy) is tried again at the next wake-up.
-            if !failed && std::fs::create_dir_all(tools::dir(&app.data)).is_ok() {
-                std::fs::write(&stamp, b"").ok();
+            if !failed {
+                touch(&stamp);
+            }
+        }
+
+        let stamp = app.data.join("update-check");
+        if check_updates && due(&stamp) {
+            match find_update(&handle).await {
+                Ok(found) => {
+                    if let Some(update) = found {
+                        handle.emit("update", update).ok();
+                    }
+                    touch(&stamp);
+                }
+                Err(e) => tracing::warn!("could not check for a new version: {e}"),
             }
         }
         // Wake up hourly: the app may run for days, and a busy or offline check retries soon.
         tokio::time::sleep(std::time::Duration::from_secs(60 * 60)).await;
     }
+}
+
+/// A newer version of the app.
+#[derive(Debug, Clone, serde::Serialize)]
+struct AppUpdate {
+    version: String,
+    notes: Option<String>,
+}
+
+async fn find_update(handle: &AppHandle) -> Result<Option<AppUpdate>, String> {
+    use tauri_plugin_updater::UpdaterExt as _;
+    let update = handle.updater().map_err(msg)?.check().await.map_err(msg)?;
+    Ok(update.map(|u| AppUpdate {
+        version: u.version,
+        notes: u.body,
+    }))
+}
+
+/// Looks for a newer version of the app now.
+#[tauri::command]
+async fn check_update(handle: AppHandle) -> CmdResult<Option<AppUpdate>> {
+    find_update(&handle).await
+}
+
+/// Downloads the newer version, closes the download list (running downloads keep their
+/// progress and resume after the restart) and runs the installer, which ends this process
+/// and starts the new version.
+#[tauri::command]
+async fn install_update(handle: AppHandle, app: State<'_, App>) -> CmdResult<()> {
+    use tauri_plugin_updater::UpdaterExt as _;
+    let update = handle
+        .updater()
+        .map_err(msg)?
+        .check()
+        .await
+        .map_err(msg)?
+        .ok_or("there is no newer version")?;
+    let bytes = update.download(|_, _| {}, || {}).await.map_err(msg)?;
+    app.manager.close().await;
+    update
+        .install(bytes)
+        .map_err(|e| format!("{e}; restart the app to resume the downloads"))
 }
 
 /// Brings the window back, also from the tray.
@@ -788,6 +859,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![HIDDEN_ARG]),
@@ -851,7 +923,7 @@ fn main() {
                 awaiting_link: Mutex::new(None),
                 ffmpeg,
             });
-            tauri::async_runtime::spawn(keep_tools_current(app.handle().clone()));
+            tauri::async_runtime::spawn(daily_checks(app.handle().clone()));
             if std::env::args().any(|a| a == HIDDEN_ARG)
                 && let Some(w) = app.get_webview_window("main")
             {
@@ -884,6 +956,8 @@ fn main() {
             inspect_media,
             tools,
             install_tool,
+            check_update,
+            install_update,
             inspect_page,
             set_login,
             open_file,

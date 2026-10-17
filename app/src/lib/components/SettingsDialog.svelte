@@ -3,6 +3,7 @@
 	import { open as pickFolder } from '@tauri-apps/plugin-dialog';
 	import {
 		getSettings,
+		checkUpdate,
 		installTool,
 		onToolsUpdated,
 		setSettings,
@@ -22,6 +23,20 @@
 	let toolStatus = $state<ToolStatus | null>(null);
 	let installing = $state<'ytdlp' | 'deno' | null>(null);
 	let toolError = $state<string | null>(null);
+	/** The result of "Check now". */
+	let updateStatus = $state<string | null>(null);
+
+	async function checkNow() {
+		updateStatus = 'Checking…';
+		try {
+			const u = await checkUpdate();
+			updateStatus = u
+				? `Version ${u.version} is available: install it from the bar at the bottom of the window.`
+				: 'This is the latest version.';
+		} catch (e) {
+			updateStatus = `Could not check: ${e}`;
+		}
+	}
 
 	async function setUp(tool: 'ytdlp' | 'deno') {
 		installing = tool;
@@ -191,6 +206,14 @@
 					<input type="checkbox" bind:checked={s.notify} />
 					Notify me when a download finishes
 				</label>
+				<div class="update">
+					<label class="check">
+						<input type="checkbox" bind:checked={s.check_updates} />
+						Look for a new version of the app once a day
+					</label>
+					<button type="button" onclick={checkNow}>Check now</button>
+				</div>
+				{#if updateStatus}<p class="small">{updateStatus}</p>{/if}
 				<label class="check">
 					<input type="checkbox" bind:checked={s.browser_integration} />
 					Take downloads from the browser extension (registers with Chrome, Edge, Brave,
@@ -282,6 +305,12 @@
 	}
 	.muted {
 		color: var(--muted);
+	}
+	.update {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
 	}
 	.tool {
 		display: grid;

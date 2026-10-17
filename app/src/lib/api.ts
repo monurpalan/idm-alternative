@@ -72,6 +72,7 @@ export interface Settings {
 	notify: boolean;
 	browser_integration: boolean;
 	update_tools: boolean;
+	check_updates: boolean;
 }
 
 /** List changes; progress comes separately, batched (see `onManagerEvent`). */
@@ -193,6 +194,18 @@ export const inspectMedia = (url: string, headers: Headers) =>
 
 export const onCapturedMedia = (handler: (m: CapturedMedia) => void): Promise<UnlistenFn> =>
 	listen<CapturedMedia>('capture-media', (e) => handler(e.payload));
+
+export interface AppUpdate {
+	version: string;
+	notes: string | null;
+}
+
+export const checkUpdate = () => invoke<AppUpdate | null>('check_update');
+/** Downloads and installs the new version; the app closes and the new one starts. */
+export const installUpdate = () => invoke<void>('install_update');
+/** The daily check found a new version of the app. */
+export const onUpdate = (handler: (u: AppUpdate) => void): Promise<UnlistenFn> =>
+	listen<AppUpdate>('update', (e) => handler(e.payload));
 
 /** yt-dlp or deno was updated in the background. */
 export const onToolsUpdated = (handler: () => void): Promise<UnlistenFn> =>

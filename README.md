@@ -62,6 +62,10 @@ npm run bundle        # installer in target/release/bundle/nsis
 ```
 
 `npm run bundle` builds the browser host (`idma-host.exe`) first and ships it next to the app.
+When the update signing key is on the machine (`%USERPROFILE%\.tauri\idma.key`, its password
+DPAPI-encrypted in `idma.key.password`), it also signs the installer and writes `latest.json`;
+uploading both to a GitHub release `v<version>` is what the app's daily update check looks for.
+The check needs the releases to be public.
 The installer is per user (no administrator rights) and silent with `/S`. Uninstalling removes
 the app's keys from the browsers and the "start with Windows" entry, and keeps the download
 list in `%APPDATA%\io.github.monurpalan.idma`.

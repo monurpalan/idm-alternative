@@ -38,6 +38,8 @@ pub struct Settings {
     /// Update yt-dlp and deno when a new release is out (checked once a day). Sites like
     /// YouTube change often and an old yt-dlp stops working.
     pub update_tools: bool,
+    /// Look for a new version of the app once a day and offer it.
+    pub check_updates: bool,
 }
 
 impl Default for Settings {
@@ -56,6 +58,7 @@ impl Default for Settings {
             notify: true,
             browser_integration: true,
             update_tools: true,
+            check_updates: true,
         }
     }
 }
