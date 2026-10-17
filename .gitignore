@@ -4,6 +4,8 @@
 # Node / frontend
 node_modules/
 dist/
+# Sidecars copied in by app/scripts/build-host.mjs
+/app/src-tauri/binaries/
 .svelte-kit/
 
 # Downloads produced while testing

@@ -18,6 +18,21 @@ const STARTUP_WAIT: Duration = Duration::from_secs(15);
 type Result<T> = std::result::Result<T, String>;
 
 fn main() -> ExitCode {
+    // The uninstaller runs `idma-host --unregister` to take our keys out of the browsers.
+    // Browsers start the host with the extension's origin or id as the argument instead.
+    if std::env::args().nth(1).as_deref() == Some("--unregister") {
+        let Some(data) = idma_bridge::data_dir() else {
+            eprintln!("idma-host: APPDATA is not set");
+            return ExitCode::FAILURE;
+        };
+        return match idma_bridge::unregister(&data) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("idma-host: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let rt = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

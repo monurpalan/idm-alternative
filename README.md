@@ -58,8 +58,13 @@ commands leave it out:
 cd app
 npm ci
 npm run tauri dev     # development, with hot reload
-npm run tauri build   # installer in target/release/bundle
+npm run bundle        # installer in target/release/bundle/nsis
 ```
+
+`npm run bundle` builds the browser host (`idma-host.exe`) first and ships it next to the app.
+The installer is per user (no administrator rights) and silent with `/S`. Uninstalling removes
+the app's keys from the browsers and the "start with Windows" entry, and keeps the download
+list in `%APPDATA%\io.github.monurpalan.idma`.
 
 ## Desktop app
 
@@ -73,9 +78,10 @@ Measured on the development machine (release build, Windows 11):
 
 | | |
 |---|---|
-| Executable | 21.9 MB |
-| Idle memory, app process | 34 MB working set (7 MB private) |
-| Idle memory, WebView2 (6 processes) | 352 MB working set (161 MB private) |
+| Installer | 6.1 MiB |
+| Installed | 24.2 MB (app 23.4 MB, browser host 0.7 MB) |
+| Idle memory, app process | 32 MB working set (8 MB private) |
+| Idle memory, WebView2 (6 processes) | 367 MB working set (160 MB private) |
 | 500 downloads in the list, 20 running (~10 MB/s) | UI 9% of a core, engine 18–22%; scrolling at 60 fps |
 
 Most of the memory is the WebView2 runtime that every Tauri app shares with Edge; IDM's
