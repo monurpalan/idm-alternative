@@ -57,6 +57,18 @@ async fn connection_cap_is_respected() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn forbidden_extra_connections_are_dropped() {
+    // Connections beyond 3 get 403 rather than 503: still a limit, not an expired link.
+    ok(
+        "conn-ban",
+        16 * MB,
+        "&rate=4M&max_conns=3&refuse_status=403",
+        16,
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn dropped_connections_are_resumed() {
     ok("flaky", 16 * MB, "&rate=16M&drop_after=1M", 8).await;
 }

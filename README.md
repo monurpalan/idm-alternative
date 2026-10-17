@@ -164,6 +164,21 @@ connections; the others use their defaults (dm, aria2 and Gopeed 16).
 3. The clean local run mostly measures the disk (a DRAM-less SSD that slows down while it writes
    back): the same client swings by a factor of two between runs.
 
+**Scenarios added to find where dm loses** (2026-10-18, [results](bench/results/2026-10-18_021842.md);
+dm after the fix: [results](bench/results/2026-10-18_024457.md)):
+
+| Scenario | dm | dm x8 | IDM | aria2 | Gopeed | AB DM⁴ | curl |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 16 MiB/s for all connections together (a per-IP limit), 128 MiB | 8.04 | 8.04 | 9.01 | 8.12 | 8.17 | 9.02 | **8.02** |
+| Server forbids (403) every connection beyond 4, 256 MiB | 8.35⁵ | **8.14**⁵ | 9.18 | 8.27 | hangs | 10.24 | 32.03 |
+| 300 ms before every response, 4 MiB/s per connection, 64 MiB | **1.67** | 2.67 | 4.93 | 1.71 | 2.90 | 3.60 | 16.33 |
+| A 256 KiB file | **0.02** | 0.02 | 0.96 | 0.03 | 0.13 | 1.06 | 0.02 |
+
+4. Measured time here, including the ~1 s its command-line tool takes to start.
+5. **dm failed this scenario** before 2026-10-18: it took the 403 for an expired link and stopped
+   the whole download. Now a refusal while other connections still download lowers the
+   connection count, like a 503; with no connection left working it is still an expired link.
+
 What this does and does not say:
 
 - **Where dm stands out is a bad connection.** When one connection crawls, dm finishes in 2.4 s
@@ -192,6 +207,12 @@ What this does and does not say:
 - **On a plain download the field is close.** aria2 and AB DM are within 15 % of dm on the internet
   run. IDM's gap is partly not network: it downloads parts into its own folder and joins them at
   the end (~1–2.7 s per GiB here), and its start and exit are in the measurement.
+- **Looking for losses found one.** A server that forbids extra connections with 403 made dm stop
+  (fixed, see above) and makes Gopeed hang; aria2, IDM and AB DM drop to 4 connections. Where
+  connections do not help (a per-client limit) everyone ties; the tiny file shows IDM's and AB
+  DM's start-up cost, not their engines.
+- **Not measured:** a destination on a hard disk or USB stick (IDM's download-then-join should do
+  better there; this machine has no HDD), many small files in one go, and weak hardware.
 - **One machine, one line, one server.** Everyone ran with default settings. Browser integration,
   site compatibility and video are not measured here.
 

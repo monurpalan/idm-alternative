@@ -465,6 +465,18 @@ impl Job<'_> {
                     match result {
                         Ok(()) => t.release(idx, false, now),
                         Err(Error::Cancelled) => t.release(idx, false, now),
+                        // Refused (401/403/410) while other connections are still downloading:
+                        // the server limits connections and forbids the extra ones instead of
+                        // saying it is busy. An expired link refuses every new request, so it
+                        // still stops the download once no connection is left working.
+                        Err(Error::LinkExpired(code)) if t.active() > 1 => {
+                            let limit = t.active() - 1;
+                            if limit < conn_limit {
+                                tracing::info!("connection refused (HTTP {code}) while others work; limiting to {limit} connections");
+                                conn_limit = limit;
+                            }
+                            t.release(idx, true, now);
+                        }
                         Err(e) if e.is_fatal() || matches!(e, Error::RangeIgnored) => {
                             t.release(idx, false, now);
                             fatal.get_or_insert(e);

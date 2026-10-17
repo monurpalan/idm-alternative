@@ -86,6 +86,9 @@ pub struct Scenario {
     pub range_as_200: bool,
     /// Per-connection rate limit in bytes/s.
     pub rate: Option<Size>,
+    /// Rate limit in bytes/s for all connections to the URL together, like a server that
+    /// limits each client (IP) rather than each connection: more connections do not help.
+    pub total_rate: Option<Size>,
     /// Slow down one specific connection.
     pub slow_conn: Option<SlowConn>,
     /// Stop sending (but keep the connection open) after this many bytes of a response.
@@ -94,6 +97,9 @@ pub struct Scenario {
     pub drop_after: Option<Size>,
     /// Reply `503` when more than this many responses are in flight for the URL.
     pub max_conns: Option<u32>,
+    /// The status for connections over `max_conns` (default `503`, with `Retry-After`);
+    /// `403` is a server that forbids rather than asks to wait.
+    pub refuse_status: Option<u16>,
     /// The URL starts returning `403` this many seconds after its first request.
     pub ttl: Option<u64>,
     /// How validators behave.
@@ -126,10 +132,12 @@ impl Default for Scenario {
             ranges: true,
             range_as_200: false,
             rate: None,
+            total_rate: None,
             slow_conn: None,
             stall_after: None,
             drop_after: None,
             max_conns: None,
+            refuse_status: None,
             ttl: None,
             etag: EtagMode::Static,
             html_error_after: None,

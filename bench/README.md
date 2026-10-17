@@ -65,6 +65,13 @@ Their *CPU %* and *RAM* columns measure the script, not the app: ignore them.
 - **Free Download Manager** has no command line or local API to add a download (`fdm.exe`
   with any argument only opens the window), so it is not measured.
 
+## Scenarios that do not favour dm
+
+`per-client-limit` (`total_rate`: one budget for all connections, like a per-IP limit),
+`conn-ban` (`max_conns` with `refuse_status=403`), `high-latency` and `tiny` were added to look
+for conditions where many connections do not help or are punished. They found one: until
+2026-10-18 dm stopped on `conn-ban`, taking the 403 for an expired link.
+
 ## Caveats
 
 - **Write to an SSD.** Many connections writing one file on an HDD measure seek time, not the

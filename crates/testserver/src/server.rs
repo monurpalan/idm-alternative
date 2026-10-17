@@ -35,6 +35,9 @@ pub(crate) struct UrlState {
     active: AtomicU32,
     peak_active: AtomicU32,
     pub(crate) bytes_sent: AtomicU64,
+    /// `total_rate`: when the URL's first byte went out, and the bytes paced since.
+    paced_from: Mutex<Option<Instant>>,
+    paced: AtomicU64,
     generation: AtomicU64,
     h2_gets: AtomicU64,
     /// Distinct client addresses, i.e. TCP connections (needs connect info).
@@ -224,12 +227,17 @@ async fn serve_file(
     let active = url.active.fetch_add(1, Ordering::AcqRel) + 1;
     if sc.max_conns.is_some_and(|max| active > max) {
         url.active.fetch_sub(1, Ordering::AcqRel);
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            [(header::RETRY_AFTER, "1")],
-            "too many connections\n",
-        )
-            .into_response();
+        return match sc.refuse_status.and_then(|s| StatusCode::from_u16(s).ok()) {
+            Some(status) if status != StatusCode::SERVICE_UNAVAILABLE => {
+                text(status, "too many connections\n")
+            }
+            _ => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                [(header::RETRY_AFTER, "1")],
+                "too many connections\n",
+            )
+                .into_response(),
+        };
     }
     url.peak_active.fetch_max(active, Ordering::Relaxed);
     // From here on the connection guard owns the `active` slot.
@@ -327,6 +335,7 @@ async fn serve_file(
         pos: start,
         end,
         rate: rate.filter(|r| *r > 0),
+        total_rate: sc.total_rate.map(|r| r.0).filter(|r| *r > 0),
         stall_after: sc.stall_after.map(|s| s.0),
         drop_after: sc.drop_after.map(|s| s.0),
     };
@@ -463,6 +472,7 @@ struct BodyState {
     pos: u64,
     end: u64,
     rate: Option<u64>,
+    total_rate: Option<u64>,
     stall_after: Option<u64>,
     drop_after: Option<u64>,
 }
@@ -493,7 +503,7 @@ impl BodyState {
                     len = len.min(limit - sent);
                 }
             }
-            if let Some(rate) = s.rate {
+            for rate in [s.rate, s.total_rate].into_iter().flatten() {
                 // Small chunks keep throttled streams smooth (about 20 writes per second).
                 len = len.min((rate / 20).max(1024));
             }
@@ -508,6 +518,18 @@ impl BodyState {
             if let Some(rate) = s.rate {
                 let due =
                     s.guard.started + Duration::from_secs_f64(s.guard.sent as f64 / rate as f64);
+                tokio::time::sleep_until(due.into()).await;
+            }
+            if let Some(total) = s.total_rate {
+                // All connections draw from one budget: each chunk waits for its share.
+                let url = &s.guard.url;
+                let from = *url
+                    .paced_from
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .get_or_insert_with(Instant::now);
+                let paced = url.paced.fetch_add(len, Ordering::Relaxed) + len;
+                let due = from + Duration::from_secs_f64(paced as f64 / total as f64);
                 tokio::time::sleep_until(due.into()).await;
             }
             Some((Ok(Bytes::from(buf)), Some(s)))

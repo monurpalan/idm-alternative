@@ -181,6 +181,46 @@ async fn max_conns_rejects_extra_connection() {
 }
 
 #[tokio::test]
+async fn refuse_status_forbids_extra_connection() {
+    let base = start().await;
+    let url = format!("{base}/file/a.bin?size=10M&rate=100K&max_conns=1&refuse_status=403");
+    let held = client().get(&url).send().await.expect("send");
+    let extra = client().get(&url).send().await.expect("send");
+    assert_eq!(extra.status(), StatusCode::FORBIDDEN);
+    drop(held);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn total_rate_is_shared_by_connections() {
+    let base = start().await;
+    // 2 MiB at 1 MiB/s in total: about 2 s whether in one request or four.
+    let url = format!("{base}/file/a.bin?size=2M&total_rate=1M");
+    let started = std::time::Instant::now();
+    let parts = (0..4u64).map(|i| {
+        let (url, from, to) = (url.clone(), i * (512 << 10), (i + 1) * (512 << 10) - 1);
+        tokio::spawn(async move {
+            client()
+                .get(&url)
+                .header(header::RANGE, format!("bytes={from}-{to}"))
+                .send()
+                .await
+                .expect("send")
+                .bytes()
+                .await
+                .expect("body")
+                .len()
+        })
+    });
+    let mut got = 0;
+    for p in parts {
+        got += p.await.expect("join");
+    }
+    let secs = started.elapsed().as_secs_f64();
+    assert_eq!(got, 2 << 20);
+    assert!((1.7..3.0).contains(&secs), "took {secs:.2} s");
+}
+
+#[tokio::test]
 async fn redirect_chain_ends_at_file() {
     let base = start().await;
     let r = client()

@@ -117,6 +117,32 @@ size = "128M"
 query = "range_as_200=1&rate=16M"
 
 # ---------------------------------------------------------------- internet
+# Scenarios added to look for where dm loses (2026-10-18): conditions that do not reward
+# many connections or that punish them.
+
+[[scenario]]
+name = "per-client-limit"
+description = "16 MiB/s for all connections together, like a per-IP limit: more connections do not help"
+size = "128M"
+query = "total_rate=16M"
+
+[[scenario]]
+name = "conn-ban"
+description = "Server forbids (403) every connection beyond 4"
+size = "256M"
+query = "rate=8M&max_conns=4&refuse_status=403"
+
+[[scenario]]
+name = "high-latency"
+description = "300 ms before every response, 4 MiB/s per connection: each extra request costs"
+size = "64M"
+query = "latency_ms=300&rate=4M"
+
+[[scenario]]
+name = "tiny"
+description = "A 256 KiB file: what a download costs before any data moves"
+size = "256K"
+
 # Off by default (a plain run stays offline); select with --scenario internet.
 # Checked 2026-10-16 from Turkey: Hetzner's speed-test hosts reset the TLS connection,
 # Tele2 does not answer, Leaseweb's files are gone, and proof.ovh.net stopped accepting
