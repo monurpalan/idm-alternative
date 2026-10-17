@@ -1,42 +1,89 @@
 # idm-alternative
 
-An open-source download manager that aims to match Internet Download Manager feature-for-feature, built by combining the best ideas from existing open-source projects.
+An open-source download manager for Windows that aims to match Internet Download Manager
+feature for feature, built by combining the best ideas from existing open-source projects.
 
-> **Status:** early development. The engine is done and benchmarked against IDM below.
-> The desktop app works end to end — list, queue, details, settings, tray — and is in
-> its trial period; there is no installer yet, and no browser integration.
+> **Status:** usable day to day on Windows. The engine, the desktop app, browser integration
+> and video downloads work and are installed from a per-user installer; polishing
+> is nearly done.
 
-## Goals
+![The download list with the details of a running download: speed graph and segment map](docs/screenshots/main.png)
 
-- **Engine:** dynamic segmentation with time-based work stealing, a single preallocated output file, crash-safe resume, `If-Range` validation, HTTP/2.
-- **Browser integration:** download capture with full cookie/header forwarding over native messaging (no open localhost port), browser-assisted link refresh.
-- **Video:** in-page media detection with a floating download button, HLS/DASH, quality and subtitle selection.
-- **Measured, not claimed:** every engine milestone is benchmarked against curl, aria2 and IDM on a hostile test server.
+## What it does
+
+- **Fast, resilient downloads.** Up to 16 connections per file with time-based work stealing:
+  a connection that crawls has its range taken over, so the last percent does not drag. One
+  preallocated file (no joining parts at the end), resume after a crash or `kill -9`, checksum
+  verification, HTTP/2, browser TLS fingerprints, proxies, global and per-download speed limits.
+- **Browser integration** for Chrome, Edge and Firefox: downloads are taken over with the
+  browser's cookies, referrer and user agent, over native messaging (no open localhost port).
+  An expired link is refreshed by starting the download again in the browser.
+- **Video.** A download button over videos in the page; HLS and DASH downloaded by the engine
+  itself (parallel segments, AES-128) with quality, audio track and subtitle choice; sites such
+  as YouTube and X through yt-dlp, which the app installs and keeps up to date.
+- **Like IDM:** categories, a queue with automatic retries, a scheduler, "when done" sleep or
+  shut down, batch downloads (`photo[001-100].jpg`), clipboard monitoring, saved logins per
+  site, a virus scan when a download finishes, a small progress window per download, and a
+  tray icon. Interface in English and Turkish.
+
+| | |
+|---|---|
+| ![Add URL](docs/screenshots/add.png) | ![Video quality, audio and subtitles](docs/screenshots/video.png) |
+| ![Settings](docs/screenshots/settings.png) | ![A download's progress window](docs/screenshots/progress.png) |
+
+## How it fits together
+
+```mermaid
+flowchart LR
+    subgraph Browser
+        ext["Extension (MV3)<br/>capture, video button,<br/>media detection"]
+    end
+    host["idma-host<br/>native messaging host"]
+    subgraph App["Desktop app (Tauri)"]
+        ui["Svelte UI<br/>WebView2, closed in the tray"]
+        shell["Rust shell<br/>tray, scheduler, clipboard,<br/>updates, virus scan"]
+        manager["manager<br/>list and queue in SQLite,<br/>events, saved logins"]
+        engine["engine<br/>segmented HTTP, HLS, DASH,<br/>resume state, checksums"]
+    end
+    tools["yt-dlp, deno, ffmpeg"]
+    ext -- "stdin/stdout" --> host
+    host -- "named pipe<br/>(per user, token)" --> shell
+    ui <-- "commands, events" --> shell
+    shell --> manager --> engine
+    manager -- "sites like YouTube" --> tools
+    engine -- "joining video and audio" --> tools
+```
+
+The engine knows one download at a time and nothing about lists; the manager owns the list,
+the queue and the events; the app is a thin shell that the browser host reaches through a
+named pipe only this Windows user can open. More in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+and the decisions in [docs/decisions](docs/decisions).
 
 ## Stack
 
 | Layer | Tech |
 |---|---|
-| Engine, CLI, native host, test server | Rust (tokio) |
-| Desktop app | Tauri 2 + Svelte 5 |
-| Storage | SQLite (sqlx) |
+| Engine, manager, CLI, native host, test server | Rust (tokio, wreq) |
+| Desktop app | Tauri 2 + Svelte 5 (SvelteKit, static) |
+| Storage | SQLite (sqlx), request headers encrypted with DPAPI |
 | Browser extension | TypeScript, Manifest V3 (+ Firefox build) |
-| Media | yt-dlp, N_m3u8DL-RE, ffmpeg (bundled sidecars) |
+| Media | the engine for HLS/DASH; yt-dlp + deno for sites; ffmpeg to join tracks |
 
 ## Repository layout
 
 ```
 crates/
-  engine/       download engine (library)
-  manager/      download list, queue and events on top of the engine
+  engine/       download engine (library): HTTP segments, HLS, DASH, subtitles
+  manager/      download list, queue, events, saved logins, batch patterns
+  media/        HLS and DASH playlist parsing
   bridge/       messages and the named pipe between browser host and app
   native-host/  `idma-host`, the native messaging host the browser starts
   cli/          `dm` command-line front end
-  testserver/   HTTP server reproducing hostile download scenarios
+  testserver/   HTTP server reproducing hostile download scenarios (and HLS/DASH)
   bench/        benchmark runner
-app/            Tauri 2 + SvelteKit desktop app (early: a skeleton list)
+app/            Tauri 2 + SvelteKit desktop app, installer (`npm run bundle`)
 extension/      browser extension (MV3; Chromium and Firefox builds)
-docs/           architecture and design decisions
+docs/           architecture, design decisions, screenshots
 ```
 
 ## Building
@@ -70,13 +117,7 @@ The installer is per user (no administrator rights) and silent with `/S`. Uninst
 the app's keys from the browsers and the "start with Windows" entry, and keeps the download
 list in `%APPDATA%\io.github.monurpalan.idma`.
 
-## Desktop app
-
-A Tauri 2 + SvelteKit window over the download list (`crates/manager`): IDM-style columns
-and categories, search, queue order with automatic retries, a detail pane with a live speed
-graph and segment map, per-download and global speed limits, "refresh link" for expired
-links, settings, and a tray icon. Downloads that were running when the app closed (or
-crashed) resume on the next start.
+## Size and memory
 
 Measured on the development machine (release build, Windows 11):
 

@@ -34,13 +34,13 @@ export function duration(secs: number | null | undefined): string {
 	return h < 48 ? t('{h} h {m} min', { h, m: m % 60 }) : t('{d} days', { d: Math.floor(h / 24) });
 }
 
-/** A fraction (0..1) as a percentage with one decimal: "29.2 %", Turkish "%29,2". */
+/** A fraction (0..1) as a percentage with one decimal: "29.2%", Turkish "%29,2". */
 export function percent(fraction: number): string {
 	const p = (fraction * 100).toLocaleString(locale(), {
 		minimumFractionDigits: 1,
 		maximumFractionDigits: 1
 	});
-	return t('{p} %', { p });
+	return t('{p}%', { p });
 }
 
 export function date(ms: number): string {

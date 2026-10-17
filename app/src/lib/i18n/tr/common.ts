@@ -2,7 +2,7 @@
 // the English text.
 export default {
 	'{size}/s': '{size}/sn',
-	'{p} %': '%{p}',
+	'{p}%': '%{p}',
 	'{s} s': '{s} sn',
 	'{m} min {s} s': '{m} dk {s} sn',
 	'{h} h {m} min': '{h} sa {m} dk',
