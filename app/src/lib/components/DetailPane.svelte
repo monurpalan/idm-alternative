@@ -5,7 +5,8 @@
 
 	import { refreshInBrowser, refreshLink, setLogin, setSpeedLimit, type Task } from '../api.ts';
 	import { downloads, HISTORY, row } from '../downloads.svelte.ts';
-	import { bytes, duration, speed } from '../format.ts';
+	import { bytes, duration, percent, speed } from '../format.ts';
+	import { t } from '../i18n.svelte.ts';
 
 	let { task, onerror }: { task: Task; onerror: (message: string | null) => void } = $props();
 
@@ -56,7 +57,7 @@
 			newUrl = '';
 			onerror(null);
 		} catch (err) {
-			onerror(`Link not changed: ${err}`);
+			onerror(t('Link not changed: {e}', { e: String(err) }));
 		} finally {
 			refreshing = false;
 		}
@@ -158,75 +159,76 @@
 	});
 </script>
 
-<section class="pane" aria-label="Download details">
+<section class="pane" aria-label={t('Download details')}>
 	<div class="facts">
 		<h3 title={r.name}>{r.name}</h3>
 		<dl>
-			<dt>Address</dt>
+			<dt>{t('Address')}</dt>
 			<dd title={task.url}>{task.url}</dd>
-			<dt>Saved to</dt>
+			<dt>{t('Saved to')}</dt>
 			<dd title={task.path ?? task.dir}>{task.path ?? task.dir}</dd>
-			<dt>Downloaded</dt>
+			<dt>{t('Downloaded')}</dt>
 			<dd>
-				{bytes(r.received)}{r.size ? ` of ${bytes(r.size)}` : ''}{r.fraction !== null
-					? ` (${(r.fraction * 100).toFixed(1)}%)`
+				{r.size ? t('{a} of {b}', { a: bytes(r.received), b: bytes(r.size) }) : bytes(r.received)}{r.fraction !==
+				null
+					? ` (${percent(r.fraction)})`
 					: ''}
 			</dd>
-			<dt>Speed</dt>
-			<dd>{speed(r.speed) || '–'}{r.eta !== null ? ` · ${duration(r.eta)} left` : ''}</dd>
-			<dt>Connections</dt>
-			<dd>{r.live?.connections ?? 0} of {task.connections}</dd>
+			<dt>{t('Speed')}</dt>
+			<dd>{speed(r.speed) || '–'}{r.eta !== null ? ` · ${t('{time} left', { time: duration(r.eta) })}` : ''}</dd>
+			<dt>{t('Connections')}</dt>
+			<dd>{t('{a} of {b}', { a: r.live?.connections ?? 0, b: task.connections })}</dd>
 			{#if task.error}
-				<dt>Error</dt>
+				<dt>{t('Error')}</dt>
 				<dd class="error" title={task.error}>{task.error}</dd>
 			{/if}
 		</dl>
 		<form class="inline" onsubmit={applyLimit}>
-			<label for="limit">Speed limit</label>
-			<input id="limit" inputmode="numeric" bind:value={limitKb} placeholder="none" />
+			<label for="limit">{t('Speed limit')}</label>
+			<input id="limit" inputmode="numeric" bind:value={limitKb} placeholder={t('none')} />
 			<span class="unit">KB/s</span>
-			<button type="submit">Set</button>
+			<button type="submit">{t('Set')}</button>
 		</form>
 		{#if task.error_kind === 'auth'}
 			<form class="inline login" onsubmit={signIn}>
-				<label for="user">Login</label>
-				<input id="user" bind:value={user} placeholder="user name" autocomplete="username" />
+				<label for="user">{t('Login')}</label>
+				<input id="user" bind:value={user} placeholder={t('user name')} autocomplete="username" />
 				<input
 					type="password"
 					bind:value={password}
-					placeholder="password"
+					placeholder={t('password')}
 					autocomplete="current-password"
-					aria-label="Password"
+					aria-label={t('Password')}
 				/>
-				<label class="remember" title="Downloads from this site log in by themselves">
+				<label class="remember" title={t('Downloads from this site log in by themselves')}>
 					<input type="checkbox" bind:checked={remember} />
-					Remember
+					{t('Remember')}
 				</label>
-				<button type="submit" disabled={!user}>Continue</button>
+				<button type="submit" disabled={!user}>{t('Continue')}</button>
 			</form>
 		{/if}
 		{#if task.status !== 'done'}
 			<form class="inline two" class:attention={task.error_kind === 'expired'} onsubmit={refresh}>
-				<label for="newurl">New link</label>
-				<input id="newurl" type="url" bind:value={newUrl} placeholder="Paste a fresh link to the same file" />
-				<button type="submit" disabled={refreshing || !newUrl.trim()}>Refresh</button>
+				<label for="newurl">{t('New link')}</label>
+				<input id="newurl" type="url" bind:value={newUrl} placeholder={t('Paste a fresh link to the same file')} />
+				<button type="submit" disabled={refreshing || !newUrl.trim()}>{t('Refresh')}</button>
 			</form>
 			<div class="inline two">
 				<span></span>
-				<span class="hint">or open its page and start the download again there:</span>
+				<span class="hint">{t('or open its page and start the download again there:')}</span>
 				<button
 					type="button"
 					onclick={() =>
 						refreshInBrowser(task.id)
-							.then(() => onerror('Waiting for the browser: start the download again on the page'))
-							.catch((e) => onerror(String(e)))}>In browser</button
+							.then(() => onerror(t('Waiting for the browser: start the download again on the page')))
+							.catch((e) => onerror(String(e)))}>{t('In browser')}</button
 				>
 			</div>
 		{/if}
 	</div>
 	<div class="charts">
-		<canvas bind:this={graph} class="graph" aria-label="Speed over the last minute"></canvas>
-		<canvas bind:this={map} class="map" aria-label="Segment map"></canvas>
+		<canvas bind:this={graph} class="graph" aria-label={t('Speed over the last minute')}></canvas>
+		<canvas bind:this={map} class="map" aria-label={t('Segment map')}></canvas>
 	</div>
 </section>
 

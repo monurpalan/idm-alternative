@@ -2,6 +2,7 @@
 // plus the live progress of running downloads.
 
 import { SvelteSet } from 'svelte/reactivity';
+import { msg } from './i18n.svelte.ts';
 import {
 	listTasks,
 	onManagerEvent,
@@ -14,14 +15,14 @@ import {
 export type View = 'all' | Category | 'unfinished' | 'finished';
 
 export const VIEWS: { id: View; label: string }[] = [
-	{ id: 'all', label: 'All downloads' },
-	{ id: 'compressed', label: 'Compressed' },
-	{ id: 'documents', label: 'Documents' },
-	{ id: 'music', label: 'Music' },
-	{ id: 'programs', label: 'Programs' },
-	{ id: 'video', label: 'Video' },
-	{ id: 'unfinished', label: 'Unfinished' },
-	{ id: 'finished', label: 'Finished' }
+	{ id: 'all', label: msg('All downloads') },
+	{ id: 'compressed', label: msg('Compressed') },
+	{ id: 'documents', label: msg('Documents') },
+	{ id: 'music', label: msg('Music') },
+	{ id: 'programs', label: msg('Programs') },
+	{ id: 'video', label: msg('Video') },
+	{ id: 'unfinished', label: msg('Unfinished') },
+	{ id: 'finished', label: msg('Finished') }
 ];
 
 export type SortKey =

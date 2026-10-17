@@ -12,6 +12,7 @@
 		type PageInfo
 	} from '../api.ts';
 	import { duration } from '../format.ts';
+	import { t } from '../i18n.svelte.ts';
 
 	let { media, onclose }: { media: CapturedMedia; onclose: () => void } = $props();
 
@@ -31,8 +32,8 @@
 		loading = true;
 		error = null;
 		try {
-			const t = await tools();
-			missing = !t.ytdlp;
+			const found = await tools();
+			missing = !found.ytdlp;
 			if (missing) return;
 			info = await inspectPage(page, media.headers);
 			choice = info.heights[0] ?? 0;
@@ -84,44 +85,44 @@
 </script>
 
 <dialog bind:this={dialog} onclose={onclose} aria-labelledby="page-title">
-	<h2 id="page-title">{info?.title || media.title || 'Video'}</h2>
+	<h2 id="page-title">{info?.title || media.title || t('Video')}</h2>
 	<p class="muted url" title={page}>{page}</p>
 
 	{#if missing}
-		<p>Downloading from this site needs yt-dlp (and deno, which it uses for YouTube).</p>
+		<p>{t('Downloading from this site needs yt-dlp (and deno, which it uses for YouTube).')}</p>
 		<p class="muted small">
-			Both are downloaded from their official GitHub releases and checked against their published SHA-256.
+			{t('Both are downloaded from their official GitHub releases and checked against their published SHA-256.')}
 		</p>
 		<div class="buttons">
-			<button type="button" onclick={() => dialog?.close()}>Close</button>
+			<button type="button" onclick={() => dialog?.close()}>{t('Close')}</button>
 			<button type="button" class="primary" disabled={settingUp} onclick={setUp}>
-				{settingUp ? 'Setting up…' : 'Set up yt-dlp'}
+				{settingUp ? t('Setting up…') : t('Set up yt-dlp')}
 			</button>
 		</div>
 	{:else}
 		{#if loading}
-			<p class="muted">yt-dlp is reading the page…</p>
+			<p class="muted">{t('yt-dlp is reading the page…')}</p>
 		{:else if error}
 			<p class="error">{error}</p>
 		{:else if info}
 			{#if info.duration}<p class="muted">{duration(info.duration)}</p>{/if}
 			<fieldset>
-				<legend>Quality</legend>
+				<legend>{t('Quality')}</legend>
 				{#each info.heights as h (h)}
 					<label class="option"><input type="radio" name="q" value={h} bind:group={choice} /> {h}p</label>
 				{/each}
 				{#if info.audio_only}
-					<label class="option"><input type="radio" name="q" value={0} bind:group={choice} /> Audio only</label>
+					<label class="option"><input type="radio" name="q" value={0} bind:group={choice} /> {t('Audio only')}</label>
 				{/if}
 			</fieldset>
 			<label class="field">
-				Save as
-				<input bind:value={name} placeholder="Title of the page" />
+				{t('Save as')}
+				<input bind:value={name} placeholder={t('Title of the page')} />
 			</label>
 		{/if}
 		<div class="buttons">
-			<button type="button" onclick={() => dialog?.close()}>Close</button>
-			<button type="button" class="primary" disabled={!info || busy} onclick={download}>Download</button>
+			<button type="button" onclick={() => dialog?.close()}>{t('Close')}</button>
+			<button type="button" class="primary" disabled={!info || busy} onclick={download}>{t('Download')}</button>
 		</div>
 	{/if}
 </dialog>

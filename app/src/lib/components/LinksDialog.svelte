@@ -5,6 +5,7 @@
 	import { onMount } from 'svelte';
 	import { addTask } from '../api.ts';
 	import { nameFromUrl } from '../downloads.svelte.ts';
+	import { t } from '../i18n.svelte.ts';
 
 	let {
 		referrer,
@@ -67,13 +68,13 @@
 </script>
 
 <dialog bind:this={dialog} onclose={onclose} aria-labelledby="links-title">
-	<h2 id="links-title">Links on the page</h2>
+	<h2 id="links-title">{t('Links on the page')}</h2>
 	<div class="bar">
-		<input bind:value={filter} placeholder="Filter: .zip .pdf, or any text" aria-label="Filter" />
+		<input bind:value={filter} placeholder={t('Filter: .zip .pdf, or any text')} aria-label={t('Filter')} />
 		<button type="button" onclick={() => (chosen = new Set([...chosen, ...shown.map((i) => i.url)]))}
-			>Select shown</button
+			>{t('Select shown')}</button
 		>
-		<button type="button" onclick={() => (chosen = new Set())}>None</button>
+		<button type="button" onclick={() => (chosen = new Set())}>{t('None')}</button>
 	</div>
 	<ul>
 		{#each shown as i (i.url)}
@@ -85,14 +86,14 @@
 				</label>
 			</li>
 		{:else}
-			<li class="empty">No links match.</li>
+			<li class="empty">{t('No links match.')}</li>
 		{/each}
 	</ul>
 	<div class="buttons">
-		<span class="count">{chosen.size} of {items.length} selected</span>
-		<button type="button" onclick={() => dialog?.close()}>Cancel</button>
+		<span class="count">{t('{n} of {total} selected', { n: chosen.size, total: items.length })}</span>
+		<button type="button" onclick={() => dialog?.close()}>{t('Cancel')}</button>
 		<button type="button" class="primary" disabled={!chosen.size || busy} onclick={download}>
-			Download {chosen.size || ''}
+			{chosen.size ? t('Download {n}', { n: chosen.size }) : t('Download')}
 		</button>
 	</div>
 </dialog>

@@ -91,12 +91,15 @@ pub async fn run_scheduler(handle: AppHandle) {
             if fire(&schedule.start) {
                 tracing::info!("scheduler: starting the queue");
                 app.manager.start_all().await.ok();
-                crate::to_page(&handle, "notice", "Scheduler: started the queue", false);
+                let text =
+                    crate::i18n::t(crate::lang(&handle), "Scheduler: started the queue", &[]);
+                crate::to_page(&handle, "notice", text, false);
             }
             if fire(&schedule.stop) {
                 tracing::info!("scheduler: stopping the queue");
                 app.manager.pause_all().await.ok();
-                crate::to_page(&handle, "notice", "Scheduler: paused the queue", false);
+                let text = crate::i18n::t(crate::lang(&handle), "Scheduler: paused the queue", &[]);
+                crate::to_page(&handle, "notice", text, false);
             }
         }
         prev = now;
@@ -113,6 +116,19 @@ pub enum WhenDone {
     Sleep,
     Hibernate,
     Shutdown,
+}
+
+impl WhenDone {
+    /// The action in words, for notices.
+    fn label(self) -> &'static str {
+        match self {
+            WhenDone::Nothing => "nothing",
+            WhenDone::Exit => "close the app",
+            WhenDone::Sleep => "sleep",
+            WhenDone::Hibernate => "hibernate",
+            WhenDone::Shutdown => "shut down",
+        }
+    }
 }
 
 /// How long the user has to stop the action.
@@ -192,13 +208,15 @@ async fn countdown(handle: &AppHandle, action: WhenDone) {
 /// Does `action` now. `IDMA_DRY_POWER` only reports it, for trying the feature out.
 pub async fn perform(handle: &AppHandle, action: WhenDone) {
     tracing::info!("when done: {action:?}");
+    let l = crate::lang(handle);
+    let what = crate::i18n::t(l, action.label(), &[]);
     if std::env::var_os("IDMA_DRY_POWER").is_some() {
-        handle
-            .emit(
-                "notice",
-                format!("When done: would {action:?} now (dry run)"),
-            )
-            .ok();
+        let text = crate::i18n::t(
+            l,
+            "When done: would {action} now (dry run)",
+            &[("action", &what)],
+        );
+        crate::to_page(handle, "notice", text, false);
         return;
     }
     let result = match action {
@@ -216,9 +234,12 @@ pub async fn perform(handle: &AppHandle, action: WhenDone) {
         }
     };
     if let Err(e) = result {
-        handle
-            .emit("notice", format!("Could not {action:?}: {e}"))
-            .ok();
+        let text = crate::i18n::t(
+            l,
+            "Could not {action}: {error}",
+            &[("action", &what), ("error", &e)],
+        );
+        crate::to_page(handle, "notice", text, false);
     }
 }
 

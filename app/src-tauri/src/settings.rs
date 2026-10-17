@@ -49,6 +49,8 @@ pub struct Settings {
     pub scanner: String,
     /// A small window per download while it runs, like IDM's.
     pub progress_windows: bool,
+    /// "system" (Windows' display language), "en" or "tr".
+    pub language: String,
 }
 
 impl Default for Settings {
@@ -73,6 +75,7 @@ impl Default for Settings {
             virus_scan: false,
             scanner: String::new(),
             progress_windows: false,
+            language: "system".into(),
         }
     }
 }
@@ -91,6 +94,9 @@ impl Settings {
         }
         self.browser()?;
         self.schedule.validate()?;
+        if !["system", "en", "tr"].contains(&self.language.as_str()) {
+            return Err(format!("unknown language {}", self.language));
+        }
         let proxy = self.proxy.trim();
         if !proxy.is_empty()
             && !["http://", "https://", "socks5://", "socks5h://"]

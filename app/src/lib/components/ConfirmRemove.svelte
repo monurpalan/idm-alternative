@@ -2,6 +2,7 @@
 	// Asks before taking downloads off the list, optionally with their files.
 
 	import { onMount } from 'svelte';
+	import { t } from '../i18n.svelte.ts';
 
 	let {
 		count,
@@ -24,15 +25,17 @@
 		}}
 	>
 		<h2 id="remove-title">
-			Remove {count === 1 ? 'this download' : `${count} downloads`} from the list?
+			{count === 1
+				? t('Remove this download from the list?')
+				: t('Remove {n} downloads from the list?', { n: count })}
 		</h2>
 		<label class="check">
 			<input type="checkbox" bind:checked={deleteFiles} />
-			Also delete the {count === 1 ? 'file' : 'files'} from disk
+			{count === 1 ? t('Also delete the file from disk') : t('Also delete the files from disk')}
 		</label>
 		<div class="buttons">
-			<button type="button" onclick={() => dialog?.close()}>Cancel</button>
-			<button type="submit" class:danger={deleteFiles} class="primary">Remove</button>
+			<button type="button" onclick={() => dialog?.close()}>{t('Cancel')}</button>
+			<button type="submit" class:danger={deleteFiles} class="primary">{t('Remove')}</button>
 		</div>
 	</form>
 </dialog>

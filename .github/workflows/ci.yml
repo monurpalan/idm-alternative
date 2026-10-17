@@ -34,6 +34,7 @@ jobs:
         run: |
           npm ci
           npm run check
+          npm run i18n
           npm run build
       - name: Browser extension
         working-directory: extension

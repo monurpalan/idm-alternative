@@ -36,7 +36,9 @@ impl Tray {
     }
 }
 
-pub fn build(app: &AppHandle, limit: Option<u64>) -> tauri::Result<Tray> {
+/// Builds the tray icon, or, when it exists, replaces its menu (a new language).
+pub fn build(app: &AppHandle, limit: Option<u64>, lang: &str) -> tauri::Result<Tray> {
+    let tr = |text: &str| crate::i18n::t(lang, text, &[]);
     let limits = LIMITS
         .iter()
         .enumerate()
@@ -44,7 +46,7 @@ pub fn build(app: &AppHandle, limit: Option<u64>) -> tauri::Result<Tray> {
             CheckMenuItem::with_id(
                 app,
                 format!("{LIMIT_PREFIX}{i}"),
-                *label,
+                tr(label),
                 true,
                 *l == limit,
                 None::<&str>,
@@ -56,22 +58,26 @@ pub fn build(app: &AppHandle, limit: Option<u64>) -> tauri::Result<Tray> {
         .iter()
         .map(|(_, i)| i as &dyn IsMenuItem<Wry>)
         .collect();
-    let limit_menu = Submenu::with_items(app, "Speed limit", true, &limit_items)?;
+    let limit_menu = Submenu::with_items(app, tr("Speed limit"), true, &limit_items)?;
 
     let menu = Menu::with_items(
         app,
         &[
-            &MenuItem::with_id(app, SHOW, "Show idm-alternative", true, None::<&str>)?,
+            &MenuItem::with_id(app, SHOW, tr("Show idm-alternative"), true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &limit_menu,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, START_ALL, "Start all", true, None::<&str>)?,
-            &MenuItem::with_id(app, PAUSE_ALL, "Pause all", true, None::<&str>)?,
+            &MenuItem::with_id(app, START_ALL, tr("Start all"), true, None::<&str>)?,
+            &MenuItem::with_id(app, PAUSE_ALL, tr("Pause all"), true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, QUIT, "Quit", true, None::<&str>)?,
+            &MenuItem::with_id(app, QUIT, tr("Quit"), true, None::<&str>)?,
         ],
     )?;
 
+    if let Some(existing) = app.tray_by_id("main") {
+        existing.set_menu(Some(menu))?;
+        return Ok(Tray { limits });
+    }
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("idm-alternative")
         .menu(&menu)

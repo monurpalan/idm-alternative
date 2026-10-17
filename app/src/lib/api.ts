@@ -84,6 +84,9 @@ export const addBatch = (request: {
 	headers?: Headers | null;
 }) => invoke<number>('add_batch', { request: { ...request, name: null, stream: null } });
 
+/** The interface's language now: the setting, or Windows' for 'system'. */
+export const uiLanguage = () => invoke<'en' | 'tr'>('ui_language');
+
 /** Opens the small progress window of a download. */
 export const showProgress = (id: TaskId) => invoke<void>('show_progress', { id });
 
@@ -111,6 +114,8 @@ export interface Settings {
 	virus_scan: boolean;
 	scanner: string;
 	progress_windows: boolean;
+	/** 'system' follows Windows' display language. */
+	language: 'system' | 'en' | 'tr';
 }
 
 /** List changes; progress comes separately, batched (see `onManagerEvent`). */

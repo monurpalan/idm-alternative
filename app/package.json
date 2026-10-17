@@ -16,7 +16,8 @@
 		"preview": "vite preview",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
 		"tauri": "tauri",
-		"bundle": "node scripts/bundle.mjs"
+		"bundle": "node scripts/bundle.mjs",
+		"i18n": "node scripts/i18n-check.mjs"
 	},
 	"dependencies": {
 		"@tauri-apps/api": "^2.12.4",

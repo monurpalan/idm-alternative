@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod clipboard;
+mod i18n;
 mod scan;
 mod schedule;
 mod settings;
@@ -50,6 +51,17 @@ const AWAIT_LINK: std::time::Duration = std::time::Duration::from_secs(600);
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The language the interface uses now (see `i18n::resolve`).
+fn lang(handle: &AppHandle) -> &'static str {
+    i18n::resolve(&lock(&handle.state::<App>().settings).language)
+}
+
+/// The interface's language, "en" or "tr", for the page.
+#[tauri::command]
+fn ui_language(handle: AppHandle) -> &'static str {
+    lang(&handle)
 }
 
 /// Errors reach the UI as their message.
@@ -454,7 +466,12 @@ async fn apply_settings(handle: &AppHandle, new: Settings) -> CmdResult<Settings
         .await
         .map_err(msg)?;
     *lock(&app.settings) = new.clone();
-    if let Some(t) = lock(&app.tray).as_ref() {
+    if new.language != old.language {
+        match tray::build(handle, new.speed_limit, i18n::resolve(&new.language)) {
+            Ok(t) => *lock(&app.tray) = Some(t),
+            Err(e) => tracing::warn!("could not rebuild the tray menu: {e}"),
+        }
+    } else if let Some(t) = lock(&app.tray).as_ref() {
         t.show_limit(new.speed_limit);
     }
     handle.emit("settings", &new).ok();
@@ -862,7 +879,7 @@ fn open_progress(handle: &AppHandle, id: TaskId, asked: bool) {
             &label,
             tauri::WebviewUrl::App(format!("progress?id={id}").into()),
         )
-        .title("Download")
+        .title(i18n::t(lang(&handle), "Download", &[]))
         .inner_size(440.0, 236.0)
         .resizable(false)
         .maximizable(false)
@@ -1029,7 +1046,7 @@ fn notify_done(handle: &AppHandle, task: &Task) {
     if let Err(e) = handle
         .notification()
         .builder()
-        .title("Download complete")
+        .title(i18n::t(lang(handle), "Download complete", &[]))
         .body(name)
         .show()
     {
@@ -1051,24 +1068,33 @@ fn scan_done(handle: &AppHandle, task: &Task) {
     let name = task.name.clone().unwrap_or_else(|| task.url.clone());
     let handle = handle.clone();
     tauri::async_runtime::spawn(async move {
+        let l = lang(&handle);
         let text = match scan::scan(&path, &scanner).await {
             Ok(scan::Verdict::Clean) => {
                 tracing::info!("virus scan of {}: clean", path.display());
                 return;
             }
-            Ok(scan::Verdict::Threat) => {
-                format!("Microsoft Defender found a threat in {name} and dealt with it")
-            }
-            Ok(scan::Verdict::Other(code)) => {
-                format!("The virus scanner reported a problem with {name} (exit code {code})")
-            }
-            Err(e) => format!("Could not scan {name} for viruses: {e}"),
+            Ok(scan::Verdict::Threat) => i18n::t(
+                l,
+                "Microsoft Defender found a threat in {name} and dealt with it",
+                &[("name", &name)],
+            ),
+            Ok(scan::Verdict::Other(code)) => i18n::t(
+                l,
+                "The virus scanner reported a problem with {name} (exit code {code})",
+                &[("name", &name), ("code", &code.to_string())],
+            ),
+            Err(e) => i18n::t(
+                l,
+                "Could not scan {name} for viruses: {error}",
+                &[("name", &name), ("error", &e)],
+            ),
         };
         tracing::warn!("{text}");
         handle
             .notification()
             .builder()
-            .title("Virus scan")
+            .title(i18n::t(l, "Virus scan", &[]))
             .body(&text)
             .show()
             .ok();
@@ -1109,7 +1135,11 @@ async fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma
                         to_page(
                             handle,
                             "notice",
-                            format!("Link refreshed: {name} continues"),
+                            i18n::t(
+                                lang(handle),
+                                "Link refreshed: {name} continues",
+                                &[("name", &name)],
+                            ),
                             false,
                         );
                         return Reply::ok();
@@ -1119,7 +1149,11 @@ async fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma
                         to_page(
                             handle,
                             "notice",
-                            "That link leads to a different file, so it opens as a new download",
+                            i18n::t(
+                                lang(handle),
+                                "That link leads to a different file, so it opens as a new download",
+                                &[],
+                            ),
                             false,
                         );
                     }
@@ -1268,7 +1302,11 @@ fn main() {
                     tracing::error!("browser bridge stopped: {e}");
                 }
             });
-            let tray = tray::build(app.handle(), settings.speed_limit)?;
+            let tray = tray::build(
+                app.handle(),
+                settings.speed_limit,
+                i18n::resolve(&settings.language),
+            )?;
             app.manage(App {
                 manager,
                 data: data.clone(),
@@ -1323,6 +1361,7 @@ fn main() {
             check_update,
             install_update,
             page_ready,
+            ui_language,
             show_progress,
             set_when_done,
             get_when_done,

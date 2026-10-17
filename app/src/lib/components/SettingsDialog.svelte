@@ -14,10 +14,16 @@
 		type Settings,
 		type ToolStatus
 	} from '../api.ts';
+	import { msg, t } from '../i18n.svelte.ts';
 
 	let { onclose }: { onclose: () => void } = $props();
 
-	const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+	const DAYS = [msg('Mon'), msg('Tue'), msg('Wed'), msg('Thu'), msg('Fri'), msg('Sat'), msg('Sun')];
+
+	const TOOLS: { id: 'ytdlp' | 'deno'; name: string; why: string }[] = [
+		{ id: 'ytdlp', name: 'yt-dlp', why: msg('YouTube, X, Instagram and other sites') },
+		{ id: 'deno', name: 'deno', why: msg('Needed by yt-dlp for YouTube') }
+	];
 
 	let s = $state<Settings | null>(null);
 	/** The limit as typed, in KB/s; empty for none. */
@@ -39,14 +45,16 @@
 	let updateStatus = $state<string | null>(null);
 
 	async function checkNow() {
-		updateStatus = 'Checking…';
+		updateStatus = t('Checking…');
 		try {
 			const u = await checkUpdate();
 			updateStatus = u
-				? `Version ${u.version} is available: install it from the bar at the bottom of the window.`
-				: 'This is the latest version.';
+				? t('Version {v} is available: install it from the bar at the bottom of the window.', {
+						v: u.version
+					})
+				: t('This is the latest version.');
 		} catch (e) {
-			updateStatus = `Could not check: ${e}`;
+			updateStatus = t('Could not check: {e}', { e: String(e) });
 		}
 	}
 
@@ -67,7 +75,7 @@
 		dialog?.showModal();
 		const refresh = () =>
 			tools()
-				.then((t) => (toolStatus = t))
+				.then((v) => (toolStatus = v))
 				.catch(() => {});
 		refresh();
 		const unlisten = onToolsUpdated(refresh);
@@ -96,7 +104,7 @@
 		if (!s) return;
 		const kb = Number(limitKb.trim());
 		if (limitKb.trim() && !(kb > 0)) {
-			error = 'The speed limit must be a positive number of KB/s, or empty.';
+			error = t('The speed limit must be a positive number of KB/s, or empty.');
 			return;
 		}
 		saving = true;
@@ -118,78 +126,78 @@
 
 <dialog bind:this={dialog} onclose={onclose} aria-labelledby="settings-title">
 	<form onsubmit={save}>
-		<h2 id="settings-title">Settings</h2>
+		<h2 id="settings-title">{t('Settings')}</h2>
 		{#if s}
 			<fieldset>
-				<legend>Downloads</legend>
+				<legend>{t('Downloads')}</legend>
 				<label class="wide">
-					Save to
+					{t('Save to')}
 					<div class="row">
 						<input bind:value={s.dir} />
-						<button type="button" onclick={browse}>Browse…</button>
+						<button type="button" onclick={browse}>{t('Browse…')}</button>
 					</div>
 				</label>
 				<label class="check">
 					<input type="checkbox" bind:checked={s.per_category} />
-					Sort into folders by type (Video, Music, Programs…)
+					{t('Sort into folders by type (Video, Music, Programs…)')}
 				</label>
 				<label class="check">
 					<input type="checkbox" bind:checked={s.overwrite} />
-					Replace files with the same name (otherwise save as “name (1)”)
+					{t('Replace files with the same name (otherwise save as “name (1)”)')}
 				</label>
 				<div class="grid">
 					<label>
-						Downloads at once
+						{t('Downloads at once')}
 						<input type="number" min="1" max="50" bind:value={s.max_active} />
 					</label>
 					<label>
-						Connections per download
+						{t('Connections per download')}
 						<input type="number" min="1" max="64" bind:value={s.connections} />
 					</label>
 					<label>
-						Speed limit, all downloads (KB/s)
-						<input inputmode="numeric" bind:value={limitKb} placeholder="none" />
+						{t('Speed limit, all downloads (KB/s)')}
+						<input inputmode="numeric" bind:value={limitKb} placeholder={t('none')} />
 					</label>
 				</div>
 			</fieldset>
 
 			<fieldset>
-				<legend>Connection</legend>
+				<legend>{t('Connection')}</legend>
 				<div class="grid">
 					<label>
-						Look like
+						{t('Look like')}
 						<select bind:value={s.browser}>
 							<option value="chrome">Chrome</option>
 							<option value="edge">Edge</option>
 							<option value="firefox">Firefox</option>
 							<option value="safari">Safari</option>
-							<option value="none">Plain client</option>
+							<option value="none">{t('Plain client')}</option>
 						</select>
 					</label>
 					<label class="span2">
-						Proxy
-						<input bind:value={s.proxy} placeholder="none, or socks5://host:port" />
+						{t('Proxy')}
+						<input bind:value={s.proxy} placeholder={t('none, or socks5://host:port')} />
 					</label>
 				</div>
 			</fieldset>
 
 			<fieldset>
-				<legend>Scheduler</legend>
+				<legend>{t('Scheduler')}</legend>
 				<label class="check">
 					<input type="checkbox" bind:checked={s.schedule.enabled} />
-					Start and stop the queue at set times
+					{t('Start and stop the queue at set times')}
 				</label>
 				<div class="grid">
 					<label>
-						Start at
+						{t('Start at')}
 						<input type="time" bind:value={s.schedule.start} disabled={!s.schedule.enabled} />
 					</label>
 					<label>
-						Stop at
+						{t('Stop at')}
 						<input type="time" bind:value={s.schedule.stop} disabled={!s.schedule.enabled} />
 					</label>
 				</div>
-				<div class="days" role="group" aria-label="Days">
+				<div class="days" role="group" aria-label={t('Days')}>
 					{#each DAYS as day, i (day)}
 						<label class="day">
 							<input
@@ -197,122 +205,134 @@
 								bind:checked={s.schedule.days[i]}
 								disabled={!s.schedule.enabled}
 							/>
-							{day}
+							{t(day)}
 						</label>
 					{/each}
 				</div>
 				<p class="small">
-					Leave a time empty to only start or only stop. "When done" in the toolbar can shut the
-					computer down after the queue finishes.
+					{t(
+						'Leave a time empty to only start or only stop. "When done" in the toolbar can shut the computer down after the queue finishes.'
+					)}
 				</p>
 			</fieldset>
 
 			<fieldset>
-				<legend>Saved logins</legend>
+				<legend>{t('Saved logins')}</legend>
 				{#each logins as l (l.site)}
 					<div class="login-row">
 						<span>{l.site}</span>
 						<span class="muted">{l.user}</span>
-						<button type="button" onclick={() => forget(l.site)}>Forget</button>
+						<button type="button" onclick={() => forget(l.site)}>{t('Forget')}</button>
 					</div>
 				{:else}
 					<p class="muted">
-						None yet. Tick “Remember for this site” when a server asks for a password.
+						{t('None yet. Tick “Remember for this site” when a server asks for a password.')}
 					</p>
 				{/each}
 			</fieldset>
 
 			<fieldset>
-				<legend>Video tools</legend>
+				<legend>{t('Video tools')}</legend>
 				{#if toolStatus}
 					<div class="tool">
 						<span>ffmpeg</span>
 						<span class="muted">
-							{toolStatus.ffmpeg ? 'Found' : 'Not found: install it (e.g. winget install ffmpeg) to join video and audio'}
+							{toolStatus.ffmpeg
+								? t('Found')
+								: t('Not found: install it (e.g. winget install ffmpeg) to join video and audio')}
 						</span>
 					</div>
-					{#each [{ id: 'ytdlp', name: 'yt-dlp', why: 'YouTube, X, Instagram and other sites' }, { id: 'deno', name: 'deno', why: 'Needed by yt-dlp for YouTube' }] as t (t.id)}
-						{@const version = toolStatus[t.id as 'ytdlp' | 'deno']}
+					{#each TOOLS as tool (tool.id)}
+						{@const version = toolStatus[tool.id]}
 						<div class="tool">
-							<span>{t.name}</span>
-							<span class="muted">{version ? `Version ${version}` : t.why}</span>
-							<button
-								type="button"
-								disabled={installing !== null}
-								onclick={() => setUp(t.id as 'ytdlp' | 'deno')}
-							>
-								{installing === t.id ? 'Downloading…' : version ? 'Update' : 'Set up'}
+							<span>{tool.name}</span>
+							<span class="muted">{version ? t('Version {v}', { v: version }) : t(tool.why)}</span>
+							<button type="button" disabled={installing !== null} onclick={() => setUp(tool.id)}>
+								{installing === tool.id ? t('Downloading…') : version ? t('Update') : t('Set up')}
 							</button>
 						</div>
 					{/each}
 					<label class="check">
 						<input type="checkbox" bind:checked={s.update_tools} />
-						Update yt-dlp and deno when a new version is out (checked once a day)
+						{t('Update yt-dlp and deno when a new version is out (checked once a day)')}
 					</label>
-					<p class="small">Downloaded from the projects' official GitHub releases and checked against their published SHA-256.</p>
+					<p class="small">
+						{t(
+							"Downloaded from the projects' official GitHub releases and checked against their published SHA-256."
+						)}
+					</p>
 					{#if toolError}<p class="error">{toolError}</p>{/if}
 				{:else}
-					<p class="muted">Checking…</p>
+					<p class="muted">{t('Checking…')}</p>
 				{/if}
 			</fieldset>
 
 			<fieldset>
-				<legend>App</legend>
+				<legend>{t('App')}</legend>
+				<label class="language">
+					{t('Language')}
+					<select bind:value={s.language}>
+						<option value="system">{t('Same as Windows')}</option>
+						<option value="en">English</option>
+						<option value="tr">Türkçe</option>
+					</select>
+				</label>
 				<label class="check">
 					<input type="checkbox" bind:checked={s.close_to_tray} />
-					Keep running in the tray when the window is closed
+					{t('Keep running in the tray when the window is closed')}
 				</label>
 				<label class="check">
 					<input type="checkbox" bind:checked={s.start_with_windows} />
-					Start with Windows (in the tray)
+					{t('Start with Windows (in the tray)')}
 				</label>
 				<label class="check">
 					<input type="checkbox" bind:checked={s.progress_windows} />
-					Show a small progress window for each download
+					{t('Show a small progress window for each download')}
 				</label>
 				<label class="check">
 					<input type="checkbox" bind:checked={s.notify} />
-					Notify me when a download finishes
+					{t('Notify me when a download finishes')}
 				</label>
 				<div class="update">
 					<label class="check">
 						<input type="checkbox" bind:checked={s.check_updates} />
-						Look for a new version of the app once a day
+						{t('Look for a new version of the app once a day')}
 					</label>
-					<button type="button" onclick={checkNow}>Check now</button>
+					<button type="button" onclick={checkNow}>{t('Check now')}</button>
 				</div>
 				{#if updateStatus}<p class="small">{updateStatus}</p>{/if}
 				<label class="check">
 					<input type="checkbox" bind:checked={s.virus_scan} />
-					Scan finished downloads for viruses
+					{t('Scan finished downloads for viruses')}
 				</label>
 				<label class="scanner">
-					Scanner
+					{t('Scanner')}
 					<input
 						bind:value={s.scanner}
 						disabled={!s.virus_scan}
-						placeholder="Microsoft Defender, or: &quot;C:\…\scan.exe&quot; {'{file}'}"
+						placeholder={t('Microsoft Defender, or: "C:\\…\\scan.exe" {f}', { f: '{file}' })}
 					/>
 				</label>
 				<label class="check">
 					<input type="checkbox" bind:checked={s.watch_clipboard} />
-					Offer download links I copy (archives, programs, video, music, documents)
+					{t('Offer download links I copy (archives, programs, video, music, documents)')}
 				</label>
 				<label class="check">
 					<input type="checkbox" bind:checked={s.browser_integration} />
-					Take downloads from the browser extension (registers with Chrome, Edge, Brave,
-					Vivaldi, Opera and Firefox)
+					{t(
+						'Take downloads from the browser extension (registers with Chrome, Edge, Brave, Vivaldi, Opera and Firefox)'
+					)}
 				</label>
 			</fieldset>
 		{:else if !error}
-			<p class="muted">Loading…</p>
+			<p class="muted">{t('Loading…')}</p>
 		{/if}
 
 		{#if error}<p class="error">{error}</p>{/if}
 
 		<div class="buttons">
-			<button type="button" onclick={() => dialog?.close()}>Cancel</button>
-			<button type="submit" class="primary" disabled={!s || saving}>Save</button>
+			<button type="button" onclick={() => dialog?.close()}>{t('Cancel')}</button>
+			<button type="submit" class="primary" disabled={!s || saving}>{t('Save')}</button>
 		</div>
 	</form>
 </dialog>
@@ -390,6 +410,10 @@
 	.muted {
 		color: var(--muted);
 	}
+	.language {
+		align-items: flex-start;
+		margin: 2px 0 8px;
+	}
 	.scanner {
 		margin-left: 24px;
 	}
@@ -408,6 +432,7 @@
 	}
 	.day {
 		display: flex;
+		flex-direction: row;
 		align-items: center;
 		gap: 4px;
 	}

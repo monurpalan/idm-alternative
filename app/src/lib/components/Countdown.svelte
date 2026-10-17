@@ -4,6 +4,7 @@
 
 	import { onMount } from 'svelte';
 	import { endCountdown, type WhenDone } from '../api.ts';
+	import { msg, t } from '../i18n.svelte.ts';
 
 	let {
 		action,
@@ -13,10 +14,10 @@
 
 	const WHAT: Record<WhenDone, string> = {
 		nothing: '',
-		exit: 'idm-alternative closes',
-		sleep: 'The computer goes to sleep',
-		hibernate: 'The computer hibernates',
-		shutdown: 'The computer shuts down'
+		exit: msg('idm-alternative closes in {n} seconds.'),
+		sleep: msg('The computer goes to sleep in {n} seconds.'),
+		hibernate: msg('The computer hibernates in {n} seconds.'),
+		shutdown: msg('The computer shuts down in {n} seconds.')
 	};
 
 	let left = $state(0);
@@ -53,11 +54,11 @@
 	}}
 	aria-labelledby="countdown-title"
 >
-	<h2 id="countdown-title">All downloads have finished</h2>
-	<p>{WHAT[action]} in <strong>{left}</strong> {left === 1 ? 'second' : 'seconds'}.</p>
+	<h2 id="countdown-title">{t('All downloads have finished')}</h2>
+	<p>{t(WHAT[action], { n: left })}</p>
 	<div class="buttons">
-		<button type="button" onclick={now}>Now</button>
-		<button type="button" class="primary" onclick={cancel}>Cancel</button>
+		<button type="button" onclick={now}>{t('Now')}</button>
+		<button type="button" class="primary" onclick={cancel}>{t('Cancel')}</button>
 	</div>
 </dialog>
 

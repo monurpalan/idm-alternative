@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { downloads, inView, VIEWS, type View } from '../downloads.svelte.ts';
+	import { t } from '../i18n.svelte.ts';
 
 	let { view = $bindable() }: { view: View } = $props();
 
@@ -10,14 +11,14 @@
 	);
 </script>
 
-<nav aria-label="Categories">
+<nav aria-label={t('Categories')}>
 	{#each VIEWS as v (v.id)}
 		<button
 			class:active={view === v.id}
 			class:sub={v.id !== 'all' && v.id !== 'unfinished' && v.id !== 'finished'}
 			onclick={() => (view = v.id)}
 		>
-			<span>{v.label}</span>
+			<span>{t(v.label)}</span>
 			<span class="count">{counts[v.id] || ''}</span>
 		</button>
 	{/each}

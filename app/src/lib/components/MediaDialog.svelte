@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import { addTask, inspectMedia, tools, type CapturedMedia, type StreamInfo } from '../api.ts';
 	import { duration } from '../format.ts';
+	import { msg, t } from '../i18n.svelte.ts';
 
 	let {
 		media,
@@ -29,10 +30,10 @@
 
 	/** Why the stream cannot be downloaded, if it cannot. */
 	const blocked = $derived.by(() => {
-		if (!info) return 'Read the playlist first';
-		if (info.encryption === 'DRM') return 'Protected streams cannot be downloaded';
-		if (info.live) return 'Live streams cannot be downloaded yet';
-		if (!ffmpeg && info.audio.length) return 'This stream has separate audio: ffmpeg is needed';
+		if (!info) return msg('Read the playlist first');
+		if (info.encryption === 'DRM') return msg('Protected streams cannot be downloaded');
+		if (info.live) return msg('Live streams cannot be downloaded yet');
+		if (!ffmpeg && info.audio.length) return msg('This stream has separate audio: ffmpeg is needed');
 		return null;
 	});
 
@@ -84,7 +85,7 @@
 		dialog?.showModal();
 		name = media.title ?? '';
 		tools()
-			.then((t) => (ffmpeg = t.ffmpeg))
+			.then((found) => (ffmpeg = found.ffmpeg))
 			.catch(() => {});
 		if (streams[0]) load(streams[0].url);
 	});
@@ -95,20 +96,21 @@
 		if (v.frame_rate && v.frame_rate > 30.5) parts.push(`${Math.round(v.frame_rate)} fps`);
 		if (v.bandwidth) parts.push(`${(v.bandwidth / 1e6).toFixed(1)} Mbps`);
 		if (v.codecs) parts.push(v.codecs.split(',')[0]);
-		return parts.join(' · ') || 'As offered';
+		return parts.join(' · ') || t('As offered');
 	}
 
-	function trackName(t: StreamInfo['audio'][number]): string {
-		return [t.name, t.language && t.language !== t.name ? `(${t.language})` : ''].filter(Boolean).join(' ') || (t.id ?? 'Track');
+	function trackName(track: StreamInfo['audio'][number]): string {
+		const lang = track.language && track.language !== track.name ? `(${track.language})` : '';
+		return [track.name, lang].filter(Boolean).join(' ') || (track.id ?? t('Track'));
 	}
 
 </script>
 
 <dialog bind:this={dialog} onclose={onclose} aria-labelledby="media-title">
-	<h2 id="media-title">{media.title || 'Video'}</h2>
+	<h2 id="media-title">{media.title || t('Video')}</h2>
 	{#if streams.length > 1}
 		<label class="field">
-			Stream
+			{t('Stream')}
 			<select value={chosenUrl} onchange={(e) => load((e.target as HTMLSelectElement).value)}>
 				{#each streams as s (s.url)}
 					<option value={s.url}>{s.kind.toUpperCase()} · {s.url}</option>
@@ -118,23 +120,23 @@
 	{/if}
 
 	{#if loading}
-		<p class="muted">Reading the playlist…</p>
+		<p class="muted">{t('Reading the playlist…')}</p>
 	{:else if error}
 		<p class="error">{error}</p>
 	{:else if info}
 		<p class="muted">
 			{info.format.toUpperCase()}{info.duration ? ` · ${duration(info.duration)}` : ''}{info.live
-				? ' · live'
+				? ` · ${t('live')}`
 				: ''}
 		</p>
 		{#if info.encryption === 'DRM'}
-			<p class="error">This stream is protected (DRM). It cannot be saved in a playable form.</p>
+			<p class="error">{t('This stream is protected (DRM). It cannot be saved in a playable form.')}</p>
 		{:else if info.live}
-			<p class="warn">A live stream: downloading records it until you stop it.</p>
+			<p class="warn">{t('A live stream: downloading records it until you stop it.')}</p>
 		{/if}
 
 		<fieldset>
-			<legend>Quality</legend>
+			<legend>{t('Quality')}</legend>
 			{#each info.video as v (v.id)}
 				<label class="option">
 					<input type="radio" name="video" value={v.id} bind:group={video} />
@@ -145,7 +147,7 @@
 
 		{#if info.audio.length}
 			<label class="field">
-				Audio
+				{t('Audio')}
 				<select bind:value={audio}>
 					{#each info.audio as a (a.id ?? a.name)}
 						<option value={a.id ?? ''}>{trackName(a)}</option>
@@ -156,7 +158,7 @@
 
 		{#if info.subtitles.length}
 			<fieldset>
-				<legend>Subtitles (saved next to the video)</legend>
+				<legend>{t('Subtitles (saved next to the video)')}</legend>
 				{#each info.subtitles as s (s.id ?? s.name)}
 					<label class="option">
 						<input
@@ -177,18 +179,18 @@
 		{/if}
 
 		<label class="field">
-			Save as
-			<input bind:value={name} placeholder="Name from the address" />
+			{t('Save as')}
+			<input bind:value={name} placeholder={t('Name from the address')} />
 		</label>
 	{/if}
 
 	{#if info && !ffmpeg}
-		<p class="note">ffmpeg was not found: the video is saved as joined .ts segments.</p>
+		<p class="note">{t('ffmpeg was not found: the video is saved as joined .ts segments.')}</p>
 	{/if}
-	{#if blocked && info}<p class="note">{blocked}.</p>{/if}
+	{#if blocked && info}<p class="note">{t(blocked)}.</p>{/if}
 	<div class="buttons">
-		<button type="button" onclick={() => dialog?.close()}>Close</button>
-		<button type="button" class="primary" disabled={!!blocked || busy} onclick={download}>Download</button>
+		<button type="button" onclick={() => dialog?.close()}>{t('Close')}</button>
+		<button type="button" class="primary" disabled={!!blocked || busy} onclick={download}>{t('Download')}</button>
 	</div>
 </dialog>
 

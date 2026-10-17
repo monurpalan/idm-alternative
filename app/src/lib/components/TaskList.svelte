@@ -1,7 +1,8 @@
 <script lang="ts">
 	import type { Task, TaskId } from '../api.ts';
 	import { downloads, row, type Row, type SortKey } from '../downloads.svelte.ts';
-	import { bytes, date, duration, speed } from '../format.ts';
+	import { bytes, date, duration, percent, speed } from '../format.ts';
+	import { msg, t } from '../i18n.svelte.ts';
 
 	// Gets the tasks already filtered and in order; each row reads its own live progress, so a
 	// progress update re-renders only the rows of running downloads.
@@ -21,13 +22,13 @@
 
 	const COLUMNS: { key: SortKey; label: string; numeric?: boolean }[] = [
 		{ key: 'queue', label: '#', numeric: true },
-		{ key: 'name', label: 'Name' },
-		{ key: 'size', label: 'Size', numeric: true },
-		{ key: 'progress', label: 'Progress' },
-		{ key: 'speed', label: 'Speed', numeric: true },
-		{ key: 'eta', label: 'Time left', numeric: true },
-		{ key: 'status', label: 'Status' },
-		{ key: 'added', label: 'Added', numeric: true }
+		{ key: 'name', label: msg('Name') },
+		{ key: 'size', label: msg('Size'), numeric: true },
+		{ key: 'progress', label: msg('Progress') },
+		{ key: 'speed', label: msg('Speed'), numeric: true },
+		{ key: 'eta', label: msg('Time left'), numeric: true },
+		{ key: 'status', label: msg('Status') },
+		{ key: 'added', label: msg('Added'), numeric: true }
 	];
 
 	/** 1-based place of each unfinished download in the queue. */
@@ -85,27 +86,27 @@
 	}
 
 	function statusText(r: Row): string {
-		const t = r.task;
-		switch (t.status) {
+		const task = r.task;
+		switch (task.status) {
 			case 'downloading':
 				if (r.live?.phase === 'verifying') {
 					const v = r.size ? Math.floor((r.live.verified / r.size) * 100) : 0;
-					return `Verifying ${v}%`;
+					return t('Verifying {v}%', { v });
 				}
-				return r.task.path ? 'Downloading' : 'Connecting';
+				return r.task.path ? t('Downloading') : t('Connecting');
 			case 'queued':
 				// Waiting for an automatic retry after a failure that may pass.
-				return t.error ? 'Retrying' : 'Queued';
+				return task.error ? t('Retrying') : t('Queued');
 			case 'paused':
-				return 'Paused';
+				return t('Paused');
 			case 'done':
-				return 'Complete';
+				return t('Complete');
 			case 'error':
-				return t.error_kind === 'auth'
-					? 'Login needed'
-					: t.error_kind === 'expired'
-						? 'Link expired'
-						: 'Error';
+				return task.error_kind === 'auth'
+					? t('Login needed')
+					: task.error_kind === 'expired'
+						? t('Link expired')
+						: t('Error');
 		}
 	}
 </script>
@@ -125,7 +126,7 @@
 						aria-sort={sortKey === c.key ? (sortDesc ? 'descending' : 'ascending') : 'none'}
 					>
 						<button onclick={() => sortBy(c.key)}>
-							{c.label}
+							{t(c.label)}
 							{#if sortKey === c.key}<span class="arrow">{sortDesc ? '▾' : '▴'}</span>{/if}
 						</button>
 					</th>
@@ -150,7 +151,7 @@
 							<div class="fill" style:width="{(r.fraction ?? 0) * 100}%"></div>
 							<span
 								>{r.fraction !== null
-									? `${(r.fraction * 100).toFixed(1)}%`
+									? percent(r.fraction)
 									: r.received > 0
 										? bytes(r.received)
 										: ''}</span
@@ -166,7 +167,7 @@
 		</tbody>
 	</table>
 	{#if downloads.loaded && tasks.length === 0}
-		<p class="empty">Nothing here. Paste a link (Ctrl+V) or drop one on the window.</p>
+		<p class="empty">{t('Nothing here. Paste a link (Ctrl+V) or drop one on the window.')}</p>
 	{/if}
 </div>
 

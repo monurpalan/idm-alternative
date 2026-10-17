@@ -6,7 +6,8 @@
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { openFile, pauseTasks, showInFolder, startTasks, type TaskId } from '#lib/api.ts';
 	import { downloads, row } from '#lib/downloads.svelte.ts';
-	import { bytes, duration, speed } from '#lib/format.ts';
+	import { bytes, duration, percent, speed } from '#lib/format.ts';
+	import { msg, t } from '#lib/i18n.svelte.ts';
 
 	const id: TaskId = Number(new URLSearchParams(location.search).get('id'));
 	let error = $state<string | null>(null);
@@ -18,7 +19,7 @@
 
 	// The title follows the name the server gives.
 	$effect(() => {
-		if (r) getCurrentWindow().setTitle(r.task.status === 'done' ? `Done: ${r.name}` : r.name);
+		if (r) getCurrentWindow().setTitle(r.task.status === 'done' ? t('Done: {name}', { name: r.name }) : r.name);
 	});
 
 	async function run(p: Promise<unknown>) {
@@ -31,14 +32,20 @@
 	}
 
 	const close = () => getCurrentWindow().close();
+
+	const STATUS = {
+		queued: msg('Waiting in the queue'),
+		paused: msg('Paused'),
+		done: msg('Complete')
+	} as const;
 </script>
 
 <main>
 	{#if !downloads.loaded}
-		<p class="muted">Loading…</p>
+		<p class="muted">{t('Loading…')}</p>
 	{:else if !r}
-		<p class="muted">This download is no longer on the list.</p>
-		<div class="buttons"><button onclick={close}>Close</button></div>
+		<p class="muted">{t('This download is no longer on the list.')}</p>
+		<div class="buttons"><button onclick={close}>{t('Close')}</button></div>
 	{:else}
 		<h1 title={r.name}>{r.name}</h1>
 		<p class="url" title={r.task.url}>{r.task.url}</p>
@@ -56,25 +63,29 @@
 		</div>
 
 		<dl>
-			<dt>Status</dt>
+			<dt>{t('Status')}</dt>
 			<dd>
 				{#if r.task.status === 'downloading'}
-					{r.fraction === null ? 'Downloading' : `${(r.fraction * 100).toFixed(1)} %`}
-					{#if r.live?.connections}· {r.live.connections} connections{/if}
+					{r.fraction === null
+						? t('Downloading')
+						: percent(r.fraction)}
+					{#if r.live?.connections}· {t('{n} connections', { n: r.live.connections })}{/if}
 				{:else if r.task.status === 'error'}
-					<span class="error">{r.task.error ?? 'Failed'}</span>
+					<span class="error">{r.task.error ?? t('Failed')}</span>
 				{:else}
-					{({ queued: 'Waiting in the queue', paused: 'Paused', done: 'Complete' } as const)[
-						r.task.status
-					]}
+					{t(STATUS[r.task.status])}
 				{/if}
 			</dd>
-			<dt>Downloaded</dt>
-			<dd>{bytes(r.received)}{r.size !== null ? ` of ${bytes(r.size)}` : ''}</dd>
+			<dt>{t('Downloaded')}</dt>
+			<dd>
+				{r.size !== null
+					? t('{a} of {b}', { a: bytes(r.received), b: bytes(r.size) })
+					: bytes(r.received)}
+			</dd>
 			{#if r.task.status === 'downloading'}
-				<dt>Speed</dt>
+				<dt>{t('Speed')}</dt>
 				<dd>{speed(r.speed)}</dd>
-				<dt>Time left</dt>
+				<dt>{t('Time left')}</dt>
 				<dd>{duration(r.eta)}</dd>
 			{/if}
 		</dl>
@@ -83,16 +94,16 @@
 
 		<div class="buttons">
 			{#if r.task.status === 'done'}
-				<button onclick={() => run(showInFolder(id))}>Show in folder</button>
-				<button class="primary" onclick={() => run(openFile(id)).then(close)}>Open</button>
-				<button onclick={close}>Close</button>
+				<button onclick={() => run(showInFolder(id))}>{t('Show in folder')}</button>
+				<button class="primary" onclick={() => run(openFile(id)).then(close)}>{t('Open')}</button>
+				<button onclick={close}>{t('Close')}</button>
 			{:else}
 				{#if r.task.status === 'downloading' || r.task.status === 'queued'}
-					<button onclick={() => run(pauseTasks([id]))}>Pause</button>
+					<button onclick={() => run(pauseTasks([id]))}>{t('Pause')}</button>
 				{:else}
-					<button onclick={() => run(startTasks([id]))}>Resume</button>
+					<button onclick={() => run(startTasks([id]))}>{t('Resume')}</button>
 				{/if}
-				<button onclick={close} title="The download goes on; the list shows it">Hide</button>
+				<button onclick={close} title={t('The download goes on; the list shows it')}>{t('Hide')}</button>
 			{/if}
 		</div>
 	{/if}

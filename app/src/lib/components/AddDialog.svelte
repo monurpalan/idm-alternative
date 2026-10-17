@@ -15,6 +15,7 @@
 		type Probe
 	} from '../api.ts';
 	import { bytes } from '../format.ts';
+	import { t } from '../i18n.svelte.ts';
 
 	let {
 		url: initialUrl = '',
@@ -127,13 +128,13 @@
 			add(true);
 		}}
 	>
-		<h2 id="add-title">Add download</h2>
+		<h2 id="add-title">{t('Add download')}</h2>
 		{#if headers?.length}
-			<p class="from">From the browser, with its cookies and referrer.</p>
+			<p class="from">{t('From the browser, with its cookies and referrer.')}</p>
 		{/if}
 
 		<label>
-			Address
+			{t('Address')}
 			<input
 				type="url"
 				bind:value={url}
@@ -144,28 +145,31 @@
 						check();
 					}
 				}}
-				placeholder="https://   (photo[001-100].jpg adds a batch)"
+				placeholder={t('https://   (photo[001-100].jpg adds a batch)')}
 				required
 			/>
 		</label>
 
 		<div class="info" aria-live="polite">
 			{#if checking}
-				Asking the server…
+				{t('Asking the server…')}
 			{:else if error}
 				<span class="error">{error}</span>
 			{:else if batch}
-				Batch: <strong>{batch.count}</strong> downloads, from
+				{t('Batch: {n} downloads', { n: batch.count })} ·
 				<span class="ends" title={batch.first}>{batch.first.split('/').pop()}</span>
-				to <span class="ends" title={batch.last}>{batch.last.split('/').pop()}</span>
+				–
+				<span class="ends" title={batch.last}>{batch.last.split('/').pop()}</span>
 			{:else if info?.needs_login}
 				<span class="warn"
-					>The server asks for a user name and password{info.realm ? ` (${info.realm})` : ''}.</span
+					>{info.realm
+						? t('The server asks for a user name and password ({realm}).', { realm: info.realm })
+						: t('The server asks for a user name and password.')}</span
 				>
 			{:else if info}
-				{#if info.saved_login}Logs in as {info.saved_login} (saved for this site) ·{/if}
-				{info.size !== null ? bytes(info.size) : 'Size unknown'}
-				· {info.resumable ? 'Can resume and use several connections' : 'Cannot resume (one connection)'}
+				{#if info.saved_login}{t('Logs in as {user} (saved for this site)', { user: info.saved_login })} ·{/if}
+				{info.size !== null ? bytes(info.size) : t('Size unknown')}
+				· {info.resumable ? t('Can resume and use several connections') : t('Cannot resume (one connection)')}
 			{:else}
 				&nbsp;
 			{/if}
@@ -174,45 +178,45 @@
 		{#if info?.needs_login || user}
 			<div class="login">
 				<label>
-					User name
+					{t('User name')}
 					<input bind:value={user} autocomplete="username" />
 				</label>
 				<label>
-					Password
+					{t('Password')}
 					<input type="password" bind:value={password} autocomplete="current-password" />
 				</label>
-				<button type="button" onclick={() => check(true)} disabled={!user || checking}>Sign in</button>
+				<button type="button" onclick={() => check(true)} disabled={!user || checking}>{t('Sign in')}</button>
 				<label class="remember">
 					<input type="checkbox" bind:checked={remember} />
-					Remember for this site
+					{t('Remember for this site')}
 				</label>
 			</div>
 		{/if}
 
 		<label>
-			Save as
+			{t('Save as')}
 			<input
 				bind:value={name}
-				placeholder={batch ? 'Each from its server' : 'Name from the server'}
+				placeholder={batch ? t('Each from its server') : t('Name from the server')}
 				disabled={!info || info.needs_login}
 			/>
 		</label>
 
 		<label>
-			Folder
+			{t('Folder')}
 			<div class="row">
 				<input bind:value={dir} placeholder={defaultDir} />
-				<button type="button" onclick={browse}>Browse…</button>
+				<button type="button" onclick={browse}>{t('Browse…')}</button>
 			</div>
 		</label>
 
 		<div class="buttons">
-			<button type="button" onclick={() => dialog?.close()}>Cancel</button>
+			<button type="button" onclick={() => dialog?.close()}>{t('Cancel')}</button>
 			<button type="button" onclick={() => add(false)} disabled={busy || !url.trim()}>
-				Download later
+				{t('Download later')}
 			</button>
 			<button type="submit" class="primary" disabled={busy || !url.trim()}>
-				{batch ? `Start ${batch.count} downloads` : 'Start download'}
+				{batch ? t('Start {n} downloads', { n: batch.count }) : t('Start download')}
 			</button>
 		</div>
 	</form>

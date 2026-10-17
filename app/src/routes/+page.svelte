@@ -53,6 +53,7 @@
 		type View
 	} from '#lib/downloads.svelte.ts';
 	import { speed } from '#lib/format.ts';
+	import { msg, t } from '#lib/i18n.svelte.ts';
 
 	let view = $state<View>('all');
 	let search = $state('');
@@ -186,64 +187,64 @@
 			y: e.clientY,
 			items: [
 				{
-					label: 'Open',
+					label: msg('Open'),
 					action: () => run(openFile(task.id)),
 					disabled: !one || one.status !== 'done'
 				},
 				{
-					label: 'Show in folder',
+					label: msg('Show in folder'),
 					action: () => run(showInFolder(task.id)),
 					disabled: !one || !one.path
 				},
 				{
-					label: 'Progress window',
+					label: msg('Progress window'),
 					action: () => run(showProgress(task.id)),
 					disabled: !one
 				},
 				{
-					label: 'Resume',
+					label: msg('Resume'),
 					action: () => run(startTasks(ids(canStart))),
 					disabled: !sel.some(canStart),
 					separated: true
 				},
 				{
-					label: 'Pause',
+					label: msg('Pause'),
 					action: () => run(pauseTasks(ids(canPause))),
 					disabled: !sel.some(canPause)
 				},
 				{
-					label: 'Move to top',
+					label: msg('Move to top'),
 					action: () => run(moveTask(task.id, 'top')),
 					disabled: !one || one.status === 'done',
 					separated: true
 				},
 				{
-					label: 'Move up',
+					label: msg('Move up'),
 					action: () => run(moveTask(task.id, 'up')),
 					disabled: !one || one.status === 'done'
 				},
 				{
-					label: 'Move down',
+					label: msg('Move down'),
 					action: () => run(moveTask(task.id, 'down')),
 					disabled: !one || one.status === 'done'
 				},
 				{
-					label: 'Move to bottom',
+					label: msg('Move to bottom'),
 					action: () => run(moveTask(task.id, 'bottom')),
 					disabled: !one || one.status === 'done'
 				},
 				{
-					label: 'Copy address',
+					label: msg('Copy address'),
 					action: () => run(navigator.clipboard.writeText(sel.map((t) => t.url).join('\n'))),
 					separated: true
 				},
 				{
-					label: 'Download again',
+					label: msg('Download again'),
 					action: () => run(restartTask(task.id)),
 					disabled: !one
 				},
 				{
-					label: 'Remove…',
+					label: msg('Remove…'),
 					action: () => (removing = sel.map((t) => t.id)),
 					danger: true,
 					separated: true
@@ -303,38 +304,38 @@
 
 <div class="app">
 	<header>
-		<button class="primary" onclick={() => (adding = { url: '' })} title="Ctrl+N">Add URL</button>
+		<button class="primary" onclick={() => (adding = { url: '' })} title="Ctrl+N">{t('Add URL')}</button>
 		<button
 			onclick={() => run(startTasks(ids(canStart)))}
-			disabled={!selectedTasks.some(canStart)}>Resume</button
+			disabled={!selectedTasks.some(canStart)}>{t('Resume')}</button
 		>
 		<button
 			onclick={() => run(pauseTasks(ids(canPause)))}
-			disabled={!selectedTasks.some(canPause)}>Pause</button
+			disabled={!selectedTasks.some(canPause)}>{t('Pause')}</button
 		>
 		<button
 			onclick={() => (removing = selectedTasks.map((t) => t.id))}
 			disabled={!selectedTasks.length}
-			title="Delete">Remove</button
+			title="Delete">{t('Remove')}</button
 		>
 		<span class="sep"></span>
-		<button onclick={() => run(startAll())} title="Queue every paused or failed download"
-			>Start all</button
+		<button onclick={() => run(startAll())} title={t('Queue every paused or failed download')}
+			>{t('Start all')}</button
 		>
-		<button onclick={() => run(pauseAll())} title="Pause every running and queued download"
-			>Pause all</button
+		<button onclick={() => run(pauseAll())} title={t('Pause every running and queued download')}
+			>{t('Pause all')}</button
 		>
-		<label class="when" title="One time: when nothing is downloading or waiting any more">
-			When done
+		<label class="when" title={t('One time: when nothing is downloading or waiting any more')}>
+			{t('When done')}
 			<select
 				value={whenDone}
 				onchange={(e) => run(setWhenDone(e.currentTarget.value as WhenDone))}
 			>
-				<option value="nothing">do nothing</option>
-				<option value="exit">close the app</option>
-				<option value="sleep">sleep</option>
-				<option value="hibernate">hibernate</option>
-				<option value="shutdown">shut down</option>
+				<option value="nothing">{t('do nothing')}</option>
+				<option value="exit">{t('close the app')}</option>
+				<option value="sleep">{t('sleep')}</option>
+				<option value="hibernate">{t('hibernate')}</option>
+				<option value="shutdown">{t('shut down')}</option>
 			</select>
 		</label>
 		<span class="sep"></span>
@@ -342,12 +343,12 @@
 			class="toggle"
 			aria-pressed={showDetails}
 			onclick={() => (showDetails = !showDetails)}
-			title="Details of the selected download">Details</button
+			title={t('Details of the selected download')}>{t('Details')}</button
 		>
-		<button class="icon" onclick={() => (settingsOpen = true)} title="Settings" aria-label="Settings"
+		<button class="icon" onclick={() => (settingsOpen = true)} title={t('Settings')} aria-label={t('Settings')}
 			>⚙</button
 		>
-		<input class="search" type="search" bind:value={search} placeholder="Search" aria-label="Search" />
+		<input class="search" type="search" bind:value={search} placeholder={t('Search')} aria-label={t('Search')} />
 	</header>
 
 	<Sidebar bind:view />
@@ -363,23 +364,27 @@
 		{#if notice || downloads.error}
 			<span class="notice">{notice ?? downloads.error}</span>
 		{:else if update}
-			<span class="info">idm-alternative {update.version} is available.</span>
-			<button onclick={applyUpdate} disabled={updating}
-				>{updating ? 'Downloading…' : 'Install and restart'}</button
+			<span class="info"
+				>{t('idm-alternative {version} is available.', { version: update.version })}</span
 			>
-			<span>Running downloads pause and continue after the restart.</span>
-			<button class="dismiss" onclick={() => (update = null)} aria-label="Later">×</button>
+			<button onclick={applyUpdate} disabled={updating}
+				>{updating ? t('Downloading…') : t('Install and restart')}</button
+			>
+			<span>{t('Running downloads pause and continue after the restart.')}</span>
+			<button class="dismiss" onclick={() => (update = null)} aria-label={t('Later')}>×</button>
 		{:else if info}
 			<span class="info">{info}</span>
-			<button class="dismiss" onclick={() => (info = null)} aria-label="Dismiss">×</button>
+			<button class="dismiss" onclick={() => (info = null)} aria-label={t('Dismiss')}>×</button>
 		{:else}
-			<span>{downloads.active} downloading</span>
+			<span>{t('{n} downloading', { n: downloads.active })}</span>
 			{#if downloads.speed > 0}<span>{speed(downloads.speed)}</span>{/if}
-			{#if globalLimit}<span title="Speed limit for all downloads">limit {speed(globalLimit)}</span>{/if}
+			{#if globalLimit}<span title={t('Speed limit for all downloads')}
+					>{t('limit {speed}', { speed: speed(globalLimit) })}</span
+				>{/if}
 			<span class="right">
-				{visible.length}
-				{visible.length === 1 ? 'item' : 'items'}{downloads.selected.size
-					? ` · ${downloads.selected.size} selected`
+				{visible.length === 1 ? t('1 item') : t('{n} items', { n: visible.length })}{downloads
+					.selected.size
+					? ' · ' + t('{n} selected', { n: downloads.selected.size })
 					: ''}
 			</span>
 		{/if}
@@ -455,6 +460,7 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
+		white-space: nowrap;
 		padding: 8px 10px;
 		border-bottom: 1px solid var(--line);
 		background: var(--panel);

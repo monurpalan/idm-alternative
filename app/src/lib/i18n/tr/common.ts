@@ -1,0 +1,32 @@
+// Turkish texts shared across the interface (units, categories, common buttons), keyed by
+// the English text.
+export default {
+	'{size}/s': '{size}/sn',
+	'{p} %': '%{p}',
+	'{s} s': '{s} sn',
+	'{m} min {s} s': '{m} dk {s} sn',
+	'{h} h {m} min': '{h} sa {m} dk',
+	'{d} days': '{d} gün',
+	Categories: 'Kategoriler',
+	'All downloads': 'Tüm indirmeler',
+	Compressed: 'Arşivler',
+	Documents: 'Belgeler',
+	Music: 'Müzik',
+	Programs: 'Programlar',
+	Video: 'Video',
+	Unfinished: 'Bitmemiş',
+	Finished: 'Bitmiş',
+	'All downloads have finished': 'Tüm indirmeler bitti',
+	'idm-alternative closes in {n} seconds.': 'idm-alternative {n} saniye içinde kapanacak.',
+	'The computer goes to sleep in {n} seconds.': 'Bilgisayar {n} saniye içinde uyku moduna geçecek.',
+	'The computer hibernates in {n} seconds.': 'Bilgisayar {n} saniye içinde hazırda bekletilecek.',
+	'The computer shuts down in {n} seconds.': 'Bilgisayar {n} saniye içinde kapanacak.',
+	Now: 'Şimdi',
+	Cancel: 'İptal',
+	Close: 'Kapat',
+	Remove: 'Kaldır',
+	'Remove this download from the list?': 'Bu indirme listeden kaldırılsın mı?',
+	'Remove {n} downloads from the list?': '{n} indirme listeden kaldırılsın mı?',
+	'Also delete the file from disk': 'Dosyayı diskten de sil',
+	'Also delete the files from disk': 'Dosyaları diskten de sil'
+} satisfies Record<string, string>;

@@ -1,5 +1,6 @@
 <script lang="ts" module>
 	export interface Item {
+		/** The English text, marked with msg where it is written; shown translated. */
 		label: string;
 		action: () => void;
 		disabled?: boolean;
@@ -11,6 +12,8 @@
 
 <script lang="ts">
 	// A right-click menu at the pointer; closes on any outside click, Escape, or after a choice.
+
+	import { t } from '../i18n.svelte.ts';
 
 	let {
 		x,
@@ -64,7 +67,7 @@
 			role="menuitem"
 			disabled={item.disabled}
 			class:danger={item.danger}
-			onclick={() => choose(item)}>{item.label}</button
+			onclick={() => choose(item)}>{t(item.label)}</button
 		>
 	{/each}
 </div>
