@@ -34,6 +34,14 @@ dbg_macro = "warn"
 todo = "warn"
 unwrap_used = "warn"
 
+# Full debug info made `target/` grow past 50 GB on Windows (PDBs); line tables keep file:line in
+# backtraces.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
