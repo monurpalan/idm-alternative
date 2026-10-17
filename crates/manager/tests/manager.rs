@@ -439,3 +439,59 @@ async fn refreshed_link_continues_only_for_the_same_file() {
     assert_file(&done, 21, size);
     m.close().await;
 }
+
+/// The raw `headers` column of a task, read past the manager.
+async fn raw_headers(db: &Path, id: TaskId) -> String {
+    use sqlx::{Connection as _, Row as _};
+    let mut c = sqlx::SqliteConnection::connect(&format!("sqlite:{}", db.display()))
+        .await
+        .expect("connect");
+    let r = sqlx::query("SELECT headers FROM tasks WHERE id = ?")
+        .bind(id)
+        .fetch_one(&mut c)
+        .await
+        .expect("row");
+    r.get("headers")
+}
+
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn cookies_are_stored_encrypted() {
+    let w = WorkDir::new("secret");
+    let headers = vec![
+        ("Cookie".to_owned(), "SID=secret-cookie".to_owned()),
+        ("Authorization".to_owned(), "Basic c2VjcmV0".to_owned()),
+    ];
+    let m = Manager::open(&w.db(), w.config(1)).await.expect("open");
+    let task = m
+        .add(NewTask {
+            url: "http://127.0.0.1:9/a.zip".into(),
+            headers: headers.clone(),
+            ..NewTask::default()
+        })
+        .await
+        .expect("add");
+    m.close().await;
+
+    let raw = raw_headers(&w.db(), task.id).await;
+    assert!(raw.starts_with("dpapi:"), "{raw}");
+    assert!(!raw.contains("secret"), "{raw}");
+
+    // A list from before encryption: plain JSON is read, and encrypted on the next open.
+    {
+        use sqlx::Connection as _;
+        let mut c = sqlx::SqliteConnection::connect(&format!("sqlite:{}", w.db().display()))
+            .await
+            .expect("connect");
+        sqlx::query("UPDATE tasks SET headers = ? WHERE id = ?")
+            .bind(serde_json::to_string(&headers).expect("json"))
+            .bind(task.id)
+            .execute(&mut c)
+            .await
+            .expect("plain");
+    }
+    let m = Manager::open(&w.db(), w.config(1)).await.expect("reopen");
+    assert_eq!(m.get(task.id).await.expect("get").headers, headers);
+    m.close().await;
+    assert!(raw_headers(&w.db(), task.id).await.starts_with("dpapi:"));
+}

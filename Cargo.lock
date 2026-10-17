@@ -2534,6 +2534,7 @@ name = "idma-manager"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "idma-engine",
  "idma-testserver",
  "reqwest 0.12.28",
@@ -2544,6 +2545,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

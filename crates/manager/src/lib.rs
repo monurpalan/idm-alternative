@@ -11,6 +11,7 @@
 //!   state files.
 
 mod db;
+mod secret;
 mod task;
 pub mod ytdlp;
 

@@ -45,7 +45,29 @@ impl Db {
             .connect_with(opts)
             .await?;
         sqlx::migrate!("./migrations").run(&pool).await?;
-        Ok(Self { pool })
+        let db = Self { pool };
+        db.seal_plain_headers().await?;
+        Ok(db)
+    }
+
+    /// Lists from before headers were encrypted keep cookies and passwords in plain text;
+    /// they are encrypted on the first open.
+    async fn seal_plain_headers(&self) -> Result<()> {
+        let rows = sqlx::query("SELECT id, headers FROM tasks WHERE headers != '[]'")
+            .fetch_all(&self.pool)
+            .await?;
+        for r in rows {
+            let stored: String = r.try_get("headers")?;
+            if crate::secret::is_sealed(&stored) {
+                continue;
+            }
+            sqlx::query("UPDATE tasks SET headers = ? WHERE id = ?")
+                .bind(crate::secret::seal(&stored))
+                .bind(r.try_get::<i64, _>("id")?)
+                .execute(&self.pool)
+                .await?;
+        }
+        Ok(())
     }
 
     pub(crate) async fn close(&self) {
@@ -53,7 +75,7 @@ impl Db {
     }
 
     pub(crate) async fn insert(&self, t: Insert<'_>) -> Result<TaskId> {
-        let headers = serde_json::to_string(t.headers)?;
+        let headers = store_headers(t.headers)?;
         let id = sqlx::query(
             "INSERT INTO tasks (url, headers, dir, name, status, category, connections,
                                 speed_limit, checksum, added_at, stream, queue_pos)
@@ -135,7 +157,7 @@ impl Db {
 
     pub(crate) async fn set_headers(&self, id: TaskId, headers: &[(String, String)]) -> Result<()> {
         sqlx::query("UPDATE tasks SET headers = ? WHERE id = ?")
-            .bind(serde_json::to_string(headers)?)
+            .bind(store_headers(headers)?)
             .bind(id)
             .execute(&self.pool)
             .await?;
@@ -280,6 +302,26 @@ impl Db {
     }
 }
 
+/// Headers as stored: encrypted (see `secret`), except an empty list.
+fn store_headers(headers: &[(String, String)]) -> Result<String> {
+    if headers.is_empty() {
+        return Ok("[]".to_owned());
+    }
+    Ok(crate::secret::seal(&serde_json::to_string(headers)?))
+}
+
+/// Headers that cannot be decrypted (a list copied from another user or machine) are
+/// dropped: the download goes on without its cookies and may ask to log in again.
+fn load_headers(stored: &str) -> Result<Vec<(String, String)>> {
+    match crate::secret::open(stored) {
+        Some(plain) => Ok(serde_json::from_str(&plain)?),
+        None => {
+            tracing::warn!("could not decrypt a download's request headers; dropped");
+            Ok(Vec::new())
+        }
+    }
+}
+
 fn task(r: &SqliteRow) -> Result<Task> {
     let u64_opt = |col: &str| -> Result<Option<u64>> {
         Ok(r.try_get::<Option<i64>, _>(col)?.map(|v| v as u64))
@@ -287,7 +329,7 @@ fn task(r: &SqliteRow) -> Result<Task> {
     Ok(Task {
         id: r.try_get("id")?,
         url: r.try_get("url")?,
-        headers: serde_json::from_str(r.try_get("headers")?)?,
+        headers: load_headers(r.try_get("headers")?)?,
         dir: PathBuf::from(r.try_get::<String, _>("dir")?),
         name: r.try_get("name")?,
         path: r.try_get::<Option<String>, _>("path")?.map(PathBuf::from),
