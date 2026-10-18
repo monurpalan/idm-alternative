@@ -14,7 +14,6 @@ path = "src/main.rs"
 idma-bridge = { path = "../bridge" }
 serde_json.workspace = true
 tokio.workspace = true
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }
 
 [dev-dependencies]
 serde.workspace = true

@@ -10,6 +10,8 @@
 //! app wrote into its data folder, which only the same Windows user can read. Nothing
 //! listens on a network port.
 
+#[cfg(windows)]
+mod client;
 mod frame;
 mod message;
 #[cfg(windows)]
@@ -17,8 +19,10 @@ mod pipe;
 #[cfg(windows)]
 mod register;
 
+#[cfg(windows)]
+pub use client::Client;
 pub use frame::{MAX_FRAME, read_frame, read_json, write_frame, write_json};
-pub use message::{Capture, Link, MediaCapture, MediaItem, Reply, Request};
+pub use message::{AddDownload, Capture, Link, MediaCapture, MediaItem, Reply, Request};
 #[cfg(windows)]
 pub use pipe::{connect, serve};
 #[cfg(windows)]

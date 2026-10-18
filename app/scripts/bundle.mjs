@@ -1,4 +1,4 @@
-// Builds the installer: the browser host as a sidecar next to the app, and, when the update
+// Builds the installer: the browser host and the MCP server as sidecars next to the app, and, when the update
 // signing key is on this machine, the update signature and `latest.json` for GitHub Releases.
 //
 // The key is `%USERPROFILE%\.tauri\idma.key`; its password is in `idma.key.password` beside
@@ -16,13 +16,15 @@ const root = join(app, '..');
 const run = (cmd, args) =>
 	execFileSync(cmd, args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
 
-// The browser host, where `tauri build` takes sidecars from.
+// The browser host and the MCP server, where `tauri build` takes sidecars from.
 const triple = run('rustc', ['--print', 'host-tuple']).trim();
-run('cargo', ['build', '--release', '-p', 'idma-native-host']);
+run('cargo', ['build', '--release', '-p', 'idma-native-host', '-p', 'idma-mcp']);
 const targetDir = process.env.CARGO_TARGET_DIR ?? join(root, 'target');
-const host = join(app, 'src-tauri', 'binaries', `idma-host-${triple}.exe`);
-mkdirSync(dirname(host), { recursive: true });
-copyFileSync(join(targetDir, 'release', 'idma-host.exe'), host);
+for (const bin of ['idma-host', 'idma-mcp']) {
+	const sidecar = join(app, 'src-tauri', 'binaries', `${bin}-${triple}.exe`);
+	mkdirSync(dirname(sidecar), { recursive: true });
+	copyFileSync(join(targetDir, 'release', `${bin}.exe`), sidecar);
+}
 
 const config = JSON.parse(readFileSync(join(app, 'src-tauri', 'tauri.bundle.json'), 'utf8'));
 const env = { ...process.env };

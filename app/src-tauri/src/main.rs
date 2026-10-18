@@ -41,6 +41,9 @@ struct App {
     when_done: Mutex<schedule::Armed>,
     /// Events waiting for the page, which is closed while the app sits in the tray.
     page: Mutex<Page>,
+    /// Latest bytes received and speed of each running download, for local tools asking
+    /// over the bridge (the page gets the same through events).
+    live: Mutex<HashMap<TaskId, (u64, f64)>>,
     /// Listening to the clipboard while the setting is on.
     #[cfg(windows)]
     clipboard: Mutex<Option<clipboard::Watcher>>,
@@ -991,6 +994,7 @@ async fn forward_events(handle: AppHandle, mut events: broadcast::Receiver<Event
         tokio::select! {
             e = events.recv() => match e {
                 Ok(Event::Progress(p)) => {
+                    lock(&handle.state::<App>().live).insert(p.id, (p.received, p.speed));
                     pending.insert(p.id, p);
                 }
                 Ok(e) => {
@@ -1002,6 +1006,7 @@ async fn forward_events(handle: AppHandle, mut events: broadcast::Receiver<Event
                             // A download that stopped must not get a stale progress afterwards.
                             if t.status != Status::Downloading {
                                 pending.remove(&t.id);
+                                lock(&handle.state::<App>().live).remove(&t.id);
                             }
                             let before = statuses.insert(t.id, t.status);
                             if t.status == Status::Downloading
@@ -1017,6 +1022,7 @@ async fn forward_events(handle: AppHandle, mut events: broadcast::Receiver<Event
                         }
                         Event::Removed(id) => {
                             pending.remove(id);
+                            lock(&handle.state::<App>().live).remove(id);
                             statuses.remove(id);
                         }
                         Event::Progress(_) => {}
@@ -1195,8 +1201,89 @@ async fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma
             );
             Reply::ok()
         }
+        Request::Tasks => {
+            let app = handle.state::<App>();
+            match app.manager.list().await {
+                Ok(tasks) => {
+                    let live = lock(&app.live).clone();
+                    Reply {
+                        data: Some(
+                            tasks
+                                .iter()
+                                .map(|t| task_view(t, live.get(&t.id)))
+                                .collect(),
+                        ),
+                        ..Reply::ok()
+                    }
+                }
+                Err(e) => Reply::error(e.to_string()),
+            }
+        }
+        Request::Add(add) => {
+            let app = handle.state::<App>();
+            let new = NewTask {
+                url: add.url,
+                name: add.name.filter(|n| !n.trim().is_empty()),
+                dir: add.dir.filter(|d| !d.trim().is_empty()).map(PathBuf::from),
+                start: add.start.unwrap_or(true),
+                ..NewTask::default()
+            };
+            match app.manager.add(new).await {
+                Ok(t) => Reply {
+                    data: Some(task_view(&t, None)),
+                    ..Reply::ok()
+                },
+                Err(e) => Reply::error(e.to_string()),
+            }
+        }
+        Request::Resume { ids } => {
+            for_each(handle, ids, |m, id| async move { m.start(id).await }).await
+        }
+        Request::Pause { ids } => {
+            for_each(handle, ids, |m, id| async move { m.pause(id).await }).await
+        }
+        Request::Remove { ids, delete_files } => {
+            for_each(handle, ids, move |m, id| async move {
+                m.remove(id, delete_files).await
+            })
+            .await
+        }
         Request::Hello { .. } => Reply::error("unexpected hello"),
     }
+}
+
+/// Runs `action` on each download, stopping at the first that fails.
+async fn for_each<F, Fut>(handle: &AppHandle, ids: Vec<TaskId>, action: F) -> idma_bridge::Reply
+where
+    F: Fn(Manager, TaskId) -> Fut,
+    Fut: std::future::Future<Output = idma_manager::Result<()>>,
+{
+    let manager = handle.state::<App>().manager.clone();
+    for id in ids {
+        if let Err(e) = action(manager.clone(), id).await {
+            return idma_bridge::Reply::error(format!("download {id}: {e}"));
+        }
+    }
+    idma_bridge::Reply::ok()
+}
+
+/// A download as local tools see it: no request headers, which may hold the browser's
+/// cookies.
+fn task_view(t: &Task, live: Option<&(u64, f64)>) -> serde_json::Value {
+    let (received, speed) = live.copied().unwrap_or((t.received, 0.0));
+    serde_json::json!({
+        "id": t.id,
+        "url": t.url,
+        "name": t.name,
+        "path": t.path,
+        "status": t.status,
+        "error": t.error,
+        "size": t.size,
+        "received": received,
+        "speed": speed.round(),
+        "added_at": t.added_at,
+        "finished_at": t.finished_at,
+    })
 }
 
 /// Passed when Windows starts the app at sign-in: stay in the tray.
@@ -1394,6 +1481,7 @@ fn main() {
                 awaiting_link: Mutex::new(None),
                 when_done: Mutex::new(schedule::Armed::default()),
                 page: Mutex::new(Page::default()),
+                live: Mutex::new(HashMap::new()),
                 #[cfg(windows)]
                 clipboard: Mutex::new(None),
                 ffmpeg,

@@ -1,7 +1,8 @@
 {
   "bundle": {
     "externalBin": [
-      "binaries/idma-host"
+      "binaries/idma-host",
+      "binaries/idma-mcp"
     ]
   }
 }

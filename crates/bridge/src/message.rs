@@ -1,5 +1,6 @@
-//! Messages from the extension to the app, and the app's replies. The host passes them on
-//! without looking inside, except to answer `ping` when the app cannot be reached.
+//! Messages from the extension (and from local tools such as `idma-mcp`) to the app, and
+//! the app's replies. The host passes the extension's messages on, refusing the ones only
+//! local tools may send (see [`Request::from_browser`]).
 
 use serde::{Deserialize, Serialize};
 
@@ -7,7 +8,9 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Request {
     /// First message on every pipe connection.
-    Hello { token: String },
+    Hello {
+        token: String,
+    },
     /// Is anyone there? Answered with the app's version.
     Ping,
     /// The browser started a download and handed it over.
@@ -19,6 +22,48 @@ pub enum Request {
     },
     /// Video or audio the extension saw a page load (files, or HLS/DASH playlists).
     Media(MediaCapture),
+    /// The download list. Answered in [`Reply::data`] as an array of tasks.
+    Tasks,
+    /// Adds a download without asking (the tool's user asked for it). Answered with the new
+    /// task in [`Reply::data`].
+    Add(AddDownload),
+    /// Starts (or resumes) these downloads.
+    Resume {
+        ids: Vec<i64>,
+    },
+    Pause {
+        ids: Vec<i64>,
+    },
+    /// Removes these downloads from the list, and their files when `delete_files`.
+    Remove {
+        ids: Vec<i64>,
+        #[serde(default)]
+        delete_files: bool,
+    },
+}
+
+impl Request {
+    /// Whether the browser extension may send this. The extension only hands downloads to
+    /// the app for the user to confirm; listing, adding without asking and removing are for
+    /// tools the user runs, which reach the pipe directly.
+    pub fn from_browser(&self) -> bool {
+        matches!(
+            self,
+            Self::Ping | Self::Download(_) | Self::Links { .. } | Self::Media(_)
+        )
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AddDownload {
+    pub url: String,
+    /// Folder to save into; the app's default folder when absent.
+    pub dir: Option<String>,
+    /// File name; the server's suggestion when absent.
+    pub name: Option<String>,
+    /// `false` adds it paused.
+    pub start: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -91,6 +136,9 @@ pub struct Reply {
     /// The app's version, in answer to `ping`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    /// What a request asked for, e.g. the tasks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
 }
 
 impl Reply {
@@ -99,6 +147,7 @@ impl Reply {
             ok: true,
             error: None,
             version: None,
+            data: None,
         }
     }
 
@@ -107,6 +156,7 @@ impl Reply {
             ok: false,
             error: Some(message.into()),
             version: None,
+            data: None,
         }
     }
 }
@@ -181,6 +231,26 @@ mod tests {
             serde_json::to_string(&Reply::ok()).expect("json"),
             r#"{"ok":true}"#
         );
+    }
+
+    #[test]
+    fn only_capture_messages_come_from_the_browser() {
+        let tasks: Request = serde_json::from_str(r#"{"type":"tasks"}"#).expect("tasks");
+        assert!(!tasks.from_browser());
+        let remove: Request =
+            serde_json::from_str(r#"{"type":"remove","ids":[1,2]}"#).expect("remove");
+        assert_eq!(
+            remove,
+            Request::Remove {
+                ids: vec![1, 2],
+                delete_files: false
+            }
+        );
+        assert!(!remove.from_browser());
+        let add: Request =
+            serde_json::from_str(r#"{"type":"add","url":"https://x/a.zip"}"#).expect("add");
+        assert!(!add.from_browser());
+        assert!(Request::Ping.from_browser());
     }
 
     #[test]

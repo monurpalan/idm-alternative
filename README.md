@@ -28,6 +28,11 @@ feature for feature, built by combining the best ideas from existing open-source
   shut down, batch downloads (`photo[001-100].jpg`), clipboard monitoring, saved logins per
   site, a virus scan when a download finishes, a small progress window per download, and a
   tray icon. Interface in English and Turkish.
+- **For AI assistants:** `idma-mcp`, an [MCP](https://modelcontextprotocol.io) server installed
+  with the app, lets any MCP client add downloads, list them with their progress, pause,
+  resume and remove them. It reaches the app through the same per-user pipe as the browser;
+  nothing listens on a network port. Register it in the client as a stdio server whose
+  command is `%LOCALAPPDATA%\idm-alternative\idma-mcp.exe`.
 
 | | |
 |---|---|
@@ -42,6 +47,8 @@ flowchart LR
         ext["Extension (MV3)<br/>capture, video button,<br/>media detection"]
     end
     host["idma-host<br/>native messaging host"]
+    mcp["idma-mcp<br/>MCP server"]
+    assistant["AI assistant<br/>(MCP client)"]
     subgraph App["Desktop app (Tauri)"]
         ui["Svelte UI<br/>WebView2, closed in the tray"]
         shell["Rust shell<br/>tray, scheduler, clipboard,<br/>updates, virus scan"]
@@ -51,6 +58,8 @@ flowchart LR
     tools["yt-dlp, deno, ffmpeg"]
     ext -- "stdin/stdout" --> host
     host -- "named pipe<br/>(per user, token)" --> shell
+    assistant -- "stdin/stdout" --> mcp
+    mcp -- "named pipe" --> shell
     ui <-- "commands, events" --> shell
     shell --> manager --> engine
     manager -- "sites like YouTube" --> tools
@@ -58,8 +67,10 @@ flowchart LR
 ```
 
 The engine knows one download at a time and nothing about lists; the manager owns the list,
-the queue and the events; the app is a thin shell that the browser host reaches through a
-named pipe only this Windows user can open. More in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+the queue and the events; the app is a thin shell that the browser host and the MCP server
+reach through a named pipe only this Windows user can open. The browser host passes on only
+what the extension may send (downloads for the user to confirm); listing, adding without
+asking and removing are for the user's own tools. More in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 and the decisions in [docs/decisions](docs/decisions).
 
 ## Stack
@@ -79,8 +90,9 @@ crates/
   engine/       download engine (library): HTTP segments, HLS, DASH, subtitles
   manager/      download list, queue, events, saved logins, batch patterns
   media/        HLS and DASH playlist parsing
-  bridge/       messages and the named pipe between browser host and app
+  bridge/       messages and the named pipe between the app and its local clients
   native-host/  `idma-host`, the native messaging host the browser starts
+  mcp/          `idma-mcp`, the MCP server for AI assistants
   cli/          `dm` command-line front end
   testserver/   HTTP server reproducing hostile download scenarios (and HLS/DASH)
   bench/        benchmark runner

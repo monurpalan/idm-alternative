@@ -120,6 +120,16 @@ async fn extension_cannot_send_the_token_and_bad_input_is_answered() {
     )
     .await;
     assert!(!r.ok);
+    // Listing, adding without asking and removing are for the user's own tools.
+    for msg in [
+        serde_json::json!({ "type": "tasks" }),
+        serde_json::json!({ "type": "add", "url": "https://x/a.zip" }),
+        serde_json::json!({ "type": "remove", "ids": [1], "delete_files": true }),
+    ] {
+        let r = ask(&mut h, &msg).await;
+        assert!(!r.ok);
+        assert!(r.error.expect("error").contains("not accepted"));
+    }
     let r = ask(&mut h, &serde_json::json!({ "type": "nonsense" })).await;
     assert!(!r.ok);
     assert!(r.error.expect("error").contains("bad message"));
