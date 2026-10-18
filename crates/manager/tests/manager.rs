@@ -441,6 +441,7 @@ async fn refreshed_link_continues_only_for_the_same_file() {
 }
 
 /// The raw `headers` column of a task, read past the manager.
+#[cfg(windows)]
 async fn raw_headers(db: &Path, id: TaskId) -> String {
     use sqlx::{Connection as _, Row as _};
     let mut c = sqlx::SqliteConnection::connect(&format!("sqlite:{}", db.display()))
