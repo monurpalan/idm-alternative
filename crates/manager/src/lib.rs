@@ -12,6 +12,7 @@
 
 pub mod batch;
 mod db;
+pub mod grabber;
 mod secret;
 mod task;
 pub mod torrent;
@@ -560,6 +561,21 @@ impl Manager {
     pub fn set_global_limit(&self, rate: Option<u64>) {
         self.inner.global.set_rate(rate);
         self.inner.torrents.set_limit(rate);
+    }
+
+    /// Reads `url` and the pages it links to, down to `opts.depth`, and returns the files
+    /// they link to (see [`grabber`]), with the client settings downloads use.
+    pub async fn grab_site(
+        &self,
+        url: &str,
+        opts: &grabber::GrabOptions,
+        progress: impl Fn(grabber::GrabProgress),
+        cancel: &CancellationToken,
+    ) -> Result<Vec<grabber::Found>> {
+        let engine = lock(&self.inner.config).engine.clone();
+        grabber::grab(url, opts, &[], &engine, progress, cancel)
+            .await
+            .map_err(|e| idma_engine::Error::State(e).into())
     }
 
     /// The name and files of a torrent (a magnet link, or a `.torrent` file on the web or on

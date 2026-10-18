@@ -39,6 +39,7 @@
 	import ContextMenu, { type Item } from '#lib/components/ContextMenu.svelte';
 	import DetailPane from '#lib/components/DetailPane.svelte';
 	import LinksDialog from '#lib/components/LinksDialog.svelte';
+	import GrabDialog from '#lib/components/GrabDialog.svelte';
 	import MediaDialog from '#lib/components/MediaDialog.svelte';
 	import PageDialog from '#lib/components/PageDialog.svelte';
 	import SettingsDialog from '#lib/components/SettingsDialog.svelte';
@@ -65,6 +66,7 @@
 		headers?: Headers | null;
 	} | null>(null);
 	let picking = $state<CapturedLinks | null>(null);
+	let grabbing = $state(false);
 	let streaming = $state<CapturedMedia | null>(null);
 	let pageMedia = $state<CapturedMedia | null>(null);
 	let removing = $state<TaskId[] | null>(null);
@@ -305,6 +307,9 @@
 <div class="app">
 	<header>
 		<button class="primary" onclick={() => (adding = { url: '' })} title="Ctrl+N">{t('Add URL')}</button>
+		<button onclick={() => (grabbing = true)} title={t('Find the files a site links to')}
+			>{t('Site grabber')}</button
+		>
 		<button
 			onclick={() => run(startTasks(ids(canStart)))}
 			disabled={!selectedTasks.some(canStart)}>{t('Resume')}</button
@@ -425,6 +430,16 @@
 
 {#if streaming}
 	<MediaDialog media={streaming} onclose={() => (streaming = null)} />
+{/if}
+
+{#if grabbing}
+	<GrabDialog
+		onfound={(found) => {
+			grabbing = false;
+			picking = found;
+		}}
+		onclose={() => (grabbing = false)}
+	/>
 {/if}
 
 {#if picking}

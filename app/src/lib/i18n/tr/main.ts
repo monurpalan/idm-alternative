@@ -1,5 +1,7 @@
 // Turkish texts for the main part of the interface, keyed by the English text.
 export default {
+	'Site grabber': 'Site tarayıcı',
+	'Find the files a site links to': 'Bir sitenin bağlantı verdiği dosyaları bul',
 	// Toolbar
 	'Add URL': 'URL ekle',
 	Resume: 'Devam',

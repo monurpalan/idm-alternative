@@ -39,6 +39,17 @@ struct AddParams {
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
+struct GrabParams {
+    /// The page to start from.
+    url: String,
+    /// 1 (default): the files this page links to; 2: also those of the pages it links to;
+    /// up to 5.
+    depth: Option<u32>,
+    /// Follow only pages on the same site (default true). Files are listed from anywhere.
+    same_site: Option<bool>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
 struct IdsParams {
     /// Download ids, as `list_downloads` shows them.
     ids: Vec<i64>,
@@ -98,6 +109,21 @@ impl Downloads {
             start: p.start,
             mirrors: p.mirrors.unwrap_or_default(),
         }))
+        .await
+    }
+
+    #[tool(
+        description = "Find the files a web page links to (archives, documents, video, pictures...) and, with depth above 1, the pages below it, without downloading them. Returns url, link text and the page each was found on; add the wanted ones with add_download."
+    )]
+    async fn find_site_files(
+        &self,
+        Parameters(p): Parameters<GrabParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.ask(Request::Grab {
+            url: p.url,
+            depth: p.depth,
+            same_site: p.same_site,
+        })
         .await
     }
 

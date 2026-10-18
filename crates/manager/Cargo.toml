@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+futures-util.workspace = true
 base64 = "0.22"
 idma-engine = { path = "../engine" }
 # rqbit's main branch until a release after 9.0.1: 9.0.1's DHT stops for good on Windows at the

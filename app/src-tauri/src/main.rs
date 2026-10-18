@@ -37,6 +37,8 @@ struct App {
     /// A download waiting for the browser to capture a fresh link to it ("refresh in browser"),
     /// and since when.
     awaiting_link: Mutex<Option<(TaskId, std::time::Instant)>>,
+    /// Stops the site grab that is running, if any.
+    grabbing: Mutex<Option<idma_engine::CancellationToken>>,
     /// What to do when all downloads finish (one shot).
     when_done: Mutex<schedule::Armed>,
     /// Events waiting for the page, which is closed while the app sits in the tray.
@@ -390,6 +392,40 @@ fn offer_torrent(handle: &AppHandle, url: &str) {
         serde_json::json!({ "url": url, "filename": null, "size": null, "headers": null }),
         true,
     );
+}
+
+/// Site grabber: the files linked from `url` and the pages below it, to `depth`. Progress
+/// goes to the page as `grab-progress`; a new grab or `cancel_grab` stops a running one.
+#[tauri::command]
+async fn grab_site(
+    handle: AppHandle,
+    app: State<'_, App>,
+    url: String,
+    depth: u32,
+    same_site: bool,
+) -> CmdResult<Vec<idma_manager::grabber::Found>> {
+    let cancel = idma_engine::CancellationToken::new();
+    if let Some(old) = lock(&app.grabbing).replace(cancel.clone()) {
+        old.cancel();
+    }
+    let opts = idma_manager::grabber::GrabOptions {
+        depth: depth.clamp(1, 5),
+        same_site,
+        ..Default::default()
+    };
+    let progress = |p: idma_manager::grabber::GrabProgress| {
+        handle.emit("grab-progress", p).ok();
+    };
+    let result = app.manager.grab_site(&url, &opts, progress, &cancel).await;
+    lock(&app.grabbing).take();
+    result.map_err(msg)
+}
+
+#[tauri::command]
+fn cancel_grab(app: State<'_, App>) {
+    if let Some(c) = lock(&app.grabbing).take() {
+        c.cancel();
+    }
 }
 
 /// A torrent's name and files (a magnet link asks peers for them), for picking files.
@@ -1303,6 +1339,26 @@ async fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma
             })
             .await
         }
+        Request::Grab {
+            url,
+            depth,
+            same_site,
+        } => {
+            let opts = idma_manager::grabber::GrabOptions {
+                depth: depth.unwrap_or(1).clamp(1, 5),
+                same_site: same_site.unwrap_or(true),
+                ..Default::default()
+            };
+            let manager = handle.state::<App>().manager.clone();
+            let cancel = idma_engine::CancellationToken::new();
+            match manager.grab_site(&url, &opts, |_| {}, &cancel).await {
+                Ok(found) => Reply {
+                    data: serde_json::to_value(found).ok(),
+                    ..Reply::ok()
+                },
+                Err(e) => Reply::error(e.to_string()),
+            }
+        }
         Request::Hello { .. } => Reply::error("unexpected hello"),
     }
 }
@@ -1538,6 +1594,7 @@ fn main() {
                 settings: Mutex::new(settings),
                 tray: Mutex::new(Some(tray)),
                 awaiting_link: Mutex::new(None),
+                grabbing: Mutex::new(None),
                 when_done: Mutex::new(schedule::Armed::default()),
                 page: Mutex::new(Page::default()),
                 live: Mutex::new(HashMap::new()),
@@ -1587,6 +1644,8 @@ fn main() {
             refresh_in_browser,
             inspect_media,
             inspect_torrent,
+            grab_site,
+            cancel_grab,
             tools,
             install_tool,
             check_update,

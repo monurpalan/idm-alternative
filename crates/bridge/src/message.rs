@@ -40,6 +40,15 @@ pub enum Request {
         #[serde(default)]
         delete_files: bool,
     },
+    /// The files a site links to (the site grabber), answered in [`Reply::data`] as an
+    /// array of `{url, text, page}`.
+    Grab {
+        url: String,
+        #[serde(default)]
+        depth: Option<u32>,
+        #[serde(default)]
+        same_site: Option<bool>,
+    },
 }
 
 impl Request {
@@ -252,6 +261,9 @@ mod tests {
         let add: Request =
             serde_json::from_str(r#"{"type":"add","url":"https://x/a.zip"}"#).expect("add");
         assert!(!add.from_browser());
+        let grab: Request =
+            serde_json::from_str(r#"{"type":"grab","url":"https://x/"}"#).expect("grab");
+        assert!(!grab.from_browser());
         assert!(Request::Ping.from_browser());
     }
 

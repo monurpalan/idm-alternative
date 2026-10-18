@@ -157,6 +157,7 @@ async fn tools_reach_the_app() {
         names,
         [
             "add_download",
+            "find_site_files",
             "list_downloads",
             "pause_downloads",
             "remove_downloads",
