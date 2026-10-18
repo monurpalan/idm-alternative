@@ -583,3 +583,22 @@ async fn mirrors_are_kept_and_used() {
     assert_eq!(m.get(t.id).await.expect("get").mirrors.len(), 1);
     m.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_mirror_stands_in_when_the_url_is_missing() {
+    let base = start_server().await;
+    let w = WorkDir::new("mirror-stands-in");
+    let m = Manager::open(&w.db(), w.config(1)).await.expect("open");
+    // A mirror network listed an address before that mirror had the file.
+    let t = m
+        .add(NewTask {
+            name: Some("f.bin".into()),
+            mirrors: vec![format!("{base}/file/f.bin?size=2M&seed=32")],
+            ..new_task("http://127.0.0.1:9/f.bin".into())
+        })
+        .await
+        .expect("add");
+    let done = wait_done(&m, t.id).await;
+    assert_file(&done, 32, 2 << 20);
+    m.close().await;
+}

@@ -248,6 +248,22 @@ fn delete_files_of(path: &Path) {
     }
 }
 
+/// Asks the task's URL about the file, or when it fails its mirrors in turn (a mirror
+/// network may list an address before that mirror has the file). The first error is the
+/// one reported.
+async fn probe_any(task: &Task, opts: &Options) -> idma_engine::Result<idma_engine::Probe> {
+    let first = match idma_engine::probe(&task.url, &task.headers, opts).await {
+        Ok(p) => return Ok(p),
+        Err(e) => e,
+    };
+    for mirror in &task.mirrors {
+        if let Ok(p) = idma_engine::probe(mirror, &task.headers, opts).await {
+            return Ok(p);
+        }
+    }
+    Err(first)
+}
+
 /// The site a URL belongs to for saved logins: its host, with the port when it is not the
 /// scheme's default.
 pub fn site_of(url: &str) -> Option<String> {
@@ -1224,7 +1240,7 @@ impl Inner {
             None => {
                 // First start: ask the server for the name and size, then pick a free path.
                 let probe = tokio::select! {
-                    p = idma_engine::probe(&task.url, &task.headers, &opts) => p?,
+                    p = probe_any(&task, &opts) => p?,
                     () = cancel.cancelled() => return Err(idma_engine::Error::Cancelled.into()),
                 };
                 std::fs::create_dir_all(&task.dir).map_err(idma_engine::Error::from)?;
