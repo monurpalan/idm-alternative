@@ -153,7 +153,12 @@ async fn waits_for_an_app_that_is_starting() {
     let p = Profile::new("late");
     // Nothing listens yet. The host "starts the app" (a harmless stand-in program), then
     // keeps trying; the app comes up a second later.
-    let mut h = host(&p.0, r"C:\Windows\System32\whoami.exe");
+    let stand_in = if cfg!(windows) {
+        r"C:\Windows\System32\whoami.exe"
+    } else {
+        "/bin/true"
+    };
+    let mut h = host(&p.0, stand_in);
     let dir = p.0.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(1200)).await;
