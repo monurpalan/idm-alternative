@@ -6,7 +6,7 @@
 // installer is built unsigned and offers no update. `IDMA_SIGNING_KEY` names another key;
 // further arguments go to `tauri build` (e.g. `-- --config test.json`).
 import { execFileSync, execSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -64,17 +64,18 @@ try {
 // `releases/latest/download/shardload-setup.exe` always points at the newest one.
 const LATEST_NAME = 'shardload-setup.exe';
 
+// The installer this run built: named after the product, in the folder of the profile used.
+// Only release builds get `latest.json`; a `--debug` build is for testing.
+const { productName, version } = JSON.parse(readFileSync(join(app, 'src-tauri', 'tauri.conf.json'), 'utf8'));
+const profile = process.argv.includes('--debug') ? 'debug' : 'release';
+const nsis = join(targetDir, profile, 'bundle', 'nsis');
+const setup = `${productName}_${version}_x64-setup.exe`;
+
 if (process.platform === 'win32') {
-	const { version } = JSON.parse(readFileSync(join(app, 'src-tauri', 'tauri.conf.json'), 'utf8'));
-	const nsis = join(targetDir, 'release', 'bundle', 'nsis');
-	const setup = readdirSync(nsis).find((f) => f.endsWith(`_${version}_x64-setup.exe`));
-	if (setup) copyFileSync(join(nsis, setup), join(nsis, LATEST_NAME));
+	copyFileSync(join(nsis, setup), join(nsis, LATEST_NAME));
 }
 
-if (signing && process.platform === 'win32') {
-	const { version } = JSON.parse(readFileSync(join(app, 'src-tauri', 'tauri.conf.json'), 'utf8'));
-	const nsis = join(targetDir, 'release', 'bundle', 'nsis');
-	const setup = readdirSync(nsis).find((f) => f.endsWith(`_${version}_x64-setup.exe`));
+if (signing && profile === 'release' && process.platform === 'win32') {
 	const signature = readFileSync(join(nsis, `${setup}.sig`), 'utf8');
 	const latest = {
 		version,
