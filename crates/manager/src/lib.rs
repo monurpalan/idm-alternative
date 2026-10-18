@@ -12,6 +12,7 @@
 
 pub mod batch;
 mod db;
+pub mod folder;
 pub mod grabber;
 mod secret;
 mod task;
@@ -386,6 +387,14 @@ impl Manager {
 
     pub fn config(&self) -> Config {
         lock(&self.inner.config).clone()
+    }
+
+    /// The folders downloads are saved into: the download folder and each category's folder.
+    pub fn download_folders(&self) -> Vec<PathBuf> {
+        let cfg = self.config();
+        std::iter::once(cfg.dir)
+            .chain(cfg.category_dirs.into_values())
+            .collect()
     }
 
     /// Applies to downloads started from now on; a larger `max_active` starts queued ones.

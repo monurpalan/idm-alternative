@@ -32,7 +32,9 @@ struct AddParams {
     /// `.torrent` file, a `.meta4` metalink, or, with `video_height` or `audio_only`, a page of
     /// a video site (YouTube, X, TikTok, ...; see inspect_video).
     url: String,
-    /// Folder to save into. The app's download folder when omitted.
+    /// Absolute path of a folder to save into: the app's download folder or a category's
+    /// folder from its settings, or a folder inside one of them. The app's download folder
+    /// when omitted.
     dir: Option<String>,
     /// File name. The server's suggestion (for a video, its title) when omitted.
     name: Option<String>,

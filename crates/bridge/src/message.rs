@@ -105,7 +105,8 @@ impl Request {
 #[serde(default)]
 pub struct AddDownload {
     pub url: String,
-    /// Folder to save into; the app's default folder when absent.
+    /// Folder to save into: the download folder or a category's folder, or one inside them;
+    /// the app's default folder when absent. Anything else is refused.
     pub dir: Option<String>,
     /// File name; the server's suggestion when absent.
     pub name: Option<String>,

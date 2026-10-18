@@ -1528,12 +1528,26 @@ async fn tool_add(handle: &AppHandle, add: idma_bridge::AddDownload) -> CmdResul
             ..Default::default()
         });
     }
+    // A tool may save only into the app's own folders (or inside them), so a request cannot
+    // put a file anywhere else, such as an autostart folder.
+    let dir = add.dir.filter(|d| !d.trim().is_empty()).map(PathBuf::from);
+    if let Some(dir) = &dir {
+        let folders = app.manager.download_folders();
+        if !idma_manager::folder::within(dir, &folders) {
+            let allowed: Vec<String> = folders.iter().map(|f| f.display().to_string()).collect();
+            return Err(format!(
+                "{} is not a download folder or inside one; use one of: {}",
+                dir.display(),
+                allowed.join(", ")
+            ));
+        }
+    }
     app.manager
         .add(NewTask {
             mirrors: clean_mirrors(add.mirrors),
             url: add.url,
             name,
-            dir: add.dir.filter(|d| !d.trim().is_empty()).map(PathBuf::from),
+            dir,
             start: add.start.unwrap_or(true),
             checksum: add.checksum.filter(|c| !c.trim().is_empty()),
             stream,
