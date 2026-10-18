@@ -189,6 +189,9 @@
 				<Checkbox bind:checked={s.overwrite}
 					>{t('Replace files with the same name (otherwise save as “name (1)”)')}</Checkbox
 				>
+				<Checkbox bind:checked={s.find_checksums}
+					>{t('Check downloads against the checksum the publisher posts (SHA256SUMS, GitHub)')}</Checkbox
+				>
 				<div class="grid">
 					<Field label={t('Downloads at once')}>
 						<Input type="number" min={1} max={50} bind:value={s.max_active} />

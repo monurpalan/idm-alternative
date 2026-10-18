@@ -250,7 +250,11 @@ pub struct Task {
     pub connections: usize,
     /// This download's own speed limit, bytes per second.
     pub speed_limit: Option<u64>,
+    /// Given by the user, or found for the download (see `checksum_from`).
     pub checksum: Option<String>,
+    /// Where `checksum` was found when the user gave none, e.g. `SHA256SUMS` or
+    /// `GitHub release`.
+    pub checksum_from: Option<String>,
     /// Unix milliseconds.
     pub added_at: i64,
     pub finished_at: Option<i64>,

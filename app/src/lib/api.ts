@@ -25,6 +25,8 @@ export interface Task {
 	connections: number;
 	speed_limit: number | null;
 	checksum: string | null;
+	/** Where `checksum` was found when the user gave none, e.g. `SHA256SUMS`. */
+	checksum_from: string | null;
 	added_at: number;
 	finished_at: number | null;
 	queue_pos: number;
@@ -127,6 +129,8 @@ export interface Settings {
 	torrent_links: boolean;
 	/** Mark finished downloads as coming from the Internet (Windows' Zone.Identifier). */
 	mark_downloads: boolean;
+	/** Look for a published checksum of downloads that have none, and check it. */
+	find_checksums: boolean;
 }
 
 /** List changes; progress comes separately, batched (see `onManagerEvent`). */

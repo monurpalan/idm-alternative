@@ -1,5 +1,5 @@
 //! Checking a finished download against a checksum the user supplied (e.g. from the
-//! project's download page).
+//! project's download page) or one found for it (see `discover`).
 
 use std::fmt;
 use std::io::Read;
@@ -185,6 +185,7 @@ pub(crate) async fn verify(
         Err(Error::ChecksumMismatch {
             expected: want.to_string(),
             actual: format!("{}:{}", algorithm.name(), hex(&got)),
+            origin: None,
         })
     }
 }

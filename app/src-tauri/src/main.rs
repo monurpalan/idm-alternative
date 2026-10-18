@@ -1610,6 +1610,8 @@ fn task_view(t: &Task, live: Option<&(u64, f64)>) -> serde_json::Value {
         "finished_at": t.finished_at,
         "queue_pos": t.queue_pos,
         "speed_limit": t.speed_limit,
+        "checksum": t.checksum,
+        "checksum_from": t.checksum_from,
     })
 }
 

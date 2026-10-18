@@ -69,6 +69,7 @@ fn tls_opts() -> Options {
     Options {
         connections: 8,
         insecure: true,
+        find_checksum: false,
         ..Options::default()
     }
 }
@@ -166,6 +167,7 @@ async fn downloads_through_a_proxy() {
     let o = Options {
         proxy: Some(proxy.clone()),
         connections: 4,
+        find_checksum: false,
         ..Options::default()
     };
     let url = format!(
@@ -289,6 +291,7 @@ async fn downloads_through_a_socks5_proxy() {
     let o = Options {
         proxy: Some(proxy),
         connections: 4,
+        find_checksum: false,
         ..Options::default()
     };
     // Only the proxy can resolve this host (socks5h: names are resolved by the proxy).
@@ -313,6 +316,7 @@ async fn login_prompt_is_not_an_expired_link() {
     let url = format!("{base}/file/secret.bin?size={size}&seed=12&auth=ali:s3cret");
     let opts = Options {
         connections: 4,
+        find_checksum: false,
         ..Options::default()
     };
     match get(url.clone(), &out, &opts).await {

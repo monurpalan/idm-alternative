@@ -46,6 +46,10 @@ enum Command {
         /// digest.
         #[arg(long)]
         checksum: Option<Checksum>,
+        /// Without `--checksum`, do not look for a published one (GitHub's digest of a
+        /// release asset, or `<file>.sha256`, `SHA256SUMS` and the like next to the file).
+        #[arg(long)]
+        no_checksum_search: bool,
         /// Another address of the same file (repeatable). Used alongside the URL once it
         /// serves the same bytes; dropped if it fails or crawls.
         #[arg(short = 'm', long = "mirror")]
@@ -168,6 +172,7 @@ async fn main() -> ExitCode {
             limit,
             net,
             checksum,
+            no_checksum_search,
             mirrors,
             quiet,
         } => {
@@ -179,6 +184,7 @@ async fn main() -> ExitCode {
                 connections,
                 limiters: limit.map(|r| Limiter::new(Some(r))).into_iter().collect(),
                 checksum,
+                find_checksum: !no_checksum_search,
                 ..opts
             };
             let target = Target {
@@ -392,13 +398,18 @@ async fn get(
             Ok(m) => {
                 let mut urls = m.urls.into_iter().take(idma_engine::metalink::MAX_URLS);
                 let first = urls.next().unwrap_or_default();
-                let checksum = match (&opts.checksum, &m.checksum) {
-                    (None, Some(c)) => c.parse().ok(),
-                    _ => opts.checksum.clone(),
+                let (checksum, checksum_from) = match (&opts.checksum, &m.checksum) {
+                    (None, Some(c)) => (c.parse().ok(), Some("metalink".to_owned())),
+                    _ => (opts.checksum.clone(), None),
                 };
                 let output = output.or_else(|| Some(m.name.into()));
                 let mirrors = urls.chain(mirrors).collect();
-                (first, mirrors, output, Options { checksum, ..opts })
+                let opts = Options {
+                    checksum,
+                    checksum_from,
+                    ..opts
+                };
+                (first, mirrors, output, opts)
             }
             Err(e) => {
                 eprintln!("dm: {e}");
@@ -466,6 +477,12 @@ async fn get(
                         String::new()
                     }
                 );
+                if let Some(c) = &done.checksum {
+                    eprintln!(
+                        "checksum ok: {c}{}",
+                        from_note(done.checksum_from.as_deref())
+                    );
+                }
             }
             ExitCode::SUCCESS
         }
@@ -497,7 +514,11 @@ async fn print_progress(mut rx: tokio::sync::watch::Receiver<Progress>) {
                 .size
                 .filter(|s| *s > 0)
                 .map_or(0.0, |s| p.verified as f64 / s as f64 * 100.0);
-            eprint!("\rverifying {pct:>5.1}%{:<60}", "");
+            eprint!(
+                "\rverifying{} {pct:>5.1}%{:<30}",
+                from_note(p.checksum_from.as_deref()),
+                ""
+            );
             std::io::stderr().flush().ok();
             continue;
         }
@@ -520,6 +541,12 @@ async fn print_progress(mut rx: tokio::sync::watch::Receiver<Progress>) {
         );
         std::io::stderr().flush().ok();
     }
+}
+
+/// ` (checksum from SHA256SUMS)` for a checksum the user did not give.
+fn from_note(from: Option<&str>) -> String {
+    from.map(|f| format!(" (checksum from {f})"))
+        .unwrap_or_default()
 }
 
 fn parse_browser(s: &str) -> Result<Option<Browser>, String> {

@@ -62,6 +62,8 @@ export default {
 	'Mark downloads as from the Internet, as browsers do (SmartScreen then checks them)':
 		'İndirilenleri tarayıcılar gibi İnternet’ten gelmiş diye işaretle (SmartScreen de denetler)',
 	Scanner: 'Tarayıcı',
+	'Check downloads against the checksum the publisher posts (SHA256SUMS, GitHub)':
+		'İndirmeleri yayıncının paylaştığı sağlama toplamıyla denetle (SHA256SUMS, GitHub)',
 	'Microsoft Defender, or: "C:\\…\\scan.exe" {f}':
 		'Microsoft Defender ya da: "C:\\…\\scan.exe" {f}',
 	'Offer download links I copy (archives, programs, video, music, documents)':

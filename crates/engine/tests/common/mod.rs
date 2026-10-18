@@ -58,6 +58,7 @@ pub fn request(url: String, output: &Path) -> Request {
 pub fn opts(connections: usize) -> Options {
     Options {
         connections,
+        find_checksum: false,
         ..Options::default()
     }
 }

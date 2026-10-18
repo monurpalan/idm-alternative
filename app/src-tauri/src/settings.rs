@@ -57,6 +57,10 @@ pub struct Settings {
     /// Mark finished downloads as coming from the Internet, as browsers do, so Windows
     /// SmartScreen and Office's Protected View check them.
     pub mark_downloads: bool,
+    /// For a download without a checksum, look for one the publisher gives (GitHub's
+    /// digest of a release asset, `SHA256SUMS` and the like next to the file) and check the
+    /// finished file against it.
+    pub find_checksums: bool,
 }
 
 impl Default for Settings {
@@ -84,6 +88,7 @@ impl Default for Settings {
             language: "system".into(),
             torrent_links: false,
             mark_downloads: true,
+            find_checksums: true,
         }
     }
 }
@@ -147,6 +152,7 @@ impl Settings {
                 browser: self.browser().unwrap_or(Some(Browser::Chrome)),
                 proxy: (!proxy.is_empty()).then(|| proxy.to_owned()),
                 mark_of_the_web: self.mark_downloads,
+                find_checksum: self.find_checksums,
                 ..Options::default()
             },
             ..Config::default()
@@ -209,6 +215,12 @@ mod tests {
         assert_eq!(c.conflict, Conflict::Overwrite);
         assert_eq!(c.engine.browser, None);
         assert_eq!(c.engine.proxy.as_deref(), Some("socks5://127.0.0.1:1080"));
+        assert!(c.engine.find_checksum);
+        let off = Settings {
+            find_checksums: false,
+            ..s.clone()
+        };
+        assert!(!off.config().engine.find_checksum);
         // Older saved settings missing newer fields still load.
         let old: Settings =
             serde_json::from_str(r#"{"dir":"C:\\x","max_active":5}"#).expect("json");
@@ -220,5 +232,6 @@ mod tests {
             ..Settings::default()
         };
         assert!(!off.config().engine.mark_of_the_web);
+        assert!(old.find_checksums);
     }
 }

@@ -199,6 +199,24 @@ impl Db {
         Ok(())
     }
 
+    /// A checksum found for a download the user gave none for, and where it was found.
+    pub(crate) async fn set_found_checksum(
+        &self,
+        id: TaskId,
+        checksum: &str,
+        from: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE tasks SET checksum = ?, checksum_from = ? WHERE id = ? AND checksum IS NULL",
+        )
+        .bind(checksum)
+        .bind(from)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub(crate) async fn set_stream(&self, id: TaskId, stream: &Stream) -> Result<()> {
         sqlx::query("UPDATE tasks SET stream = ? WHERE id = ?")
             .bind(serde_json::to_string(stream)?)
@@ -405,6 +423,7 @@ fn task(r: &SqliteRow) -> Result<Task> {
         connections: r.try_get::<i64, _>("connections")? as usize,
         speed_limit: u64_opt("speed_limit")?,
         checksum: r.try_get("checksum")?,
+        checksum_from: r.try_get("checksum_from")?,
         added_at: r.try_get("added_at")?,
         finished_at: r.try_get("finished_at")?,
         queue_pos: r.try_get("queue_pos")?,

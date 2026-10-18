@@ -39,11 +39,17 @@ impl WorkDir {
         self.0.join("list.db")
     }
 
+    /// Without the search for published checksums: its requests would count in the bytes
+    /// the server sent.
     fn config(&self, max_active: usize) -> Config {
         Config {
             dir: self.0.join("downloads"),
             max_active,
             connections: 4,
+            engine: idma_engine::Options {
+                find_checksum: false,
+                ..idma_engine::Options::default()
+            },
             ..Config::default()
         }
     }
@@ -601,5 +607,43 @@ async fn a_mirror_stands_in_when_the_url_is_missing() {
         .expect("add");
     let done = wait_done(&m, t.id).await;
     assert_file(&done, 32, 2 << 20);
+    m.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn checksum_found_next_to_the_file_is_kept_and_checked() {
+    // A SHA256SUMS that lists a wrong digest for the file.
+    let wrong = "ab".repeat(32);
+    let sums = format!("{wrong}  s.bin\n");
+    let app = router().merge(axum::Router::new().route(
+        "/file/SHA256SUMS",
+        axum::routing::get(move || async move { sums }),
+    ));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("addr"));
+    tokio::spawn(async move { axum::serve(listener, app).await });
+
+    let w = WorkDir::new("found-checksum");
+    let config = Config {
+        engine: idma_engine::Options::default(),
+        ..w.config(1)
+    };
+    let m = Manager::open(&w.db(), config).await.expect("open");
+    let t = m
+        .add(new_task(format!("{base}/file/s.bin?size=1M&seed=40")))
+        .await
+        .expect("add");
+    let t = wait_for(&m, t.id, 60, |t| {
+        matches!(t.status, Status::Done | Status::Error)
+    })
+    .await;
+    assert_eq!(t.status, Status::Error);
+    assert_eq!(t.error_kind, Some(idma_manager::ErrorKind::Checksum));
+    let error = t.error.as_deref().unwrap_or_default();
+    assert!(error.contains("checksum from SHA256SUMS"), "{error}");
+    assert_eq!(t.checksum, Some(format!("sha256:{wrong}")));
+    assert_eq!(t.checksum_from.as_deref(), Some("SHA256SUMS"));
     m.close().await;
 }

@@ -10,9 +10,13 @@
 //!   server that ignores ranges falls back to a single connection.
 //! - Chosen files out of a ZIP archive on a server, without downloading the rest
 //!   ([`RemoteZip`]).
+//! - Without a checksum from the user, one published for the file (GitHub's digest of a
+//!   release asset, `SHA256SUMS` and the like next to it) is looked for while it downloads
+//!   and checked the same way.
 
 mod checksum;
 mod dash;
+mod discover;
 mod download;
 pub mod error;
 mod file;

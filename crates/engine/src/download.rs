@@ -98,6 +98,13 @@ pub struct Options {
     /// `Zone.Identifier` stream browsers write), so SmartScreen and Office's Protected View
     /// treat it as they would a browser download. See [`crate::mark_of_the_web`].
     pub mark_of_the_web: bool,
+    /// Where `checksum` came from when the user did not give it (e.g. `SHA256SUMS`), for
+    /// messages.
+    pub checksum_from: Option<String>,
+    /// Without `checksum`, look for a published one while downloading: GitHub's digest of a
+    /// release asset, or a checksum file next to the file (`<file>.sha256`, `SHA256SUMS`…).
+    /// A checksum found is checked like a given one.
+    pub find_checksum: bool,
 }
 
 impl Default for Options {
@@ -116,6 +123,8 @@ impl Default for Options {
             limiters: Vec::new(),
             checksum: None,
             mark_of_the_web: true,
+            checksum_from: None,
+            find_checksum: true,
         }
     }
 }
@@ -152,6 +161,9 @@ pub struct Progress {
     pub segments: Vec<SegmentView>,
     /// Bytes hashed so far while [`Phase::Verifying`].
     pub verified: u64,
+    /// While [`Phase::Verifying`]: where the checksum came from, `None` when the user gave
+    /// it.
+    pub checksum_from: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -160,6 +172,11 @@ pub struct Outcome {
     /// Bytes already on disk from an earlier attempt.
     pub resumed_from: u64,
     pub elapsed: Duration,
+    /// The checksum the file was verified against, if any.
+    pub checksum: Option<Checksum>,
+    /// Where that checksum came from (e.g. `SHA256SUMS`, `GitHub release`); `None` when the
+    /// user gave it.
+    pub checksum_from: Option<String>,
 }
 
 /// Downloads `req.url` to `req.output`, resuming a previous attempt when possible.
@@ -178,6 +195,25 @@ pub async fn download(
     let part = sibling(&req.output, ".idma-part");
     let state_path = sibling(&req.output, ".idma-state");
     let mut force_single = false;
+    // No checksum given: look for a published one meanwhile. Dropping the set (the download
+    // failed or was cancelled) stops the search.
+    let mut discovery = JoinSet::new();
+    if opts.checksum.is_none() && opts.find_checksum {
+        let names: Vec<String> = crate::name::from_url(&req.url)
+            .into_iter()
+            .chain(
+                req.output
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned()),
+            )
+            .collect();
+        discovery.spawn(crate::discover::discover(
+            http.clone(),
+            http_config(&[], opts),
+            req.url.clone(),
+            names,
+        ));
+    }
     // With mirrors, the URL is just the first address: when it fails, the next one takes
     // its place (a partial file carries over once the new address serves the same bytes).
     let mut current = req.clone();
@@ -192,17 +228,36 @@ pub async fn download(
         };
         match job.run(progress, cancel).await {
             Ok((size, resumed_from)) => {
-                if let Some(want) = &opts.checksum {
-                    match verify(&part, want, progress, cancel).await {
+                let (checksum, checksum_from) = match &opts.checksum {
+                    Some(c) => (Some(c.clone()), opts.checksum_from.clone()),
+                    None => {
+                        let found = tokio::select! {
+                            f = discovery.join_next() => f.and_then(Result::ok).flatten(),
+                            () = cancel.cancelled() => return Err(Error::Cancelled),
+                        };
+                        match found {
+                            Some(f) => (Some(f.checksum), Some(f.from)),
+                            None => (None, None),
+                        }
+                    }
+                };
+                if let Some(want) = &checksum {
+                    match verify(&part, want, checksum_from.as_deref(), progress, cancel).await {
                         // Interrupted: the complete part and its state stay, so the next
                         // attempt only verifies again.
                         Err(Error::Cancelled) => return Err(Error::Cancelled),
                         // Keep the file for inspection; downloading again starts over.
-                        Err(mismatch @ Error::ChecksumMismatch { .. }) => {
+                        Err(Error::ChecksumMismatch {
+                            expected, actual, ..
+                        }) => {
                             std::fs::rename(&part, &req.output)?;
                             std::fs::remove_file(&state_path).ok();
                             mark(&req.output, &current, opts);
-                            return Err(mismatch);
+                            return Err(Error::ChecksumMismatch {
+                                expected,
+                                actual,
+                                origin: checksum_from,
+                            });
                         }
                         other => other?,
                     }
@@ -217,6 +272,8 @@ pub async fn download(
                     size,
                     resumed_from,
                     elapsed: started.elapsed(),
+                    checksum,
+                    checksum_from,
                 });
             }
             Err(Error::RangeIgnored) if !force_single => {
@@ -294,6 +351,7 @@ pub async fn probe(url: &str, headers: &[(String, String)], opts: &Options) -> R
 async fn verify(
     part: &Path,
     want: &Checksum,
+    from: Option<&str>,
     progress: Option<&watch::Sender<Progress>>,
     cancel: &CancellationToken,
 ) -> Result<()> {
@@ -305,6 +363,9 @@ async fn verify(
                 p.speed = 0.0;
                 p.connections = 0;
                 p.verified = done;
+                if p.checksum_from.as_deref() != from {
+                    p.checksum_from = from.map(str::to_owned);
+                }
             });
         }
     };
@@ -1094,6 +1155,7 @@ fn snapshot(t: &Table, size: Option<u64>) -> Progress {
             })
             .collect(),
         verified: 0,
+        checksum_from: None,
     }
 }
 

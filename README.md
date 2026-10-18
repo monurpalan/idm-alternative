@@ -13,7 +13,9 @@ feature for feature, built by combining the best ideas from existing open-source
 - **Fast, resilient downloads.** Up to 16 connections per file with time-based work stealing:
   a connection that crawls has its range taken over, so the last percent does not drag. One
   preallocated file (no joining parts at the end), resume after a crash or `kill -9`, checksum
-  verification, HTTP/2, browser TLS fingerprints, proxies, global and per-download speed limits.
+  verification (the publisher's own checksum is found by itself: GitHub's digest of a release
+  asset, or `SHA256SUMS`, `<file>.sha256` and the like next to the file), HTTP/2, browser TLS
+  fingerprints, proxies, global and per-download speed limits.
 - **Mirrors and Metalink.** Other addresses of the same file are used at the same time once
   each is shown to serve the same bytes; new connections go to the source that gives a
   connection the most, and a mirror that fails or crawls is dropped. A `.meta4` / `.metalink`

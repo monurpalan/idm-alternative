@@ -1251,6 +1251,8 @@ impl Inner {
                 size: done.size,
                 resumed_from: 0,
                 elapsed: started.elapsed(),
+                checksum: None,
+                checksum_from: None,
             }),
             Err(_) if cancel.is_cancelled() => Err(idma_engine::Error::Cancelled.into()),
             Err(e) => Err(state(e)),
@@ -1329,6 +1331,8 @@ impl Inner {
             size,
             resumed_from: 0,
             elapsed: started.elapsed(),
+            checksum: None,
+            checksum_from: None,
         })
     }
 
@@ -1389,6 +1393,7 @@ impl Inner {
             .map(str::parse)
             .transpose()
             .map_err(Error::BadChecksum)?;
+        opts.checksum_from = task.checksum_from.clone();
 
         if let Some(format) = task.stream.as_ref().and_then(|s| s.ytdlp.clone()) {
             let ytdlp = ytdlp.ok_or_else(|| {
@@ -1496,6 +1501,26 @@ impl Inner {
         let result = idma_engine::download(&req, &opts, Some(&tx), cancel).await;
         drop(tx);
         reporter.await.ok();
+        // A checksum found for the file stays with the download, so the list shows it and
+        // the next attempt checks against the same one.
+        let found = match &result {
+            Ok(Outcome {
+                checksum: Some(c),
+                checksum_from: Some(from),
+                ..
+            }) => Some((c.to_string(), from)),
+            Err(idma_engine::Error::ChecksumMismatch {
+                expected,
+                origin: Some(from),
+                ..
+            }) => Some((expected.clone(), from)),
+            _ => None,
+        };
+        if task.checksum.is_none()
+            && let Some((checksum, from)) = found
+        {
+            self.db.set_found_checksum(task.id, &checksum, from).await?;
+        }
         Ok(result?)
     }
 }

@@ -417,6 +417,33 @@ impl Http {
         Ok((String::from_utf8_lossy(&body).into_owned(), final_url))
     }
 
+    /// A small text file such as a checksum list: `None` unless the server answers with
+    /// success and at most `limit` bytes that are not an HTML page. Says no early, from the
+    /// headers, when it can.
+    pub(crate) async fn small_text(&self, url: &str, limit: usize) -> Option<String> {
+        use futures_util::StreamExt;
+        let resp = self.get(url, HeaderMap::new(), 0).await.ok()?;
+        if !resp.status().is_success()
+            || resp.content_length().is_some_and(|n| n > limit as u64)
+            || resp
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|t| t.to_ascii_lowercase().contains("html"))
+        {
+            return None;
+        }
+        let mut body = Vec::new();
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            body.extend_from_slice(&chunk.ok()?);
+            if body.len() > limit {
+                return None;
+            }
+        }
+        String::from_utf8(body).ok()
+    }
+
     /// Downloads `[start, end)` whole; for small checks, not for file data.
     pub async fn fetch(&self, remote: &Remote, start: u64, end: u64, slot: u64) -> Result<Vec<u8>> {
         let resp = self.range(remote, start, Some(end), slot).await?;

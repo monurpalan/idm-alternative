@@ -22,7 +22,8 @@ fn dm(url: &str, out: &PathBuf) -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_dm"));
     c.args(["get", url, "-o"])
         .arg(out)
-        .args(["-c", "4", "-q"])
+        // Requests for checksum files would count in the bytes the server sent.
+        .args(["-c", "4", "-q", "--no-checksum-search"])
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     c

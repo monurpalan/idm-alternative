@@ -37,6 +37,7 @@ fn opts() -> Options {
     Options {
         connections: 4,
         checkpoint_every: Duration::from_millis(200),
+        find_checksum: false,
         ..Options::default()
     }
 }
