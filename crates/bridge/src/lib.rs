@@ -144,6 +144,18 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
+    fn the_socket_is_in_the_data_folder() {
+        let a = pipe_name(Path::new("/home/x/.local/share/io.github.monurpalan.idma"));
+        assert_eq!(
+            a,
+            "/home/x/.local/share/io.github.monurpalan.idma/bridge.sock"
+        );
+        assert_ne!(a, pipe_name(Path::new("/tmp/idma-ui")));
+    }
+
+    #[test]
+    #[cfg(windows)]
     fn pipe_names_differ_per_profile() {
         let a = pipe_name(Path::new(
             r"C:\Users\x\AppData\Roaming\io.github.monurpalan.idma",

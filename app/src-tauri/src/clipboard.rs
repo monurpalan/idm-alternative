@@ -7,7 +7,10 @@ use idma_manager::Category;
 /// The link in copied text worth offering: one http(s) URL whose file name has a type IDM
 /// would take (archives, documents, music, programs, video), so copying an ordinary page
 /// address does nothing.
-#[cfg_attr(not(windows), allow(dead_code, reason = "clipboard watching is Windows-only"))]
+#[cfg_attr(
+    not(windows),
+    allow(dead_code, reason = "clipboard watching is Windows-only")
+)]
 pub fn link_in(text: &str) -> Option<String> {
     let text = text.trim();
     if text.len() > 4096 || text.contains(char::is_whitespace) {
