@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { downloads, inView, VIEWS, type View } from '../downloads.svelte.ts';
 	import { t } from '../i18n.svelte.ts';
+	import { Button } from './ui/index.ts';
 
 	let { view = $bindable() }: { view: View } = $props();
 
@@ -13,14 +14,12 @@
 
 <nav aria-label={t('Categories')}>
 	{#each VIEWS as v (v.id)}
-		<button
-			class:active={view === v.id}
-			class:sub={v.id !== 'all' && v.id !== 'unfinished' && v.id !== 'finished'}
-			onclick={() => (view = v.id)}
-		>
-			<span>{t(v.label)}</span>
-			<span class="count">{counts[v.id] || ''}</span>
-		</button>
+		<div class:sub={v.id !== 'all' && v.id !== 'unfinished' && v.id !== 'finished'}>
+			<Button variant="nav" active={view === v.id} onclick={() => (view = v.id)}>
+				<span>{t(v.label)}</span>
+				<span class="count">{counts[v.id] || ''}</span>
+			</Button>
+		</div>
 	{/each}
 </nav>
 
@@ -28,40 +27,18 @@
 	nav {
 		display: flex;
 		flex-direction: column;
-		padding: 8px 6px;
-		gap: 1px;
+		gap: var(--space-1);
+		padding: var(--space-2);
 		border-right: 1px solid var(--line);
 		background: var(--panel);
 		overflow-y: auto;
 	}
-	button {
-		display: flex;
-		justify-content: space-between;
-		gap: 8px;
-		border: 0;
-		border-radius: 5px;
-		background: transparent;
-		color: inherit;
-		text-align: left;
-		padding: 6px 10px;
-		cursor: pointer;
-		font: inherit;
-	}
-	button.sub {
-		padding-left: 22px;
-	}
-	button:hover {
-		background: var(--hover);
-	}
-	button.active {
-		background: var(--selected);
-		color: var(--selected-fg);
+	.sub {
+		padding-left: var(--space-3);
 	}
 	.count {
 		color: var(--muted);
+		font-size: var(--text-caption);
 		font-variant-numeric: tabular-nums;
-	}
-	button.active .count {
-		color: inherit;
 	}
 </style>

@@ -45,6 +45,7 @@
 	import SettingsDialog from '#lib/components/SettingsDialog.svelte';
 	import Sidebar from '#lib/components/Sidebar.svelte';
 	import TaskList from '#lib/components/TaskList.svelte';
+	import { Button, Input, Select } from '#lib/components/ui/index.ts';
 	import {
 		compare,
 		downloads,
@@ -306,33 +307,32 @@
 
 <div class="app">
 	<header>
-		<button class="primary" onclick={() => (adding = { url: '' })} title="Ctrl+N">{t('Add URL')}</button>
-		<button onclick={() => (grabbing = true)} title={t('Find the files a site links to')}
-			>{t('Site grabber')}</button
+		<Button variant="primary" onclick={() => (adding = { url: '' })} title="Ctrl+N">{t('Add URL')}</Button>
+		<Button onclick={() => (grabbing = true)} title={t('Find the files a site links to')}
+			>{t('Site grabber')}</Button
 		>
-		<button
-			onclick={() => run(startTasks(ids(canStart)))}
-			disabled={!selectedTasks.some(canStart)}>{t('Resume')}</button
+		<Button onclick={() => run(startTasks(ids(canStart)))} disabled={!selectedTasks.some(canStart)}
+			>{t('Resume')}</Button
 		>
-		<button
-			onclick={() => run(pauseTasks(ids(canPause)))}
-			disabled={!selectedTasks.some(canPause)}>{t('Pause')}</button
+		<Button onclick={() => run(pauseTasks(ids(canPause)))} disabled={!selectedTasks.some(canPause)}
+			>{t('Pause')}</Button
 		>
-		<button
+		<Button
 			onclick={() => (removing = selectedTasks.map((t) => t.id))}
 			disabled={!selectedTasks.length}
-			title="Delete">{t('Remove')}</button
+			title="Delete">{t('Remove')}</Button
 		>
 		<span class="sep"></span>
-		<button onclick={() => run(startAll())} title={t('Queue every paused or failed download')}
-			>{t('Start all')}</button
+		<Button onclick={() => run(startAll())} title={t('Queue every paused or failed download')}
+			>{t('Start all')}</Button
 		>
-		<button onclick={() => run(pauseAll())} title={t('Pause every running and queued download')}
-			>{t('Pause all')}</button
+		<Button onclick={() => run(pauseAll())} title={t('Pause every running and queued download')}
+			>{t('Pause all')}</Button
 		>
 		<label class="when" title={t('One time: when nothing is downloading or waiting any more')}>
 			{t('When done')}
-			<select
+			<Select
+				variant="inline"
 				value={whenDone}
 				onchange={(e) => run(setWhenDone(e.currentTarget.value as WhenDone))}
 			>
@@ -341,19 +341,17 @@
 				<option value="sleep">{t('sleep')}</option>
 				<option value="hibernate">{t('hibernate')}</option>
 				<option value="shutdown">{t('shut down')}</option>
-			</select>
+			</Select>
 		</label>
 		<span class="sep"></span>
-		<button
-			class="toggle"
-			aria-pressed={showDetails}
+		<Button
+			pressed={showDetails}
 			onclick={() => (showDetails = !showDetails)}
-			title={t('Details of the selected download')}>{t('Details')}</button
+			title={t('Details of the selected download')}>{t('Details')}</Button
 		>
-		<button class="icon" onclick={() => (settingsOpen = true)} title={t('Settings')} aria-label={t('Settings')}
-			>⚙</button
-		>
-		<input class="search" type="search" bind:value={search} placeholder={t('Search')} aria-label={t('Search')} />
+		<span class="push"></span>
+		<Button icon="settings" onclick={() => (settingsOpen = true)} title={t('Settings')} label={t('Settings')} />
+		<Input variant="search" type="search" bind:value={search} placeholder={t('Search')} label={t('Search')} />
 	</header>
 
 	<Sidebar bind:view />
@@ -372,14 +370,14 @@
 			<span class="info"
 				>{t('idm-alternative {version} is available.', { version: update.version })}</span
 			>
-			<button onclick={applyUpdate} disabled={updating}
-				>{updating ? t('Downloading…') : t('Install and restart')}</button
+			<Button onclick={applyUpdate} disabled={updating}
+				>{updating ? t('Downloading…') : t('Install and restart')}</Button
 			>
 			<span>{t('Running downloads pause and continue after the restart.')}</span>
-			<button class="dismiss" onclick={() => (update = null)} aria-label={t('Later')}>×</button>
+			<Button variant="ghost" icon="close" onclick={() => (update = null)} label={t('Later')} />
 		{:else if info}
 			<span class="info">{info}</span>
-			<button class="dismiss" onclick={() => (info = null)} aria-label={t('Dismiss')}>×</button>
+			<Button variant="ghost" icon="close" onclick={() => (info = null)} label={t('Dismiss')} />
 		{:else}
 			<span>{t('{n} downloading', { n: downloads.active })}</span>
 			{#if downloads.speed > 0}<span>{speed(downloads.speed)}</span>{/if}
@@ -462,7 +460,7 @@
 <style>
 	.app {
 		display: grid;
-		grid-template-columns: 190px 1fr;
+		grid-template-columns: 192px 1fr;
 		grid-template-rows: auto 1fr auto;
 		grid-template-areas:
 			'head head'
@@ -474,81 +472,63 @@
 		grid-area: head;
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		white-space: nowrap;
-		padding: 8px 10px;
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
 		border-bottom: 1px solid var(--line);
 		background: var(--panel);
+		white-space: nowrap;
 	}
-	.icon {
+	.push {
 		margin-left: auto;
-		padding: 4px 9px;
-		font-size: 15px;
-		line-height: 1;
 	}
-	.search {
-		width: 220px;
-		padding: 5px 8px;
-		border: 1px solid var(--line);
-		border-radius: 5px;
-		background: var(--field);
-		color: var(--fg);
-		font: inherit;
+	header :global(input) {
+		max-width: 224px;
 	}
 	:global(nav) {
 		grid-area: side;
 	}
 	main {
 		grid-area: main;
-		min-height: 0;
-		min-width: 0;
 		display: grid;
 		grid-template-rows: 1fr;
+		min-height: 0;
+		min-width: 0;
 	}
 	main.split {
-		grid-template-rows: 1fr 230px;
+		grid-template-rows: 1fr 232px;
 	}
 	.when {
 		display: flex;
 		align-items: center;
-		gap: 6px;
+		gap: var(--space-2);
 		color: var(--muted);
-		white-space: nowrap;
 	}
 	.sep {
-		width: 1px;
 		align-self: stretch;
-		margin: 2px 4px;
+		width: 1px;
+		margin: var(--space-1) 0;
 		background: var(--line);
-	}
-	.toggle[aria-pressed='true'] {
-		background: var(--selected);
-		color: var(--selected-fg);
-		border-color: transparent;
 	}
 	footer {
 		grid-area: foot;
 		display: flex;
-		gap: 16px;
-		padding: 4px 10px;
+		align-items: center;
+		gap: var(--space-4);
+		min-height: var(--space-8);
+		padding: 0 var(--space-3);
 		border-top: 1px solid var(--line);
 		background: var(--panel);
 		color: var(--muted);
+		font-size: var(--text-caption);
 		font-variant-numeric: tabular-nums;
 	}
 	.right {
 		margin-left: auto;
 	}
 	.notice {
-		color: var(--danger);
+		color: var(--accent);
 	}
 	.info {
 		color: var(--fg);
-	}
-	.dismiss {
-		padding: 0 6px;
-		border: 0;
-		background: transparent;
-		color: var(--muted);
 	}
 </style>

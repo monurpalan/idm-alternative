@@ -5,6 +5,7 @@
 	import { addTask, inspectMedia, tools, type CapturedMedia, type StreamInfo } from '../api.ts';
 	import { duration } from '../format.ts';
 	import { msg, t } from '../i18n.svelte.ts';
+	import { Button, Checkbox, Dialog, Field, Input, Section, Select, Text } from './ui/index.ts';
 
 	let {
 		media,
@@ -26,7 +27,7 @@
 	let subtitles = $state(new Set<string>());
 	let ffmpeg = $state(true);
 	let busy = $state(false);
-	let dialog: HTMLDialogElement | undefined = $state();
+	let dialog: { close(): void } | undefined = $state();
 
 	/** Why the stream cannot be downloaded, if it cannot. */
 	const blocked = $derived.by(() => {
@@ -82,7 +83,6 @@
 	}
 
 	onMount(() => {
-		dialog?.showModal();
 		name = media.title ?? '';
 		tools()
 			.then((found) => (ffmpeg = found.ffmpeg))
@@ -103,168 +103,80 @@
 		const lang = track.language && track.language !== track.name ? `(${track.language})` : '';
 		return [track.name, lang].filter(Boolean).join(' ') || (track.id ?? t('Track'));
 	}
-
 </script>
 
-<dialog bind:this={dialog} onclose={onclose} aria-labelledby="media-title">
-	<h2 id="media-title">{media.title || t('Video')}</h2>
+<Dialog bind:this={dialog} title={media.title || t('Video')} {onclose}>
 	{#if streams.length > 1}
-		<label class="field">
-			{t('Stream')}
-			<select value={chosenUrl} onchange={(e) => load((e.target as HTMLSelectElement).value)}>
+		<Field label={t('Stream')}>
+			<Select value={chosenUrl} onchange={(e) => load(e.currentTarget.value)}>
 				{#each streams as s (s.url)}
 					<option value={s.url}>{s.kind.toUpperCase()} · {s.url}</option>
 				{/each}
-			</select>
-		</label>
+			</Select>
+		</Field>
 	{/if}
 
 	{#if loading}
-		<p class="muted">{t('Reading the playlist…')}</p>
+		<Text variant="muted">{t('Reading the playlist…')}</Text>
 	{:else if error}
-		<p class="error">{error}</p>
+		<Text variant="error">{error}</Text>
 	{:else if info}
-		<p class="muted">
+		<Text variant="muted">
 			{info.format.toUpperCase()}{info.duration ? ` · ${duration(info.duration)}` : ''}{info.live
 				? ` · ${t('live')}`
 				: ''}
-		</p>
+		</Text>
 		{#if info.encryption === 'DRM'}
-			<p class="error">{t('This stream is protected (DRM). It cannot be saved in a playable form.')}</p>
+			<Text variant="error">{t('This stream is protected (DRM). It cannot be saved in a playable form.')}</Text>
 		{:else if info.live}
-			<p class="warn">{t('A live stream: downloading records it until you stop it.')}</p>
+			<Text>{t('A live stream: downloading records it until you stop it.')}</Text>
 		{/if}
 
-		<fieldset>
-			<legend>{t('Quality')}</legend>
+		<Section title={t('Quality')}>
 			{#each info.video as v (v.id)}
-				<label class="option">
-					<input type="radio" name="video" value={v.id} bind:group={video} />
-					{quality(v)}
-				</label>
+				<Checkbox type="radio" name="video" value={v.id} bind:group={video}>{quality(v)}</Checkbox>
 			{/each}
-		</fieldset>
+		</Section>
 
 		{#if info.audio.length}
-			<label class="field">
-				{t('Audio')}
-				<select bind:value={audio}>
+			<Field label={t('Audio')}>
+				<Select bind:value={audio}>
 					{#each info.audio as a (a.id ?? a.name)}
 						<option value={a.id ?? ''}>{trackName(a)}</option>
 					{/each}
-				</select>
-			</label>
+				</Select>
+			</Field>
 		{/if}
 
 		{#if info.subtitles.length}
-			<fieldset>
-				<legend>{t('Subtitles (saved next to the video)')}</legend>
+			<Section title={t('Subtitles (saved next to the video)')}>
 				{#each info.subtitles as s (s.id ?? s.name)}
-					<label class="option">
-						<input
-							type="checkbox"
-							disabled={!s.id}
-							checked={!!s.id && subtitles.has(s.id)}
-							onchange={() => {
-								const next = new Set(subtitles);
-								if (s.id && next.has(s.id)) next.delete(s.id);
-								else if (s.id) next.add(s.id);
-								subtitles = next;
-							}}
-						/>
-						{trackName(s)}
-					</label>
+					<Checkbox
+						disabled={!s.id}
+						checked={!!s.id && subtitles.has(s.id)}
+						onchange={() => {
+							const next = new Set(subtitles);
+							if (s.id && next.has(s.id)) next.delete(s.id);
+							else if (s.id) next.add(s.id);
+							subtitles = next;
+						}}>{trackName(s)}</Checkbox
+					>
 				{/each}
-			</fieldset>
+			</Section>
 		{/if}
 
-		<label class="field">
-			{t('Save as')}
-			<input bind:value={name} placeholder={t('Name from the address')} />
-		</label>
+		<Field label={t('Save as')}>
+			<Input bind:value={name} placeholder={t('Name from the address')} />
+		</Field>
 	{/if}
 
 	{#if info && !ffmpeg}
-		<p class="note">{t('ffmpeg was not found: the video is saved as joined .ts segments.')}</p>
+		<Text variant="caption">{t('ffmpeg was not found: the video is saved as joined .ts segments.')}</Text>
 	{/if}
-	{#if blocked && info}<p class="note">{t(blocked)}.</p>{/if}
-	<div class="buttons">
-		<button type="button" onclick={() => dialog?.close()}>{t('Close')}</button>
-		<button type="button" class="primary" disabled={!!blocked || busy} onclick={download}>{t('Download')}</button>
-	</div>
-</dialog>
+	{#if blocked && info}<Text variant="caption">{t(blocked)}.</Text>{/if}
 
-<style>
-	dialog {
-		width: min(560px, calc(100vw - 32px));
-		max-height: calc(100vh - 48px);
-		border: 1px solid var(--line);
-		border-radius: 10px;
-		background: var(--bg);
-		color: var(--fg);
-		padding: 18px 20px;
-		box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
-	}
-	dialog::backdrop {
-		background: rgb(0 0 0 / 0.3);
-	}
-	h2 {
-		font-size: 16px;
-		margin: 0 0 8px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	fieldset {
-		border: 1px solid var(--line);
-		border-radius: 8px;
-		margin: 10px 0;
-		padding: 6px 12px 8px;
-	}
-	legend {
-		color: var(--muted);
-		padding: 0 4px;
-	}
-	.option {
-		display: flex;
-		gap: 8px;
-		align-items: center;
-		padding: 3px 0;
-		font-variant-numeric: tabular-nums;
-	}
-	.field {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		color: var(--muted);
-		margin: 10px 0;
-	}
-	select,
-	.field input {
-		padding: 5px 8px;
-		border: 1px solid var(--line);
-		border-radius: 5px;
-		background: var(--field);
-		color: var(--fg);
-		font: inherit;
-	}
-	.muted,
-	.note {
-		color: var(--muted);
-	}
-	.note {
-		font-size: 12px;
-	}
-	.error {
-		color: var(--danger);
-	}
-	.warn {
-		color: var(--fg);
-	}
-	.buttons {
-		display: flex;
-		justify-content: flex-end;
-		gap: 8px;
-		margin-top: 12px;
-	}
-</style>
+	{#snippet actions()}
+		<Button onclick={() => dialog?.close()}>{t('Close')}</Button>
+		<Button variant="primary" disabled={!!blocked || busy} onclick={download}>{t('Download')}</Button>
+	{/snippet}
+</Dialog>

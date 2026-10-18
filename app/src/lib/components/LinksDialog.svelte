@@ -2,10 +2,10 @@
 	// "Download all links": the links of a page, to pick from. Filtering by type keeps a page
 	// of hundreds of links manageable.
 
-	import { onMount } from 'svelte';
 	import { addTask } from '../api.ts';
 	import { nameFromUrl } from '../downloads.svelte.ts';
 	import { t } from '../i18n.svelte.ts';
+	import { Button, Checkbox, Dialog, Input, Text } from './ui/index.ts';
 
 	let {
 		referrer,
@@ -30,7 +30,7 @@
 	let filter = $state('');
 	let chosen = $state(new Set<string>());
 	let busy = $state(false);
-	let dialog: HTMLDialogElement | undefined = $state();
+	let dialog: { close(): void } | undefined = $state();
 
 	/** Typing ".zip .pdf" keeps those types; any other text matches names and link texts. */
 	const shown = $derived.by(() => {
@@ -41,8 +41,6 @@
 			return words.some((w) => (w.startsWith('.') ? i.name.toLowerCase().endsWith(w) : hay.includes(w)));
 		});
 	});
-
-	onMount(() => dialog?.showModal());
 
 	function toggle(url: string) {
 		const next = new Set(chosen);
@@ -67,120 +65,79 @@
 	}
 </script>
 
-<dialog bind:this={dialog} onclose={onclose} aria-labelledby="links-title">
-	<h2 id="links-title">{t('Links on the page')}</h2>
+<Dialog bind:this={dialog} title={t('Links on the page')} size="wide" tall {onclose}>
 	<div class="bar">
-		<input bind:value={filter} placeholder={t('Filter: .zip .pdf, or any text')} aria-label={t('Filter')} />
-		<button type="button" onclick={() => (chosen = new Set([...chosen, ...shown.map((i) => i.url)]))}
-			>{t('Select shown')}</button
+		<Input
+			variant="search"
+			bind:value={filter}
+			placeholder={t('Filter: .zip .pdf, or any text')}
+			label={t('Filter')}
+		/>
+		<Button onclick={() => (chosen = new Set([...chosen, ...shown.map((i) => i.url)]))}
+			>{t('Select shown')}</Button
 		>
-		<button type="button" onclick={() => (chosen = new Set())}>{t('None')}</button>
+		<Button onclick={() => (chosen = new Set())}>{t('None')}</Button>
 	</div>
 	<ul>
 		{#each shown as i (i.url)}
-			<li>
-				<label title={i.url}>
-					<input type="checkbox" checked={chosen.has(i.url)} onchange={() => toggle(i.url)} />
-					<span class="name">{i.name}</span>
+			<li title={i.url}>
+				<Checkbox checked={chosen.has(i.url)} onchange={() => toggle(i.url)}>
+					{i.name}
 					{#if i.text && i.text !== i.name}<span class="text">{i.text}</span>{/if}
-				</label>
+				</Checkbox>
 			</li>
 		{:else}
-			<li class="empty">{t('No links match.')}</li>
+			<li class="empty"><Text variant="muted">{t('No links match.')}</Text></li>
 		{/each}
 	</ul>
-	<div class="buttons">
-		<span class="count">{t('{n} of {total} selected', { n: chosen.size, total: items.length })}</span>
-		<button type="button" onclick={() => dialog?.close()}>{t('Cancel')}</button>
-		<button type="button" class="primary" disabled={!chosen.size || busy} onclick={download}>
+
+	{#snippet actions()}
+		<span class="count">
+			<Text variant="muted">{t('{n} of {total} selected', { n: chosen.size, total: items.length })}</Text>
+		</span>
+		<Button onclick={() => dialog?.close()}>{t('Cancel')}</Button>
+		<Button variant="primary" disabled={!chosen.size || busy} onclick={download}>
 			{chosen.size ? t('Download {n}', { n: chosen.size }) : t('Download')}
-		</button>
-	</div>
-</dialog>
+		</Button>
+	{/snippet}
+</Dialog>
 
 <style>
-	dialog {
-		width: min(680px, calc(100vw - 32px));
-		height: min(560px, calc(100vh - 48px));
-		border: 1px solid var(--line);
-		border-radius: 10px;
-		background: var(--bg);
-		color: var(--fg);
-		padding: 18px 20px;
-		box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
-		box-sizing: border-box;
-	}
-	dialog[open] {
-		display: flex;
-		flex-direction: column;
-	}
-	dialog::backdrop {
-		background: rgb(0 0 0 / 0.3);
-	}
-	h2 {
-		font-size: 16px;
-		margin: 0 0 12px;
-	}
 	.bar {
 		display: flex;
-		gap: 6px;
-		margin-bottom: 8px;
-	}
-	.bar input {
-		flex: 1;
-		padding: 5px 8px;
-		border: 1px solid var(--line);
-		border-radius: 5px;
-		background: var(--field);
-		color: var(--fg);
-		font: inherit;
+		gap: var(--space-2);
 	}
 	ul {
 		flex: 1;
 		min-height: 0;
-		overflow-y: auto;
-		list-style: none;
 		margin: 0;
 		padding: 0;
+		overflow-y: auto;
 		border: 1px solid var(--line);
-		border-radius: 6px;
+		border-radius: var(--radius-1);
+		list-style: none;
 	}
-	li label {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 5px 8px;
+	li {
+		padding: var(--space-1) var(--space-2);
+		overflow: hidden;
 		border-bottom: 1px solid var(--line-soft);
 		white-space: nowrap;
-		overflow: hidden;
-		cursor: default;
 	}
-	li label:hover {
+	li:hover {
 		background: var(--hover);
 	}
-	.name {
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
 	.text {
+		margin-left: var(--space-2);
 		color: var(--muted);
-		overflow: hidden;
-		text-overflow: ellipsis;
 	}
 	.empty {
-		color: var(--muted);
-		padding: 16px;
+		padding: var(--space-4);
 		text-align: center;
 	}
-	.buttons {
-		display: flex;
-		align-items: center;
-		justify-content: flex-end;
-		gap: 8px;
-		margin-top: 12px;
+	.empty:hover {
+		background: transparent;
 	}
 	.count {
 		margin-right: auto;
-		color: var(--muted);
 	}
 </style>

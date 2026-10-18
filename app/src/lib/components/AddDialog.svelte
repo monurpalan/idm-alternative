@@ -19,6 +19,7 @@
 	} from '../api.ts';
 	import { bytes } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
+	import { Button, Checkbox, Dialog, Field, Input, Textarea } from './ui/index.ts';
 
 	let {
 		url: initialUrl = '',
@@ -66,12 +67,11 @@
 	let password = $state('');
 	let remember = $state(false);
 	const login = (): Login | null => (user ? { user, password, remember } : null);
-	let dialog: HTMLDialogElement | undefined = $state();
+	let dialog: { close(): void } | undefined = $state();
 
 	// Once, on opening; an effect would rerun whenever the fields it reads change.
 	onMount(() => {
 		url = initialUrl;
-		dialog?.showModal();
 		getSettings()
 			.then((s) => (defaultDir = s.per_category ? `${s.dir}\\<type>` : s.dir))
 			.catch(() => {});
@@ -166,269 +166,182 @@
 	}
 </script>
 
-<dialog bind:this={dialog} onclose={onclose} aria-labelledby="add-title">
-	<form
-		onsubmit={(e) => {
-			e.preventDefault();
-			add(true);
-		}}
-	>
-		<h2 id="add-title">{t('Add download')}</h2>
-		{#if headers?.length}
-			<p class="from">{t('From the browser, with its cookies and referrer.')}</p>
-		{/if}
+<Dialog bind:this={dialog} title={t('Add download')} {onclose} onsubmit={() => add(true)}>
+	{#if headers?.length}
+		<p class="muted">{t('From the browser, with its cookies and referrer.')}</p>
+	{/if}
 
-		<label>
-			{t('Address')}
-			<input
-				type="text"
-				inputmode="url"
-				bind:value={url}
-				onblur={() => check()}
-				onkeydown={(e) => {
-					if (e.key === 'Enter' && !info) {
-						e.preventDefault();
-						check();
-					}
-				}}
-				placeholder={t('https://   (photo[001-100].jpg adds a batch)')}
-				required
-			/>
-		</label>
+	<Field label={t('Address')}>
+		<Input
+			inputmode="url"
+			bind:value={url}
+			onblur={() => check()}
+			onkeydown={(e) => {
+				if (e.key === 'Enter' && !info) {
+					e.preventDefault();
+					check();
+				}
+			}}
+			placeholder={t('https://   (photo[001-100].jpg adds a batch)')}
+			required
+		/>
+	</Field>
 
-		<div class="info" aria-live="polite">
-			{#if checking && isTorrent(url)}
-				{t('Reading the torrent… (a magnet link asks peers, which can take a minute)')}
-			{:else if checking}
-				{t('Asking the server…')}
-			{:else if error}
-				<span class="error">{error}</span>
-			{:else if torrent}
-				{t('Torrent: {n} files, {size}', { n: torrent.files.length, size: bytes(torrent.size) })}
-			{:else if batch}
-				{t('Batch: {n} downloads', { n: batch.count })} ·
-				<span class="ends" title={batch.first}>{batch.first.split('/').pop()}</span>
-				–
-				<span class="ends" title={batch.last}>{batch.last.split('/').pop()}</span>
-			{:else if info?.needs_login}
-				<span class="warn"
-					>{info.realm
-						? t('The server asks for a user name and password ({realm}).', { realm: info.realm })
-						: t('The server asks for a user name and password.')}</span
-				>
-			{:else if info}
-				{#if info.saved_login}{t('Logs in as {user} (saved for this site)', { user: info.saved_login })} ·{/if}
-				{info.size !== null ? bytes(info.size) : t('Size unknown')}
-				· {info.resumable ? t('Can resume and use several connections') : t('Cannot resume (one connection)')}
-			{:else}
-				&nbsp;
-			{/if}
-		</div>
-
-		{#if torrent && torrent.files.length > 1}
-			<fieldset class="files">
-				<legend>
-					{t('Files ({size} chosen)', { size: bytes(chosenSize) })}
-					<button type="button" class="link" onclick={() => (chosen = chosen.map(() => true))}
-						>{t('All')}</button
-					>
-					<button type="button" class="link" onclick={() => (chosen = chosen.map(() => false))}
-						>{t('None')}</button
-					>
-				</legend>
-				<ul>
-					{#each torrent.files as f, i (i)}
-						<li>
-							<label>
-								<input type="checkbox" bind:checked={chosen[i]} />
-								<span class="fname" title={f.name}>{f.name}</span>
-								<span class="fsize">{bytes(f.size)}</span>
-							</label>
-						</li>
-					{/each}
-				</ul>
-			</fieldset>
-		{/if}
-
-		{#if info?.needs_login || user}
-			<div class="login">
-				<label>
-					{t('User name')}
-					<input bind:value={user} autocomplete="username" />
-				</label>
-				<label>
-					{t('Password')}
-					<input type="password" bind:value={password} autocomplete="current-password" />
-				</label>
-				<button type="button" onclick={() => check(true)} disabled={!user || checking}>{t('Sign in')}</button>
-				<label class="remember">
-					<input type="checkbox" bind:checked={remember} />
-					{t('Remember for this site')}
-				</label>
-			</div>
-		{/if}
-
-		<label>
-			{t('Save as')}
-			<input
-				bind:value={name}
-				placeholder={batch ? t('Each from its server') : t('Name from the server')}
-				disabled={!info || info.needs_login || !!torrent}
-			/>
-		</label>
-
-		{#if !batch && !torrent}
-			{#if showMirrors || mirrors}
-				<label>
-					{t('Other addresses of the same file (one per line)')}
-					<textarea
-						bind:value={mirrors}
-						rows="3"
-						placeholder={t('https://mirror.example.org/file.iso')}
-					></textarea>
-				</label>
-			{:else}
-				<button type="button" class="link more" onclick={() => (showMirrors = true)}
-					>{t('Add mirrors…')}</button
-				>
-			{/if}
-		{/if}
-
-		<label>
-			{t('Folder')}
-			<div class="row">
-				<input bind:value={dir} placeholder={defaultDir} />
-				<button type="button" onclick={browse}>{t('Browse…')}</button>
-			</div>
-		</label>
-
-		<div class="buttons">
-			<button type="button" onclick={() => dialog?.close()}>{t('Cancel')}</button>
-			<button type="button" onclick={() => add(false)} disabled={busy || !url.trim()}>
-				{t('Download later')}
-			</button>
-			<button
-				type="submit"
-				class="primary"
-				disabled={busy || !url.trim() || (!!torrent && !chosen.some((c) => c))}
+	<p class="info" aria-live="polite">
+		{#if checking && isTorrent(url)}
+			{t('Reading the torrent… (a magnet link asks peers, which can take a minute)')}
+		{:else if checking}
+			{t('Asking the server…')}
+		{:else if error}
+			<span class="error">{error}</span>
+		{:else if torrent}
+			{t('Torrent: {n} files, {size}', { n: torrent.files.length, size: bytes(torrent.size) })}
+		{:else if batch}
+			{t('Batch: {n} downloads', { n: batch.count })} ·
+			<span title={batch.first}>{batch.first.split('/').pop()}</span>
+			–
+			<span title={batch.last}>{batch.last.split('/').pop()}</span>
+		{:else if info?.needs_login}
+			<span class="strong"
+				>{info.realm
+					? t('The server asks for a user name and password ({realm}).', { realm: info.realm })
+					: t('The server asks for a user name and password.')}</span
 			>
-				{batch ? t('Start {n} downloads', { n: batch.count }) : t('Start download')}
-			</button>
+		{:else if info}
+			{#if info.saved_login}{t('Logs in as {user} (saved for this site)', { user: info.saved_login })} ·{/if}
+			{info.size !== null ? bytes(info.size) : t('Size unknown')}
+			· {info.resumable ? t('Can resume and use several connections') : t('Cannot resume (one connection)')}
+		{:else}
+			&nbsp;
+		{/if}
+	</p>
+
+	{#if torrent && torrent.files.length > 1}
+		<fieldset class="files">
+			<legend>
+				{t('Files ({size} chosen)', { size: bytes(chosenSize) })}
+				<Button variant="link" onclick={() => (chosen = chosen.map(() => true))}>{t('All')}</Button>
+				<Button variant="link" onclick={() => (chosen = chosen.map(() => false))}>{t('None')}</Button>
+			</legend>
+			<ul>
+				{#each torrent.files as f, i (i)}
+					<li>
+						<Checkbox bind:checked={chosen[i]}>
+							<span class="file">
+								<span class="fname" title={f.name}>{f.name}</span>
+								<span class="muted">{bytes(f.size)}</span>
+							</span>
+						</Checkbox>
+					</li>
+				{/each}
+			</ul>
+		</fieldset>
+	{/if}
+
+	{#if info?.needs_login || user}
+		<div class="login">
+			<Field label={t('User name')}>
+				<Input bind:value={user} autocomplete="username" />
+			</Field>
+			<Field label={t('Password')}>
+				<Input type="password" bind:value={password} autocomplete="current-password" />
+			</Field>
+			<Button onclick={() => check(true)} disabled={!user || checking}>{t('Sign in')}</Button>
+			<div class="wide">
+				<Checkbox bind:checked={remember}>{t('Remember for this site')}</Checkbox>
+			</div>
 		</div>
-	</form>
-</dialog>
+	{/if}
+
+	<Field label={t('Save as')}>
+		<Input
+			bind:value={name}
+			placeholder={batch ? t('Each from its server') : t('Name from the server')}
+			disabled={!info || info.needs_login || !!torrent}
+		/>
+	</Field>
+
+	{#if !batch && !torrent}
+		{#if showMirrors || mirrors}
+			<Field label={t('Other addresses of the same file (one per line)')}>
+				<Textarea bind:value={mirrors} rows={3} placeholder={t('https://mirror.example.org/file.iso')} />
+			</Field>
+		{:else}
+			<div>
+				<Button variant="link" onclick={() => (showMirrors = true)}>{t('Add mirrors…')}</Button>
+			</div>
+		{/if}
+	{/if}
+
+	<Field label={t('Folder')} layout="row">
+		<Input bind:value={dir} placeholder={defaultDir} />
+		<Button onclick={browse}>{t('Browse…')}</Button>
+	</Field>
+
+	{#snippet actions()}
+		<Button onclick={() => dialog?.close()}>{t('Cancel')}</Button>
+		<Button onclick={() => add(false)} disabled={busy || !url.trim()}>{t('Download later')}</Button>
+		<Button
+			type="submit"
+			variant="primary"
+			disabled={busy || !url.trim() || (!!torrent && !chosen.some((c) => c))}
+		>
+			{batch ? t('Start {n} downloads', { n: batch.count }) : t('Start download')}
+		</Button>
+	{/snippet}
+</Dialog>
 
 <style>
-	dialog {
-		width: min(560px, calc(100vw - 32px));
-		border: 1px solid var(--line);
-		border-radius: 10px;
-		background: var(--bg);
-		color: var(--fg);
-		padding: 18px 20px;
-		box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
-	}
-	dialog::backdrop {
-		background: rgb(0 0 0 / 0.3);
-	}
-	h2 {
-		font-size: 16px;
-		margin: 0 0 14px;
-	}
-	label {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		margin-bottom: 10px;
+	.muted {
 		color: var(--muted);
-	}
-	input {
-		padding: 6px 8px;
-		border: 1px solid var(--line);
-		border-radius: 5px;
-		background: var(--field);
-		color: var(--fg);
-		font: inherit;
-		min-width: 0;
-	}
-	input:disabled {
-		opacity: 0.6;
-	}
-	textarea {
-		padding: 6px 8px;
-		border: 1px solid var(--line);
-		border-radius: 5px;
-		background: var(--field);
-		color: var(--fg);
-		font: inherit;
-		resize: vertical;
-	}
-	.more {
-		margin: -4px 0 10px;
-	}
-	.row {
-		display: flex;
-		gap: 6px;
-	}
-	.row input {
-		flex: 1;
 	}
 	.info {
-		margin: -4px 0 12px;
+		min-height: var(--space-4);
 		color: var(--muted);
-		min-height: 1.4em;
 		overflow-wrap: anywhere;
 	}
 	.error {
-		color: var(--danger);
+		color: var(--accent);
 	}
-	.warn {
+	.strong {
 		color: var(--fg);
-	}
-	.from {
-		margin: -8px 0 12px;
-		color: var(--muted);
 	}
 	.login {
 		display: grid;
 		grid-template-columns: 1fr 1fr auto;
 		align-items: end;
-		gap: 8px;
-		margin-bottom: 10px;
+		gap: var(--space-2);
 	}
-	.login .remember {
+	.wide {
 		grid-column: 1 / -1;
-		display: flex;
-		flex-direction: row;
-		align-items: center;
-		gap: 6px;
-	}
-	.login label {
-		margin-bottom: 0;
 	}
 	.files {
+		margin: 0;
+		padding: var(--space-1) var(--space-2) var(--space-2);
 		border: 1px solid var(--line);
-		border-radius: 5px;
-		margin: 0 0 10px;
-		padding: 4px 8px 6px;
+		border-radius: var(--radius-1);
 	}
 	.files legend {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding: 0 var(--space-1);
 		color: var(--muted);
-		padding: 0 4px;
 	}
 	.files ul {
-		list-style: none;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		max-height: 176px;
 		margin: 0;
 		padding: 0;
-		max-height: 180px;
+		list-style: none;
 		overflow-y: auto;
 	}
-	.files label {
-		flex-direction: row;
-		align-items: center;
-		gap: 6px;
-		margin: 0;
-		color: var(--fg);
+	.file {
+		display: flex;
+		gap: var(--space-2);
+		min-width: 0;
 	}
 	.fname {
 		flex: 1;
@@ -436,24 +349,5 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-	.fsize {
-		color: var(--muted);
-		font-variant-numeric: tabular-nums;
-	}
-	.link {
-		border: none;
-		background: none;
-		color: var(--accent, inherit);
-		padding: 0 2px;
-		cursor: pointer;
-		font: inherit;
-		text-decoration: underline;
-	}
-	.buttons {
-		display: flex;
-		justify-content: flex-end;
-		gap: 8px;
-		margin-top: 16px;
 	}
 </style>

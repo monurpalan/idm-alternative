@@ -13,6 +13,7 @@
 	} from '../api.ts';
 	import { duration } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
+	import { Button, Checkbox, Dialog, Field, Input, Section, Text } from './ui/index.ts';
 
 	let { media, onclose }: { media: CapturedMedia; onclose: () => void } = $props();
 
@@ -26,7 +27,7 @@
 	let choice = $state(0);
 	let name = $state('');
 	let busy = $state(false);
-	let dialog: HTMLDialogElement | undefined = $state();
+	let dialog: { close(): void } | undefined = $state();
 
 	async function load() {
 		loading = true;
@@ -78,124 +79,44 @@
 		}
 	}
 
-	onMount(() => {
-		dialog?.showModal();
-		load();
-	});
+	onMount(load);
 </script>
 
-<dialog bind:this={dialog} onclose={onclose} aria-labelledby="page-title">
-	<h2 id="page-title">{info?.title || media.title || t('Video')}</h2>
-	<p class="muted url" title={page}>{page}</p>
+<Dialog bind:this={dialog} title={info?.title || media.title || t('Video')} {onclose}>
+	<Text variant="muted" truncate title={page}>{page}</Text>
 
 	{#if missing}
-		<p>{t('Downloading from this site needs yt-dlp (and deno, which it uses for YouTube).')}</p>
-		<p class="muted small">
+		<Text>{t('Downloading from this site needs yt-dlp (and deno, which it uses for YouTube).')}</Text>
+		<Text variant="caption">
 			{t('Both are downloaded from their official GitHub releases and checked against their published SHA-256.')}
-		</p>
-		<div class="buttons">
-			<button type="button" onclick={() => dialog?.close()}>{t('Close')}</button>
-			<button type="button" class="primary" disabled={settingUp} onclick={setUp}>
-				{settingUp ? t('Setting up…') : t('Set up yt-dlp')}
-			</button>
-		</div>
-	{:else}
-		{#if loading}
-			<p class="muted">{t('yt-dlp is reading the page…')}</p>
-		{:else if error}
-			<p class="error">{error}</p>
-		{:else if info}
-			{#if info.duration}<p class="muted">{duration(info.duration)}</p>{/if}
-			<fieldset>
-				<legend>{t('Quality')}</legend>
-				{#each info.heights as h (h)}
-					<label class="option"><input type="radio" name="q" value={h} bind:group={choice} /> {h}p</label>
-				{/each}
-				{#if info.audio_only}
-					<label class="option"><input type="radio" name="q" value={0} bind:group={choice} /> {t('Audio only')}</label>
-				{/if}
-			</fieldset>
-			<label class="field">
-				{t('Save as')}
-				<input bind:value={name} placeholder={t('Title of the page')} />
-			</label>
-		{/if}
-		<div class="buttons">
-			<button type="button" onclick={() => dialog?.close()}>{t('Close')}</button>
-			<button type="button" class="primary" disabled={!info || busy} onclick={download}>{t('Download')}</button>
-		</div>
+		</Text>
+	{:else if loading}
+		<Text variant="muted">{t('yt-dlp is reading the page…')}</Text>
+	{:else if error}
+		<Text variant="error">{error}</Text>
+	{:else if info}
+		{#if info.duration}<Text variant="muted">{duration(info.duration)}</Text>{/if}
+		<Section title={t('Quality')}>
+			{#each info.heights as h (h)}
+				<Checkbox type="radio" name="q" value={h} bind:group={choice}>{h}p</Checkbox>
+			{/each}
+			{#if info.audio_only}
+				<Checkbox type="radio" name="q" value={0} bind:group={choice}>{t('Audio only')}</Checkbox>
+			{/if}
+		</Section>
+		<Field label={t('Save as')}>
+			<Input bind:value={name} placeholder={t('Title of the page')} />
+		</Field>
 	{/if}
-</dialog>
 
-<style>
-	dialog {
-		width: min(520px, calc(100vw - 32px));
-		border: 1px solid var(--line);
-		border-radius: 10px;
-		background: var(--bg);
-		color: var(--fg);
-		padding: 18px 20px;
-		box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
-	}
-	dialog::backdrop {
-		background: rgb(0 0 0 / 0.3);
-	}
-	h2 {
-		font-size: 16px;
-		margin: 0 0 4px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.url {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		margin-top: 0;
-	}
-	fieldset {
-		border: 1px solid var(--line);
-		border-radius: 8px;
-		margin: 10px 0;
-		padding: 6px 12px 8px;
-	}
-	legend {
-		color: var(--muted);
-		padding: 0 4px;
-	}
-	.option {
-		display: flex;
-		gap: 8px;
-		align-items: center;
-		padding: 3px 0;
-	}
-	.field {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		color: var(--muted);
-	}
-	.field input {
-		padding: 5px 8px;
-		border: 1px solid var(--line);
-		border-radius: 5px;
-		background: var(--field);
-		color: var(--fg);
-		font: inherit;
-	}
-	.muted {
-		color: var(--muted);
-	}
-	.small {
-		font-size: 12px;
-	}
-	.error {
-		color: var(--danger);
-	}
-	.buttons {
-		display: flex;
-		justify-content: flex-end;
-		gap: 8px;
-		margin-top: 14px;
-	}
-</style>
+	{#snippet actions()}
+		<Button onclick={() => dialog?.close()}>{t('Close')}</Button>
+		{#if missing}
+			<Button variant="primary" disabled={settingUp} onclick={setUp}>
+				{settingUp ? t('Setting up…') : t('Set up yt-dlp')}
+			</Button>
+		{:else}
+			<Button variant="primary" disabled={!info || busy} onclick={download}>{t('Download')}</Button>
+		{/if}
+	{/snippet}
+</Dialog>

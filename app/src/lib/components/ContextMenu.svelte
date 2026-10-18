@@ -14,6 +14,7 @@
 	// A right-click menu at the pointer; closes on any outside click, Escape, or after a choice.
 
 	import { t } from '../i18n.svelte.ts';
+	import { Button, placeAt } from './ui/index.ts';
 
 	let {
 		x,
@@ -23,18 +24,8 @@
 	}: { x: number; y: number; items: Item[]; onclose: () => void } = $props();
 
 	let menu: HTMLDivElement | undefined = $state();
-	let pos = $state({ left: 0, top: 0 });
 
-	// Keep the menu inside the window.
-	$effect(() => {
-		if (!menu) return;
-		const r = menu.getBoundingClientRect();
-		pos = {
-			left: Math.min(x, window.innerWidth - r.width - 4),
-			top: Math.min(y, window.innerHeight - r.height - 4)
-		};
-		menu.focus();
-	});
+	$effect(() => menu?.focus());
 
 	function choose(item: Item) {
 		if (item.disabled) return;
@@ -53,21 +44,15 @@
 	onblur={onclose}
 />
 
-<div
-	class="menu"
-	role="menu"
-	tabindex="-1"
-	bind:this={menu}
-	style:left="{pos.left}px"
-	style:top="{pos.top}px"
->
+<div class="menu" role="menu" tabindex="-1" bind:this={menu} use:placeAt={{ x, y }}>
 	{#each items as item (item.label)}
 		{#if item.separated}<hr />{/if}
-		<button
+		<Button
+			variant="menu"
 			role="menuitem"
 			disabled={item.disabled}
-			class:danger={item.danger}
-			onclick={() => choose(item)}>{t(item.label)}</button
+			danger={item.danger}
+			onclick={() => choose(item)}>{t(item.label)}</Button
 		>
 	{/each}
 </div>
@@ -76,39 +61,20 @@
 	.menu {
 		position: fixed;
 		z-index: 20;
-		min-width: 190px;
-		padding: 4px;
+		display: flex;
+		flex-direction: column;
+		min-width: 192px;
+		padding: var(--space-1);
 		border: 1px solid var(--line);
-		border-radius: 7px;
+		border-radius: var(--radius-2);
 		background: var(--bg);
-		box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+		box-shadow: var(--shadow);
 		outline: none;
 	}
-	button {
-		display: block;
-		width: 100%;
-		border: 0;
-		border-radius: 4px;
-		background: transparent;
-		color: inherit;
-		text-align: left;
-		padding: 6px 10px;
-		font: inherit;
-		cursor: pointer;
-	}
-	button:hover:not(:disabled) {
-		background: var(--hover);
-	}
-	button:disabled {
-		color: var(--muted);
-		cursor: default;
-	}
-	.danger {
-		color: var(--danger);
-	}
 	hr {
+		width: 100%;
+		margin: var(--space-1) 0;
 		border: 0;
 		border-top: 1px solid var(--line);
-		margin: 4px 2px;
 	}
 </style>

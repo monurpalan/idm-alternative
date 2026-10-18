@@ -18,7 +18,7 @@ async function load() {
 	$('status').textContent = reply?.ok
 		? `Connected to idm-alternative ${reply.version ?? ''}`
 		: `Cannot reach the app: ${reply?.error ?? 'no answer'}`;
-	$('status').className = reply?.ok ? 'ok' : 'bad';
+	$('status').className = reply?.ok ? '' : 'error';
 }
 
 $('form').addEventListener('submit', async (e) => {

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button, Icon, Progress } from './ui/index.ts';
 	import type { Task, TaskId } from '../api.ts';
 	import { downloads, row, type Row, type SortKey } from '../downloads.svelte.ts';
 	import { bytes, date, duration, percent, speed } from '../format.ts';
@@ -125,10 +126,10 @@
 						class:numeric={c.numeric}
 						aria-sort={sortKey === c.key ? (sortDesc ? 'descending' : 'ascending') : 'none'}
 					>
-						<button onclick={() => sortBy(c.key)}>
+						<Button variant="column" align={c.numeric ? 'end' : 'start'} onclick={() => sortBy(c.key)}>
 							{t(c.label)}
-							{#if sortKey === c.key}<span class="arrow">{sortDesc ? '▾' : '▴'}</span>{/if}
-						</button>
+							{#if sortKey === c.key}<Icon name={sortDesc ? 'arrow-down' : 'arrow-up'} />{/if}
+						</Button>
 					</th>
 				{/each}
 			</tr>
@@ -147,16 +148,17 @@
 					<td class="name" title={r.task.url}>{r.name}</td>
 					<td class="numeric">{bytes(r.size)}</td>
 					<td>
-						<div class="bar" role="progressbar" aria-valuenow={Math.round((r.fraction ?? 0) * 100)}>
-							<div class="fill" style:width="{(r.fraction ?? 0) * 100}%"></div>
-							<span
-								>{r.fraction !== null
-									? percent(r.fraction)
-									: r.received > 0
-										? bytes(r.received)
-										: ''}</span
-							>
-						</div>
+						<Progress
+							value={r.fraction}
+							state={t.status === 'done'
+								? 'done'
+								: t.status === 'error'
+									? 'error'
+									: t.status === 'paused' || t.status === 'queued'
+										? 'stopped'
+										: 'running'}
+							text={r.fraction !== null ? percent(r.fraction) : r.received > 0 ? bytes(r.received) : ''}
+						/>
 					</td>
 					<td class="numeric">{speed(r.speed)}</td>
 					<td class="numeric">{duration(r.eta)}</td>
@@ -173,8 +175,8 @@
 
 <style>
 	.scroll {
-		overflow: auto;
 		height: 100%;
+		overflow: auto;
 	}
 	table {
 		width: 100%;
@@ -183,74 +185,52 @@
 		font-variant-numeric: tabular-nums;
 	}
 	.c-queue {
-		width: 38px;
+		width: 40px;
 	}
 	.c-name {
 		width: auto;
-	}
-	.muted {
-		color: var(--muted);
-	}
-	tr.selected .muted {
-		color: inherit;
 	}
 	.c-size,
 	.c-speed {
 		width: 92px;
 	}
 	.c-progress {
-		width: 150px;
+		width: 152px;
 	}
 	.c-eta {
 		width: 100px;
 	}
 	.c-status {
-		width: 110px;
+		width: 112px;
 	}
 	.c-added {
-		width: 90px;
+		width: 88px;
+	}
+	.muted {
+		color: var(--muted);
 	}
 	thead th {
-		text-align: left;
 		position: sticky;
 		top: 0;
 		z-index: 1;
-		background: var(--panel);
-		border-bottom: 1px solid var(--line);
 		padding: 0;
+		border-bottom: 1px solid var(--line);
+		background: var(--bg);
+		text-align: left;
 		font-weight: 500;
 	}
-	th button {
-		width: 100%;
-		border: 0;
-		background: transparent;
-		color: var(--muted);
-		font: inherit;
-		text-align: inherit;
-		padding: 6px 8px;
-		cursor: pointer;
-	}
-	th.numeric button {
-		text-align: right;
-	}
-	th button:hover {
-		color: var(--fg);
-	}
-	.arrow {
-		font-size: 10px;
-	}
 	td {
-		padding: 5px 8px;
+		padding: var(--space-1) var(--space-2);
 		border-bottom: 1px solid var(--line-soft);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
-	th.numeric,
 	td.numeric {
 		text-align: right;
 	}
 	tbody tr {
+		height: var(--space-8);
 		cursor: default;
 		user-select: none;
 	}
@@ -259,48 +239,13 @@
 	}
 	tbody tr.selected {
 		background: var(--selected);
-		color: var(--selected-fg);
 	}
 	tr.s-error .status {
-		color: var(--danger);
-	}
-	tr.selected.s-error .status {
-		color: inherit;
-	}
-	.bar {
-		position: relative;
-		height: 16px;
-		border-radius: 3px;
-		background: var(--track);
-		overflow: hidden;
-	}
-	/* Soft fills so the percentage stays readable on top. */
-	.fill {
-		height: 100%;
-		background: color-mix(in srgb, var(--accent) 45%, transparent);
-		/* No width transition: animating 20 bars kept the UI at ~70% of a core. */
-	}
-	tr.s-done .fill {
-		background: color-mix(in srgb, var(--ok) 45%, transparent);
-	}
-	tr.s-paused .fill,
-	tr.s-queued .fill {
-		background: color-mix(in srgb, var(--muted) 40%, transparent);
-	}
-	tr.s-error .fill {
-		background: color-mix(in srgb, var(--danger) 45%, transparent);
-	}
-	.bar span {
-		position: absolute;
-		inset: 0;
-		font-size: 11px;
-		line-height: 16px;
-		text-align: center;
-		color: var(--fg);
+		color: var(--accent);
 	}
 	.empty {
+		margin-top: var(--space-8);
 		color: var(--muted);
 		text-align: center;
-		margin-top: 48px;
 	}
 </style>

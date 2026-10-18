@@ -63,7 +63,7 @@ async function show() {
 		name.title = item.url;
 		name.textContent = label(item);
 		const detail = document.createElement('span');
-		detail.className = 'size';
+		detail.className = 'size caption';
 		detail.textContent = [size(item.size), item.mime ?? ''].filter(Boolean).join(' · ');
 		name.append(detail);
 		const button = document.createElement('button');

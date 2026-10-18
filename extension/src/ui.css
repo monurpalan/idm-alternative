@@ -1,0 +1,106 @@
+/* The extension's pages follow the app's design rules: three colors (ink, paper, accent),
+   shades only as those colors made transparent, a 4px spacing grid and four text sizes.
+   Keep these in step with app/src/app.css. */
+:root {
+	--ink: #16181d;
+	--paper: #f3f1ec;
+	--accent: #d9480f;
+	--bg: var(--paper);
+	--fg: var(--ink);
+	--on-accent: var(--ink);
+	--muted: color-mix(in srgb, var(--fg) 58%, transparent);
+	--line: color-mix(in srgb, var(--fg) 18%, transparent);
+	--line-soft: color-mix(in srgb, var(--fg) 9%, transparent);
+	--field: color-mix(in srgb, var(--fg) 3%, transparent);
+	--hover: color-mix(in srgb, var(--fg) 8%, transparent);
+	--selected: color-mix(in srgb, var(--accent) 20%, transparent);
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-6: 24px;
+	--space-8: 32px;
+	--radius-1: 4px;
+	--text-h1: 18px;
+	--text-h2: 15px;
+	--text-body: 13px;
+	--text-caption: 11px;
+	color-scheme: light;
+	font-family: system-ui, 'Segoe UI', sans-serif;
+	font-size: var(--text-body);
+	line-height: 1.4;
+}
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: var(--ink);
+		--fg: var(--paper);
+		color-scheme: dark;
+	}
+}
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--fg);
+}
+h1,
+p {
+	margin: 0;
+}
+h1 {
+	font-size: var(--text-h2);
+	font-weight: 600;
+}
+:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+
+/* Buttons: secondary by default, `.primary` for the page's main action. */
+button {
+	min-height: var(--space-8);
+	padding: 0 var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-1);
+	background: var(--field);
+	color: var(--fg);
+	font: inherit;
+	white-space: nowrap;
+	cursor: pointer;
+}
+button:hover {
+	background: var(--hover);
+}
+button.primary {
+	border-color: var(--accent);
+	background: var(--accent);
+	color: var(--on-accent);
+	font-weight: 600;
+}
+
+input[type='number'],
+textarea {
+	box-sizing: border-box;
+	width: 100%;
+	padding: var(--space-2);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-1);
+	background: var(--field);
+	color: var(--fg);
+	font: inherit;
+}
+input[type='checkbox'] {
+	margin: 0;
+	accent-color: var(--accent);
+}
+
+/* Text variants. */
+.muted {
+	color: var(--muted);
+}
+.caption {
+	color: var(--muted);
+	font-size: var(--text-caption);
+}
+.error {
+	color: var(--accent);
+}

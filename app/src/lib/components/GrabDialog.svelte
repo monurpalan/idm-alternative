@@ -5,6 +5,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { cancelGrab, grabSite, onGrabProgress, type CapturedLinks } from '../api.ts';
 	import { t } from '../i18n.svelte.ts';
+	import { Button, Checkbox, Dialog, Field, Input, Select, Text } from './ui/index.ts';
 
 	let {
 		onfound,
@@ -20,11 +21,10 @@
 	let running = $state(false);
 	let progress = $state<{ pages: number; files: number } | null>(null);
 	let error = $state<string | null>(null);
-	let dialog: HTMLDialogElement | undefined = $state();
+	let dialog: { close(): void } | undefined = $state();
 	let unlisten: (() => void) | null = null;
 
 	onMount(() => {
-		dialog?.showModal();
 		onGrabProgress((p) => (progress = p)).then((u) => (unlisten = u));
 	});
 	onDestroy(() => {
@@ -59,106 +59,40 @@
 	}
 </script>
 
-<dialog bind:this={dialog} onclose={onclose} aria-labelledby="grab-title">
-	<form
-		onsubmit={(e) => {
-			e.preventDefault();
-			start();
-		}}
-	>
-		<h2 id="grab-title">{t('Site grabber')}</h2>
-		<label>
-			{t('Start page')}
-			<input type="text" inputmode="url" bind:value={url} placeholder="https://" required disabled={running} />
-		</label>
-		<label>
-			{t('Depth')}
-			<select bind:value={depth} disabled={running}>
-				<option value={1}>{t('This page only')}</option>
-				<option value={2}>{t('And the pages it links to')}</option>
-				<option value={3}>{t('Two levels of pages below')}</option>
-			</select>
-		</label>
-		<label class="check">
-			<input type="checkbox" bind:checked={sameSite} disabled={running} />
-			{t('Stay on this site')}
-		</label>
+<Dialog bind:this={dialog} title={t('Site grabber')} {onclose} onsubmit={start}>
+	<Field label={t('Start page')}>
+		<Input inputmode="url" bind:value={url} placeholder="https://" required disabled={running} />
+	</Field>
+	<Field label={t('Depth')}>
+		<Select bind:value={depth} disabled={running}>
+			<option value={1}>{t('This page only')}</option>
+			<option value={2}>{t('And the pages it links to')}</option>
+			<option value={3}>{t('Two levels of pages below')}</option>
+		</Select>
+	</Field>
+	<Checkbox bind:checked={sameSite} disabled={running}>{t('Stay on this site')}</Checkbox>
 
-		<div class="info" aria-live="polite">
-			{#if running}
+	<div aria-live="polite">
+		{#if running}
+			<Text variant="muted">
 				{t('Reading pages: {pages} read, {files} files found', {
 					pages: progress?.pages ?? 0,
 					files: progress?.files ?? 0
 				})}
-			{:else if error}
-				<span class="error">{error}</span>
-			{:else}
-				&nbsp;
-			{/if}
-		</div>
+			</Text>
+		{:else if error}
+			<Text variant="error">{error}</Text>
+		{:else}
+			<Text>{' '}</Text>
+		{/if}
+	</div>
 
-		<div class="buttons">
-			<button type="button" onclick={() => dialog?.close()}>{t('Cancel')}</button>
-			{#if running}
-				<button type="button" onclick={stop}>{t('Stop')}</button>
-			{:else}
-				<button type="submit" class="primary" disabled={!url.trim()}>{t('Find files')}</button>
-			{/if}
-		</div>
-	</form>
-</dialog>
-
-<style>
-	dialog {
-		width: min(480px, calc(100vw - 32px));
-		border: 1px solid var(--line);
-		border-radius: 10px;
-		background: var(--bg);
-		color: var(--fg);
-		padding: 18px 20px;
-		box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
-	}
-	dialog::backdrop {
-		background: rgb(0 0 0 / 0.3);
-	}
-	h2 {
-		font-size: 16px;
-		margin: 0 0 14px;
-	}
-	label {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		margin-bottom: 10px;
-		color: var(--muted);
-	}
-	label.check {
-		flex-direction: row;
-		align-items: center;
-		gap: 6px;
-		color: var(--fg);
-	}
-	input,
-	select {
-		padding: 6px 8px;
-		border: 1px solid var(--line);
-		border-radius: 5px;
-		background: var(--field);
-		color: var(--fg);
-		font: inherit;
-	}
-	.info {
-		color: var(--muted);
-		min-height: 1.4em;
-		overflow-wrap: anywhere;
-	}
-	.error {
-		color: var(--danger);
-	}
-	.buttons {
-		display: flex;
-		justify-content: flex-end;
-		gap: 8px;
-		margin-top: 16px;
-	}
-</style>
+	{#snippet actions()}
+		<Button onclick={() => dialog?.close()}>{t('Cancel')}</Button>
+		{#if running}
+			<Button onclick={stop}>{t('Stop')}</Button>
+		{:else}
+			<Button type="submit" variant="primary" disabled={!url.trim()}>{t('Find files')}</Button>
+		{/if}
+	{/snippet}
+</Dialog>

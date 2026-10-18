@@ -17,19 +17,22 @@ function build() {
 	const root = host.attachShadow({ mode: 'closed' });
 	root.innerHTML = `
 		<style>
+			/* The app's colors (see ui.css); the page's styles cannot reach a shadow root, so
+			   they are spelled out here. */
 			button {
-				font: 600 12px system-ui, 'Segoe UI', sans-serif;
-				color: #fff;
-				background: #2563eb;
+				min-height: 32px;
+				padding: 0 12px;
 				border: 0;
-				border-radius: 6px;
-				padding: 6px 10px;
+				border-radius: 4px;
+				background: #d9480f;
+				color: #16181d;
+				font: 600 13px system-ui, 'Segoe UI', sans-serif;
+				box-shadow: 0 4px 16px color-mix(in srgb, #16181d 35%, transparent);
 				cursor: pointer;
-				box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
 				opacity: 0.92;
 			}
 			button:hover { opacity: 1; }
-			button[disabled] { background: #6b6b76; cursor: default; }
+			button[disabled] { background: #f3f1ec; cursor: default; }
 		</style>
 		<button type="button" title="Download with idm-alternative">⬇ Download</button>`;
 	button = root.querySelector('button');

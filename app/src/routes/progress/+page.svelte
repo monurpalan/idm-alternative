@@ -8,6 +8,7 @@
 	import { downloads, row } from '#lib/downloads.svelte.ts';
 	import { bytes, duration, percent, speed } from '#lib/format.ts';
 	import { msg, t } from '#lib/i18n.svelte.ts';
+	import { Button, Progress, Text } from '#lib/components/ui/index.ts';
 
 	const id: TaskId = Number(new URLSearchParams(location.search).get('id'));
 	let error = $state<string | null>(null);
@@ -38,29 +39,23 @@
 		paused: msg('Paused'),
 		done: msg('Complete')
 	} as const;
+
+	const BAR = { downloading: 'running', queued: 'running', paused: 'stopped', done: 'done', error: 'error' } as const;
 </script>
 
 <main>
 	{#if !downloads.loaded}
-		<p class="muted">{t('Loading…')}</p>
+		<Text variant="muted">{t('Loading…')}</Text>
 	{:else if !r}
-		<p class="muted">{t('This download is no longer on the list.')}</p>
-		<div class="buttons"><button onclick={close}>{t('Close')}</button></div>
+		<Text variant="muted">{t('This download is no longer on the list.')}</Text>
+		<div class="buttons"><Button onclick={close}>{t('Close')}</Button></div>
 	{:else}
-		<h1 title={r.name}>{r.name}</h1>
-		<p class="url" title={r.task.url}>{r.task.url}</p>
-
-		<div
-			class="bar"
-			class:done={r.task.status === 'done'}
-			class:stopped={r.task.status === 'error' || r.task.status === 'paused'}
-			role="progressbar"
-			aria-valuemin="0"
-			aria-valuemax="100"
-			aria-valuenow={r.fraction === null ? undefined : Math.round(r.fraction * 100)}
-		>
-			<span style:width="{(r.fraction ?? 0) * 100}%"></span>
+		<div class="head">
+			<h1 title={r.name}>{r.name}</h1>
+			<Text variant="caption" truncate title={r.task.url}>{r.task.url}</Text>
 		</div>
+
+		<Progress value={r.fraction} state={BAR[r.task.status]} label={t('Status')} />
 
 		<dl>
 			<dt>{t('Status')}</dt>
@@ -90,20 +85,20 @@
 			{/if}
 		</dl>
 
-		{#if error}<p class="error">{error}</p>{/if}
+		{#if error}<Text variant="error">{error}</Text>{/if}
 
 		<div class="buttons">
 			{#if r.task.status === 'done'}
-				<button onclick={() => run(showInFolder(id))}>{t('Show in folder')}</button>
-				<button class="primary" onclick={() => run(openFile(id)).then(close)}>{t('Open')}</button>
-				<button onclick={close}>{t('Close')}</button>
+				<Button onclick={() => run(showInFolder(id))}>{t('Show in folder')}</Button>
+				<Button variant="primary" onclick={() => run(openFile(id)).then(close)}>{t('Open')}</Button>
+				<Button onclick={close}>{t('Close')}</Button>
 			{:else}
 				{#if r.task.status === 'downloading' || r.task.status === 'queued'}
-					<button onclick={() => run(pauseTasks([id]))}>{t('Pause')}</button>
+					<Button onclick={() => run(pauseTasks([id]))}>{t('Pause')}</Button>
 				{:else}
-					<button onclick={() => run(startTasks([id]))}>{t('Resume')}</button>
+					<Button onclick={() => run(startTasks([id]))}>{t('Resume')}</Button>
 				{/if}
-				<button onclick={close} title={t('The download goes on; the list shows it')}>{t('Hide')}</button>
+				<Button onclick={close} title={t('The download goes on; the list shows it')}>{t('Hide')}</Button>
 			{/if}
 		</div>
 	{/if}
@@ -113,73 +108,49 @@
 	main {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: var(--space-3);
 		height: 100vh;
 		box-sizing: border-box;
-		padding: 14px 16px;
+		padding: var(--space-4);
 		background: var(--bg);
 		color: var(--fg);
 	}
+	.head {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		min-width: 0;
+	}
 	h1 {
-		margin: 0;
-		font-size: 14px;
+		overflow: hidden;
+		font-size: var(--text-h2);
 		font-weight: 600;
-		white-space: nowrap;
-		overflow: hidden;
 		text-overflow: ellipsis;
-	}
-	.url {
-		margin: 0;
-		font-size: 12px;
-		color: var(--muted);
 		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-	.bar {
-		height: 10px;
-		border-radius: 5px;
-		background: var(--line);
-		overflow: hidden;
-	}
-	.bar span {
-		display: block;
-		height: 100%;
-		background: var(--accent);
-	}
-	.bar.done span {
-		background: var(--ok, var(--accent));
-	}
-	.bar.stopped span {
-		background: var(--muted);
 	}
 	dl {
 		display: grid;
-		grid-template-columns: 90px 1fr;
-		gap: 2px 10px;
+		grid-template-columns: 96px 1fr;
+		gap: var(--space-1) var(--space-3);
 		margin: 0;
-		font-size: 13px;
 		font-variant-numeric: tabular-nums;
 	}
 	dt {
 		color: var(--muted);
 	}
 	dd {
-		margin: 0;
 		min-width: 0;
+		margin: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 	.buttons {
 		display: flex;
 		justify-content: flex-end;
-		gap: 8px;
+		gap: var(--space-2);
 		margin-top: auto;
 	}
 	.error {
-		color: var(--danger);
-	}
-	.muted {
-		color: var(--muted);
+		color: var(--accent);
 	}
 </style>

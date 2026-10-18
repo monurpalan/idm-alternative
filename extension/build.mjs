@@ -57,6 +57,7 @@ for (const [name, manifest] of Object.entries(targets)) {
 	});
 	cpSync('src/options.html', `${out}/options.html`);
 	cpSync('src/popup.html', `${out}/popup.html`);
+	cpSync('src/ui.css', `${out}/ui.css`);
 	cpSync('icons', `${out}/icons`, { recursive: true });
 	writeFileSync(`${out}/manifest.json`, JSON.stringify(manifest, null, '\t') + '\n');
 	console.log(`built ${out}`);
