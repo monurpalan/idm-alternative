@@ -39,6 +39,14 @@ const SETTLED: Duration = Duration::from_secs(2);
 /// How long a mirror may take to send the start of the file before it is left out.
 const MIRROR_CHECK: Duration = Duration::from_secs(3);
 const SLOW_MIRROR: f64 = 0.15;
+/// A connection is moved off its source when that source gives a connection less than this
+/// share of what the best one does; at most one move per [`MOVE_EVERY`].
+const MOVE_BELOW: f64 = 0.5;
+const MOVE_EVERY: Duration = Duration::from_secs(1);
+/// How long a connection runs before it may be moved: its speed is known by then.
+const MOVE_SETTLED: Duration = Duration::from_secs(1);
+/// What a move must save: a new connection and its ramp-up cost something.
+const MOVE_GAIN: Duration = Duration::from_secs(1);
 /// Bytes from the start of the file compared between the download's URL and each mirror.
 const MIRROR_SAMPLE: u64 = 64 << 10;
 
@@ -449,6 +457,51 @@ impl Ctx {
         best
     }
 
+    /// Connections worth moving to a faster source: on a source that gives a connection
+    /// less than [`MOVE_BELOW`] of the best source's, running for [`MOVE_SETTLED`] at least,
+    /// and that would finish at least [`MOVE_GAIN`] sooner started again on the best source.
+    fn connections_to_move(
+        &self,
+        t: &Table,
+        running: &HashMap<usize, (CancellationToken, u64, usize)>,
+        now: Instant,
+    ) -> Vec<usize> {
+        let Some((best, best_speed)) = ({
+            let sources = self.sources();
+            if sources.len() < 2 {
+                return Vec::new();
+            }
+            sources
+                .iter()
+                .enumerate()
+                .filter(|(i, s)| !s.dropped && (*i == 0 || s.remote.is_some()))
+                .map(|(i, s)| (i, s.speed))
+                .max_by(|a, b| a.1.total_cmp(&b.1))
+        }) else {
+            return Vec::new();
+        };
+        if best_speed <= 0.0 {
+            return Vec::new();
+        }
+        let sources = self.sources();
+        running
+            .iter()
+            .filter(|(_, (stop, _, source))| {
+                *source != best
+                    && !stop.is_cancelled()
+                    && sources[*source].speed < MOVE_BELOW * best_speed
+            })
+            .map(|(&idx, _)| (idx, &t.segs[idx]))
+            .filter(|(_, s)| {
+                let left = s.remaining() as f64;
+                s.owned_since.is_some_and(|at| now - at >= MOVE_SETTLED)
+                    && s.speed > 0.0
+                    && left / s.speed > left / best_speed + MOVE_GAIN.as_secs_f64()
+            })
+            .map(|(idx, _)| idx)
+            .collect()
+    }
+
     /// Records each source's speed per connection from the connections running now.
     fn measure_sources(
         &self,
@@ -685,6 +738,7 @@ impl Job<'_> {
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut last_tick = Instant::now();
         let mut last_checkpoint = Instant::now();
+        let mut last_move = Instant::now();
 
         loop {
             tokio::select! {
@@ -763,6 +817,23 @@ impl Job<'_> {
                             for source in slow_mirrors(&t, &running, now) {
                                 if ctx.source_slow(source) {
                                     stop_source(&running, source);
+                                }
+                            }
+                            // Connections on a source that gives a connection far less than the
+                            // best one move: their ranges go back to the table and the new
+                            // connections go to the best source. The speeds are measured again
+                            // before the next moves, so a best source that slows down under
+                            // the new load stops them.
+                            if fatal.is_none() && now - last_move >= MOVE_EVERY {
+                                let moving = ctx.connections_to_move(&t, &running, now);
+                                for idx in &moving {
+                                    if let Some((stop, _, _)) = running.get(idx) {
+                                        tracing::debug!(segment = idx, "moving a connection to a faster source");
+                                        stop.cancel();
+                                    }
+                                }
+                                if !moving.is_empty() {
+                                    last_move = now;
                                 }
                             }
                         }

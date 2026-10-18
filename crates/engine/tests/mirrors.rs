@@ -151,3 +151,28 @@ async fn a_mirror_takes_over_when_the_url_fails() {
     get(&req, &opts(8)).await.expect("download");
     assert_verified(&out, 25, size);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn connections_move_to_a_much_faster_mirror() {
+    let _serial = serial().await;
+    let base = start().await;
+    let dir = workdir("mirrors-move");
+    let out = dir.join("f.bin");
+    let size = 32 * MB;
+    // The URL gives each connection 512 KiB/s, the mirror 4 MiB/s.
+    let req = with_mirrors(
+        format!("{base}/file/slow.bin?size=32M&seed=26&rate=512K"),
+        vec![format!("{base}/file/fast.bin?size=32M&seed=26&rate=4M")],
+        &out,
+    );
+    let started = Instant::now();
+    get(&req, &opts(8)).await.expect("download");
+    let elapsed = started.elapsed().as_secs_f64();
+    assert_verified(&out, 26, size);
+    // All 8 connections on the mirror: 32 MiB/s, about a second, plus the time to see the
+    // difference (about 2 s in all; 5.3 s before connections moved). Where they started,
+    // the URL's 512 KiB/s would hold them for seconds.
+    assert!(elapsed < 3.5, "took {elapsed:.2} s");
+    let fast = sent_for(&base, "fast.bin").await;
+    assert!(fast > size / 2, "the mirror sent only {fast} bytes");
+}
