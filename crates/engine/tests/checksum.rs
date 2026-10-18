@@ -7,20 +7,52 @@ use idma_engine::{CancellationToken, Checksum, Error, Options, Phase, Progress, 
 use idma_testserver::content::fill;
 use sha2::{Digest, Sha256};
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use common::{LIMIT, MB, assert_verified, get, opts, request, start, workdir};
 
 /// The test server, plus a `SHA256SUMS` next to its files with `sums` in it.
 async fn start_with_sums(sums: String) -> String {
+    start_with_sums_counted(sums).await.0
+}
+
+/// Like [`start_with_sums`], also counting the requests for `SHA256SUMS`.
+async fn start_with_sums_counted(sums: String) -> (String, Arc<AtomicUsize>) {
+    let asked = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&asked);
     let app = idma_testserver::router().merge(axum::Router::new().route(
         "/file/SHA256SUMS",
-        axum::routing::get(move || async move { sums }),
+        axum::routing::get(move || async move {
+            counter.fetch_add(1, Ordering::Relaxed);
+            sums
+        }),
     ));
+    (serve(app).await, asked)
+}
+
+async fn serve(app: axum::Router) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
     let addr = listener.local_addr().expect("addr");
     tokio::spawn(async move { axum::serve(listener, app).await });
     format!("http://{addr}")
+}
+
+/// The paths (with query) the test server's file route was asked for.
+async fn asked_for(base: &str) -> Vec<String> {
+    let text = reqwest::get(format!("{base}/_stats"))
+        .await
+        .expect("stats")
+        .text()
+        .await
+        .expect("stats body");
+    let stats: Vec<serde_json::Value> = serde_json::from_str(&text).expect("stats json");
+    stats
+        .iter()
+        .filter_map(|u| u["url"].as_str().map(str::to_owned))
+        .collect()
 }
 
 fn searching(connections: usize) -> Options {
@@ -205,4 +237,74 @@ async fn no_published_checksum_is_no_checksum() {
     let done = get(&req, &opts(2)).await.expect("download");
     assert_verified(&out, 26, size);
     assert!(done.checksum.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn small_files_are_not_searched_for() {
+    let size = 512 << 10;
+    let (base, asked) =
+        start_with_sums_counted(format!("{}  s.bin\n", hex_of(&sha256_of(1, 1)))).await;
+    let dir = workdir("checksum-small");
+    let out = dir.join("s.bin");
+    let req = request(format!("{base}/file/s.bin?size={size}&seed=27"), &out);
+    let done = get(&req, &searching(2)).await.expect("download");
+    assert_verified(&out, 27, size);
+    assert!(done.checksum.is_none());
+    assert_eq!(asked.load(Ordering::Relaxed), 0);
+    assert_eq!(asked_for(&base).await.len(), 1, "only the file itself");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_is_searched_once() {
+    let size = 2 * MB;
+    let (base, asked) = start_with_sums_counted(format!(
+        "{}  a.bin\n{}  b.bin\n",
+        hex_of(&sha256_of(28, size)),
+        hex_of(&sha256_of(29, size))
+    ))
+    .await;
+    let dir = workdir("checksum-folder");
+    for (name, seed) in [("a.bin", 28), ("b.bin", 29)] {
+        let out = dir.join(name);
+        let req = request(format!("{base}/file/{name}?size={size}&seed={seed}"), &out);
+        let done = get(&req, &searching(2)).await.expect("download");
+        assert_verified(&out, seed, size);
+        assert_eq!(done.checksum_from.as_deref(), Some("SHA256SUMS"));
+    }
+    // The list was read once; the second file's own checksum files were not asked for,
+    // since the first file had none.
+    assert_eq!(asked.load(Ordering::Relaxed), 1);
+    let urls = asked_for(&base).await;
+    assert!(
+        !urls.iter().any(|u| u.starts_with("/file/b.bin.")),
+        "{urls:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_that_refuses_is_asked_no_more() {
+    let app = idma_testserver::router().merge(axum::Router::new().route(
+        "/file/r.bin.sha256",
+        axum::routing::get(|| async { axum::http::StatusCode::TOO_MANY_REQUESTS }),
+    ));
+    let base = serve(app).await;
+    let dir = workdir("checksum-refused");
+    let size = 2 * MB;
+    for (name, seed) in [("r.bin", 30), ("q.bin", 31)] {
+        let out = dir.join(name);
+        let req = request(format!("{base}/file/{name}?size={size}&seed={seed}"), &out);
+        let done = get(&req, &searching(2)).await.expect("download");
+        assert_verified(&out, seed, size);
+        assert!(done.checksum.is_none());
+    }
+    // At most the requests already in flight with the refused one (three at a time), and
+    // nothing for the next file of the folder.
+    let urls = asked_for(&base).await;
+    let extra: Vec<_> = urls
+        .iter()
+        .filter(|u| {
+            !u.contains('?') && !u.ends_with("/r.bin.sha512") && !u.ends_with("/SHA256SUMS")
+        })
+        .collect();
+    assert!(extra.is_empty(), "{urls:?}");
 }

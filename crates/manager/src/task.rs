@@ -300,6 +300,8 @@ pub struct TaskProgress {
     pub connections: usize,
     /// Bytes hashed so far while verifying a checksum.
     pub verified: u64,
+    /// While verifying: where the checksum was found, when the user gave none.
+    pub checksum_from: Option<String>,
     #[serde(serialize_with = "segments")]
     pub segments: Vec<SegmentView>,
 }

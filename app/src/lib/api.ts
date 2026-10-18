@@ -40,6 +40,8 @@ export interface TaskProgress {
 	speed: number;
 	connections: number;
 	verified: number;
+	/** While verifying: where the checksum was found, when the user gave none. */
+	checksum_from: string | null;
 	/** `[start, end, received, active]` per segment. */
 	segments: [number, number, number, boolean][];
 }

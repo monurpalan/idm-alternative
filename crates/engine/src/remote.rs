@@ -417,12 +417,21 @@ impl Http {
         Ok((String::from_utf8_lossy(&body).into_owned(), final_url))
     }
 
-    /// A small text file such as a checksum list: `None` unless the server answers with
-    /// success and at most `limit` bytes that are not an HTML page. Says no early, from the
-    /// headers, when it can.
-    pub(crate) async fn small_text(&self, url: &str, limit: usize) -> Option<String> {
+    /// A small text file such as a checksum list: [`Fetched::Text`] when the server answers
+    /// with success and at most `limit` bytes that are not an HTML page (says no early, from
+    /// the headers, when it can); [`Fetched::Refused`] when it cannot be reached or turns
+    /// clients away (403, 429, 503).
+    pub(crate) async fn small_text(&self, url: &str, limit: usize) -> Fetched {
         use futures_util::StreamExt;
-        let resp = self.get(url, HeaderMap::new(), 0).await.ok()?;
+        let Ok(resp) = self.get(url, HeaderMap::new(), 0).await else {
+            return Fetched::Refused;
+        };
+        if matches!(
+            resp.status(),
+            StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS | StatusCode::SERVICE_UNAVAILABLE
+        ) {
+            return Fetched::Refused;
+        }
         if !resp.status().is_success()
             || resp.content_length().is_some_and(|n| n > limit as u64)
             || resp
@@ -431,17 +440,20 @@ impl Http {
                 .and_then(|v| v.to_str().ok())
                 .is_some_and(|t| t.to_ascii_lowercase().contains("html"))
         {
-            return None;
+            return Fetched::Absent;
         }
         let mut body = Vec::new();
         let mut stream = resp.bytes_stream();
         while let Some(chunk) = stream.next().await {
-            body.extend_from_slice(&chunk.ok()?);
+            let Ok(chunk) = chunk else {
+                return Fetched::Refused;
+            };
+            body.extend_from_slice(&chunk);
             if body.len() > limit {
-                return None;
+                return Fetched::Absent;
             }
         }
-        String::from_utf8(body).ok()
+        String::from_utf8(body).map_or(Fetched::Absent, Fetched::Text)
     }
 
     /// Downloads `[start, end)` whole; for small checks, not for file data.
@@ -449,6 +461,16 @@ impl Http {
         let resp = self.range(remote, start, Some(end), slot).await?;
         Ok(resp.bytes().await?.to_vec())
     }
+}
+
+/// What [`Http::small_text`] got.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Fetched {
+    Text(String),
+    /// Missing, too large or not text.
+    Absent,
+    /// Unreachable, or the server turns clients away: better not to ask it again soon.
+    Refused,
 }
 
 fn status_error(resp: &Response) -> Error {

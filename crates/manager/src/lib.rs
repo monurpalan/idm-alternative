@@ -1565,6 +1565,7 @@ async fn report(
             speed: p.speed,
             connections: p.connections,
             verified: p.verified,
+            checksum_from: p.checksum_from,
             segments: p.segments,
         }));
     }

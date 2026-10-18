@@ -50,6 +50,9 @@ const MOVE_GAIN: Duration = Duration::from_secs(1);
 /// Bytes from the start of the file compared between the download's URL and each mirror.
 const MIRROR_SAMPLE: u64 = 64 << 10;
 
+/// Files smaller than this are not worth looking for a published checksum for.
+const FIND_CHECKSUM_FROM: u64 = 1 << 20;
+
 /// Bounds of a request's size under a speed limit (see [`Ctx::window_end`]).
 const MIN_WINDOW: u64 = 256 << 10;
 const MAX_WINDOW: u64 = 16 << 20;
@@ -195,8 +198,10 @@ pub async fn download(
     let part = sibling(&req.output, ".idma-part");
     let state_path = sibling(&req.output, ".idma-state");
     let mut force_single = false;
-    // No checksum given: look for a published one meanwhile. Dropping the set (the download
-    // failed or was cancelled) stops the search.
+    // No checksum given: look for a published one meanwhile, once the server has said the
+    // file is not small. Dropping the set (the download failed or was cancelled) stops the
+    // search.
+    let (size_known, mut size_rx) = watch::channel(None::<Option<u64>>);
     let mut discovery = JoinSet::new();
     if opts.checksum.is_none() && opts.find_checksum {
         let names: Vec<String> = crate::name::from_url(&req.url)
@@ -207,12 +212,15 @@ pub async fn download(
                     .map(|n| n.to_string_lossy().into_owned()),
             )
             .collect();
-        discovery.spawn(crate::discover::discover(
-            http.clone(),
-            http_config(&[], opts),
-            req.url.clone(),
-            names,
-        ));
+        let search =
+            crate::discover::discover(http.clone(), http_config(&[], opts), req.url.clone(), names);
+        discovery.spawn(async move {
+            let size = (*size_rx.wait_for(Option::is_some).await.ok()?).flatten();
+            if size.is_some_and(|s| s < FIND_CHECKSUM_FROM) {
+                return None;
+            }
+            search.await
+        });
     }
     // With mirrors, the URL is just the first address: when it fails, the next one takes
     // its place (a partial file carries over once the new address serves the same bytes).
@@ -225,6 +233,7 @@ pub async fn download(
             part: &part,
             state_path: &state_path,
             force_single,
+            size_known: &size_known,
         };
         match job.run(progress, cancel).await {
             Ok((size, resumed_from)) => {
@@ -421,6 +430,8 @@ struct Job<'a> {
     part: &'a Path,
     state_path: &'a Path,
     force_single: bool,
+    /// Told the file's size (`Some(None)`: unknown) once the server has said.
+    size_known: &'a watch::Sender<Option<Option<u64>>>,
 }
 
 /// Shared by the controller and every connection.
@@ -710,7 +721,10 @@ impl Job<'_> {
         cancel: &CancellationToken,
     ) -> Result<(u64, u64)> {
         let (mut remote, first_resp, table, resumed_from) = match self.try_resume().await? {
-            Some(Resume::Complete(size)) => return Ok((size, size)),
+            Some(Resume::Complete(size)) => {
+                self.size_known.send_replace(Some(Some(size)));
+                return Ok((size, size));
+            }
             Some(Resume::Partial(r)) => *r,
             None => {
                 discard(self.part, self.state_path);
@@ -719,6 +733,7 @@ impl Job<'_> {
                 (remote, (0, resp), table, 0)
             }
         };
+        self.size_known.send_replace(Some(remote.size));
         let single = self.force_single || !remote.ranges || remote.size.is_none();
         if single {
             // Never send Range again; the probe body (from byte 0) is used as is.

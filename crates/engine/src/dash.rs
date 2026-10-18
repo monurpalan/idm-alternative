@@ -76,9 +76,11 @@ pub async fn download_dash(
             let whole = path.exists() && !sibling(&path, ".idma-part").exists();
             if !whole {
                 let url = t.segments[0].url.clone();
-                // A part of the result: the result is marked once it is put together.
+                // A part of the result: the result is marked once it is put together. A
+                // track of a stream: nobody publishes checksums for those.
                 let part_opts = Options {
                     mark_of_the_web: false,
+                    find_checksum: false,
                     ..opts.clone()
                 };
                 crate::download::download(

@@ -98,7 +98,10 @@
 			case 'downloading':
 				if (r.live?.phase === 'verifying') {
 					const v = r.size ? Math.floor((r.live.verified / r.size) * 100) : 0;
-					return t('Verifying {v}%', { v });
+					const from = r.live.checksum_from;
+					return from
+						? t('Verifying (checksum from {from}) {v}%', { from, v })
+						: t('Verifying {v}%', { v });
 				}
 				return r.task.path ? t('Downloading') : t('Connecting');
 			case 'queued':

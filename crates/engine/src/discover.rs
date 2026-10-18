@@ -2,41 +2,108 @@
 //! release asset, or a checksum file next to the download (`<file>.sha256`, `SHA256SUMS`…).
 //!
 //! All of it is best effort and runs while the file downloads: an error, a slow server or a
-//! file that is not what it seems just means no checksum.
+//! file that is not what it seems just means no checksum. It is also meant to be polite: a
+//! few requests at a time in order of likelihood, none after the first answer, none more
+//! once a server turns us away, and what a folder has (or lacks) is remembered for a while,
+//! so a queue of files from one folder does not ask the same things again.
 
-use std::time::Duration;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
-use futures_util::future::join_all;
+use futures_util::StreamExt;
 use serde::Deserialize;
 
 use crate::checksum::Checksum;
-use crate::remote::{Http, HttpConfig};
+use crate::remote::{Fetched, Http, HttpConfig};
 
 /// The longest one request may take.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 /// The longest the whole search may take.
-const TIMEOUT: Duration = Duration::from_secs(10);
+const TIMEOUT: Duration = Duration::from_secs(15);
+/// Requests in flight at once.
+const IN_FLIGHT: usize = 3;
 /// Checksum files (and API answers) larger than this are not read.
 const MAX_SUM_FILE: usize = 1 << 20;
-/// Checksum files of the download alone, named after it plus one of these.
-const SUFFIXES: [&str; 6] = [
-    ".sha256",
-    ".sha512",
-    ".sha256sum",
-    ".sha512sum",
-    ".sha1",
-    ".md5",
+/// How long what was learned about a folder or a release is trusted.
+const REMEMBER: Duration = Duration::from_secs(600);
+
+/// A place a checksum may be published.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Candidate {
+    /// The download's own checksum file: its name plus this suffix.
+    Own(&'static str),
+    /// A list of the folder's files.
+    List(&'static str),
+}
+
+/// In the order they are asked for: the most common first.
+const CANDIDATES: [Candidate; 13] = [
+    Candidate::Own(".sha256"),
+    Candidate::Own(".sha512"),
+    Candidate::List("SHA256SUMS"),
+    Candidate::Own(".sha256sum"),
+    Candidate::Own(".sha512sum"),
+    Candidate::List("SHA256SUMS.txt"),
+    Candidate::List("sha256sums.txt"),
+    Candidate::List("sha256sum.txt"),
+    Candidate::List("SHA512SUMS"),
+    Candidate::List("CHECKSUMS"),
+    Candidate::List("checksums.txt"),
+    Candidate::Own(".sha1"),
+    Candidate::Own(".md5"),
 ];
-/// Checksum lists of the whole folder.
-const LISTS: [&str; 7] = [
-    "SHA256SUMS",
-    "SHA256SUMS.txt",
-    "sha256sums.txt",
-    "sha256sum.txt",
-    "SHA512SUMS",
-    "CHECKSUMS",
-    "checksums.txt",
-];
+
+/// What earlier searches in this process learned.
+#[derive(Default)]
+struct Memory {
+    folders: HashMap<String, (Instant, Folder)>,
+    /// API answers per release; `None` when there was none.
+    releases: HashMap<String, (Instant, Option<Arc<str>>)>,
+    /// The API refused (rate limit) at this moment.
+    github_refused: Option<Instant>,
+}
+
+#[derive(Default, Clone)]
+struct Folder {
+    /// Lists asked for: their text, or `None` when there is none.
+    lists: HashMap<&'static str, Option<Arc<str>>>,
+    /// Whether files here come with checksum files of their own; `None` until known.
+    own_sums: Option<bool>,
+    /// The server turned us away or could not be reached.
+    refused: bool,
+}
+
+static MEMORY: LazyLock<Mutex<Memory>> = LazyLock::new(Mutex::default);
+
+fn memory() -> std::sync::MutexGuard<'static, Memory> {
+    MEMORY.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn fresh(at: Instant) -> bool {
+    at.elapsed() < REMEMBER
+}
+
+/// What is known about `folder`, forgotten once stale.
+fn folder_memory(folder: &str) -> Folder {
+    match memory().folders.get(folder) {
+        Some((at, f)) if fresh(*at) => f.clone(),
+        _ => Folder::default(),
+    }
+}
+
+/// Changes what is known about `folder` (starting afresh when stale).
+fn remember(folder: &str, change: impl FnOnce(&mut Folder)) {
+    let mut m = memory();
+    let entry = m
+        .folders
+        .entry(folder.to_owned())
+        .or_insert_with(|| (Instant::now(), Folder::default()));
+    if !fresh(entry.0) {
+        *entry = (Instant::now(), Folder::default());
+    }
+    change(&mut entry.1);
+}
 /// Where a checksum from GitHub's own digest of a release asset is said to come from.
 const GITHUB_RELEASE: &str = "GitHub release";
 
@@ -77,42 +144,90 @@ pub(crate) async fn discover(
     found
 }
 
-/// One request's text, or `None` on any failure.
-async fn fetch(http: &Http, url: &str) -> Option<String> {
+/// One request; a timeout counts as refused.
+async fn fetch(http: &Http, url: &str) -> Fetched {
     tokio::time::timeout(REQUEST_TIMEOUT, http.small_text(url, MAX_SUM_FILE))
         .await
-        .ok()
-        .flatten()
+        .unwrap_or(Fetched::Refused)
 }
 
-/// Asks every checksum file that may sit next to the download at once; the first in
-/// [`SUFFIXES`] then [`LISTS`] order that lists the file wins.
+/// Asks the checksum files that may sit next to the download in [`CANDIDATES`] order, a
+/// few at a time, and stops at the first that lists the file or once the server turns us
+/// away. Lists already read in this folder are not asked for again, and neither are files'
+/// own checksum files where an earlier file of the folder had none.
 async fn from_folder(http: &Http, url: &str, names: &[String]) -> Option<Found> {
     let (folder, segment) = folder_of(url)?;
+    let known = folder_memory(&folder);
+    if known.refused {
+        return None;
+    }
     let own_name = crate::name::from_url(url).unwrap_or_else(|| names[0].clone());
-    let candidates: Vec<(String, String, bool)> = SUFFIXES
-        .iter()
-        .map(|s| {
-            (
-                format!("{own_name}{s}"),
-                format!("{folder}{segment}{s}"),
-                true,
-            )
-        })
-        .chain(
-            LISTS
-                .iter()
-                .map(|l| ((*l).to_owned(), format!("{folder}{l}"), false)),
-        )
-        .collect();
-    let texts = join_all(candidates.iter().map(|(_, u, _)| fetch(http, u))).await;
-    candidates
+    let candidates = CANDIDATES
         .into_iter()
-        .zip(texts)
-        .find_map(|((from, _, own), text)| {
-            let checksum = find_in_sum_file(&text?, names, own)?;
-            Some(Found { checksum, from })
+        .filter(|c| !matches!(c, Candidate::Own(_)) || known.own_sums != Some(false));
+    let mut answers = futures_util::stream::iter(candidates)
+        .map(|c| {
+            let known = &known;
+            let folder = &folder;
+            let segment = &segment;
+            async move {
+                let fetched = match c {
+                    Candidate::List(name) => match known.lists.get(name) {
+                        Some(Some(text)) => Fetched::Text(text.to_string()),
+                        Some(None) => Fetched::Absent,
+                        None => fetch(http, &format!("{folder}{name}")).await,
+                    },
+                    Candidate::Own(suffix) => {
+                        fetch(http, &format!("{folder}{segment}{suffix}")).await
+                    }
+                };
+                (c, fetched)
+            }
         })
+        .buffered(IN_FLIGHT);
+    let mut own_seen = None;
+    let mut found = None;
+    while let Some((c, fetched)) = answers.next().await {
+        let text = match fetched {
+            Fetched::Refused => {
+                tracing::debug!(%folder, "the server refused a checksum file; asking no more");
+                remember(&folder, |f| f.refused = true);
+                break;
+            }
+            Fetched::Absent => None,
+            Fetched::Text(text) => Some(text),
+        };
+        match c {
+            Candidate::List(name) => {
+                if !known.lists.contains_key(name) {
+                    let text = text.as_deref().map(Arc::from);
+                    remember(&folder, |f| {
+                        f.lists.insert(name, text);
+                    });
+                }
+            }
+            Candidate::Own(_) => {
+                own_seen = Some(own_seen.unwrap_or(false) || text.is_some());
+            }
+        }
+        let own = matches!(c, Candidate::Own(_));
+        if let Some(checksum) = text.and_then(|t| find_in_sum_file(&t, names, own)) {
+            let from = match c {
+                Candidate::Own(suffix) => format!("{own_name}{suffix}"),
+                Candidate::List(name) => name.to_owned(),
+            };
+            found = Some(Found { checksum, from });
+            break;
+        }
+    }
+    if let Some(seen) = own_seen
+        && known.own_sums != Some(true)
+    {
+        remember(&folder, |f| {
+            f.own_sums = Some(f.own_sums == Some(true) || seen)
+        });
+    }
+    found
 }
 
 /// The URL of the folder holding `url`'s file (ending in `/`, without query or fragment),
@@ -301,14 +416,44 @@ struct ApiAsset {
     digest: Option<String>,
 }
 
-/// The digest GitHub's API gives for the release's asset.
+/// The digest GitHub's API gives for the release's asset. One request per release while
+/// its answer is remembered; none at all for a while after the API refused (its limit
+/// without a token is 60 requests an hour), and never a retry.
 async fn from_github(cfg: HttpConfig, release: &Release) -> Option<Found> {
-    let cfg = HttpConfig {
-        headers: vec![("Accept".into(), "application/vnd.github+json".into())],
-        ..cfg
+    let api = release.api_url();
+    let known = {
+        let m = memory();
+        if m.github_refused.is_some_and(fresh) {
+            return None;
+        }
+        m.releases
+            .get(&api)
+            .filter(|(at, _)| fresh(*at))
+            .map(|(_, json)| json.clone())
     };
-    let http = Http::new(&cfg).ok()?;
-    let json = fetch(&http, &release.api_url()).await?;
+    let json = match known {
+        Some(json) => json?,
+        None => {
+            let cfg = HttpConfig {
+                headers: vec![("Accept".into(), "application/vnd.github+json".into())],
+                ..cfg
+            };
+            let http = Http::new(&cfg).ok()?;
+            let json = match fetch(&http, &api).await {
+                Fetched::Text(json) => Some(Arc::<str>::from(json)),
+                Fetched::Absent => None,
+                Fetched::Refused => {
+                    tracing::debug!("the GitHub API refused; not asking it for a while");
+                    memory().github_refused = Some(Instant::now());
+                    return None;
+                }
+            };
+            memory()
+                .releases
+                .insert(api, (Instant::now(), json.clone()));
+            json?
+        }
+    };
     let checksum = digest_of(&json, &release.asset)?;
     Some(Found {
         checksum,
