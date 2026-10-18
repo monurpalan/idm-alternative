@@ -6,6 +6,7 @@
 	import { speed } from '../format.ts';
 	import { msg, t } from '../i18n.svelte.ts';
 	import { Button, Select, Text } from './ui/index.ts';
+	import logo from '../assets/logo.png';
 
 	let {
 		view = $bindable(),
@@ -41,7 +42,7 @@
 
 <aside class="invert">
 	<div class="brand">
-		<span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+		<img class="mark" src={logo} alt="" />
 		<span class="name">Shardload</span>
 		<Button variant="ghost" icon="settings" onclick={onsettings} label={t('Settings')} title={t('Settings')} />
 	</div>
@@ -103,16 +104,8 @@
 		flex: none;
 	}
 	.mark {
-		display: flex;
-		gap: 2px;
-	}
-	.mark i {
-		width: 6px;
-		height: var(--space-3);
-		background: var(--accent);
-	}
-	.mark i:last-child {
-		background: var(--faint);
+		width: var(--space-6);
+		height: var(--space-6);
 	}
 	.name {
 		flex: 1;
