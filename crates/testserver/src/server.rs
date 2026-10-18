@@ -69,6 +69,7 @@ pub fn router() -> Router {
         .route("/hls/{track}/{segment}", get(crate::hls::segment))
         .route("/dash/manifest.mpd", get(crate::dash::manifest))
         .route("/dash/{rep}/{file}", get(crate::dash::segment))
+        .route("/zip/{name}", get(crate::zip::serve))
         .route("/_stats", get(stats))
         .route("/_reset", post(reset))
         .with_state(Arc::new(AppState::default()))
@@ -361,7 +362,7 @@ fn if_range_matches(headers: &HeaderMap, etag: Option<&str>, last_modified: &str
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum RangeResult {
+pub(crate) enum RangeResult {
     /// Serve `[start, end)`.
     Satisfiable(u64, u64),
     Unsatisfiable,
@@ -369,7 +370,7 @@ enum RangeResult {
     Ignore,
 }
 
-fn parse_range(value: &str, size: u64) -> RangeResult {
+pub(crate) fn parse_range(value: &str, size: u64) -> RangeResult {
     let Some(spec) = value.trim().strip_prefix("bytes=") else {
         return RangeResult::Ignore;
     };

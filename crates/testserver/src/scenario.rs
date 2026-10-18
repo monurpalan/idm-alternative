@@ -62,7 +62,7 @@ pub enum EtagMode {
     None,
 }
 
-fn flag<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+pub(crate) fn flag<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
     match String::deserialize(d)?.to_ascii_lowercase().as_str() {
         "1" | "true" | "on" | "yes" => Ok(true),
         "0" | "false" | "off" | "no" => Ok(false),

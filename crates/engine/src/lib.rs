@@ -8,6 +8,8 @@
 //! - A state file that only records progress already flushed to disk.
 //! - Every range response is checked (`If-Range`, `Content-Range`, size, HTML pages), and a
 //!   server that ignores ranges falls back to a single connection.
+//! - Chosen files out of a ZIP archive on a server, without downloading the rest
+//!   ([`RemoteZip`]).
 
 mod checksum;
 mod dash;
@@ -24,6 +26,7 @@ mod remote;
 pub mod segments;
 mod state;
 mod subtitles;
+mod zip;
 mod zone;
 
 pub use checksum::{Algorithm, Checksum};
@@ -39,6 +42,9 @@ pub use relink::patch_url;
 pub use remote::{Browser, basic_auth};
 pub use subtitles::{SubtitleSource, download_subtitles};
 pub use tokio_util::sync::CancellationToken;
+pub use zip::{
+    Extracted, RemoteZip, ZipEntry, method_name, safe_path, select as select_zip_entries,
+};
 pub use zone::{mark_of_the_web, zone_identifier};
 
 /// Engine version, reported by the CLI and the app.

@@ -1,12 +1,12 @@
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use idma_engine::{
     Browser, CancellationToken, Checksum, Conflict, Error, Limiter, Options, Phase, Progress,
-    Request,
+    RemoteZip, Request,
 };
 
 /// Command-line front end for the idm-alternative download engine.
@@ -40,30 +40,12 @@ enum Command {
         /// Speed limit in bytes per second; `K`, `M`, `G` suffixes (binary units), e.g. `2M`.
         #[arg(short, long, value_parser = parse_rate)]
         limit: Option<u64>,
-        /// Extra request header, `Name: value` (repeatable).
-        #[arg(short = 'H', long = "header")]
-        headers: Vec<String>,
-        /// Browser fingerprint (TLS, HTTP/2, headers): chrome, edge, firefox, safari or none.
-        // Fully qualified so clap does not treat it as an optional argument: the parser
-        // itself returns `None` for "none".
-        #[arg(long, default_value = "chrome", value_parser = parse_browser)]
-        browser: std::option::Option<Browser>,
-        /// User-Agent; by default the browser's own.
-        #[arg(long)]
-        user_agent: Option<String>,
-        /// Proxy for every request: `http://`, `https://` or `socks5://host:port`.
-        #[arg(long)]
-        proxy: Option<String>,
-        /// Accept invalid or self-signed TLS certificates.
-        #[arg(short = 'k', long)]
-        insecure: bool,
+        #[command(flatten)]
+        net: Net,
         /// Verify the finished file: `sha256:<hex>` (also md5, sha1, sha512), or a bare hex
         /// digest.
         #[arg(long)]
         checksum: Option<Checksum>,
-        /// Never use HTTP/2.
-        #[arg(long)]
-        http1: bool,
         /// Another address of the same file (repeatable). Used alongside the URL once it
         /// serves the same bytes; dropped if it fails or crawls.
         #[arg(short = 'm', long = "mirror")]
@@ -72,6 +54,99 @@ enum Command {
         #[arg(short, long)]
         quiet: bool,
     },
+    /// List or pick files out of a ZIP archive on a server without downloading all of it
+    /// (the server must support range requests).
+    Zip {
+        #[command(subcommand)]
+        command: ZipCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ZipCommand {
+    /// List the files in the archive: size, packed size, compression and name.
+    List {
+        url: String,
+        #[command(flatten)]
+        net: Net,
+    },
+    /// Download only the named files. Folders keep their structure under `--out-dir`. A
+    /// server without range support gets the whole archive downloaded instead.
+    Get {
+        url: String,
+        /// Entry names, folders (everything in them) or globs: `*` and `?` within a folder,
+        /// `**` across folders, e.g. `docs/**/*.pdf`.
+        #[arg(required = true)]
+        entries: Vec<String>,
+        /// Folder to extract into (default: the current folder).
+        #[arg(short = 'd', long = "out-dir")]
+        out_dir: Option<PathBuf>,
+        /// Replace files that are already there; by default a file of the same size is
+        /// taken as done and a different one is left alone.
+        #[arg(long)]
+        overwrite: bool,
+        /// Speed limit in bytes per second; `K`, `M`, `G` suffixes (binary units), e.g. `2M`.
+        #[arg(short, long, value_parser = parse_rate)]
+        limit: Option<u64>,
+        #[command(flatten)]
+        net: Net,
+        /// No progress line.
+        #[arg(short, long)]
+        quiet: bool,
+    },
+}
+
+/// How to reach the server.
+#[derive(Args)]
+struct Net {
+    /// Extra request header, `Name: value` (repeatable).
+    #[arg(short = 'H', long = "header")]
+    headers: Vec<String>,
+    /// Browser fingerprint (TLS, HTTP/2, headers): chrome, edge, firefox, safari or none.
+    // Fully qualified so clap does not treat it as an optional argument: the parser
+    // itself returns `None` for "none".
+    #[arg(long, default_value = "chrome", value_parser = parse_browser)]
+    browser: std::option::Option<Browser>,
+    /// User-Agent; by default the browser's own.
+    #[arg(long)]
+    user_agent: Option<String>,
+    /// Proxy for every request: `http://`, `https://` or `socks5://host:port`.
+    #[arg(long)]
+    proxy: Option<String>,
+    /// Accept invalid or self-signed TLS certificates.
+    #[arg(short = 'k', long)]
+    insecure: bool,
+    /// Never use HTTP/2.
+    #[arg(long)]
+    http1: bool,
+}
+
+impl Net {
+    /// The request headers, and the engine options without what only a download sets.
+    fn split(self) -> Result<(Vec<(String, String)>, Options), ExitCode> {
+        let headers = self
+            .headers
+            .iter()
+            .map(|h| {
+                h.split_once(':')
+                    .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
+                    .ok_or_else(|| format!("header must be `Name: value`, got `{h}`"))
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| {
+                eprintln!("dm: {e}");
+                ExitCode::from(2)
+            })?;
+        let opts = Options {
+            browser: self.browser,
+            user_agent: self.user_agent,
+            proxy: self.proxy,
+            insecure: self.insecure,
+            http1_only: self.http1,
+            ..Options::default()
+        };
+        Ok((headers, opts))
+    }
 }
 
 #[tokio::main]
@@ -83,50 +158,234 @@ async fn main() -> ExitCode {
         .with_writer(std::io::stderr)
         .init();
 
-    let Command::Get {
-        url,
+    match Cli::parse().command {
+        Command::Get {
+            url,
+            output,
+            dir,
+            overwrite,
+            connections,
+            limit,
+            net,
+            checksum,
+            mirrors,
+            quiet,
+        } => {
+            let (headers, opts) = match net.split() {
+                Ok(h) => h,
+                Err(code) => return code,
+            };
+            let opts = Options {
+                connections,
+                limiters: limit.map(|r| Limiter::new(Some(r))).into_iter().collect(),
+                checksum,
+                ..opts
+            };
+            let target = Target {
+                output,
+                dir,
+                overwrite,
+            };
+            get(url, mirrors, headers, opts, target, quiet).await
+        }
+        Command::Zip {
+            command: ZipCommand::List { url, net },
+        } => match net.split() {
+            Ok((headers, opts)) => zip_list(&url, &headers, &opts).await,
+            Err(code) => code,
+        },
+        Command::Zip {
+            command:
+                ZipCommand::Get {
+                    url,
+                    entries,
+                    out_dir,
+                    overwrite,
+                    limit,
+                    net,
+                    quiet,
+                },
+        } => {
+            let (headers, opts) = match net.split() {
+                Ok(h) => h,
+                Err(code) => return code,
+            };
+            let opts = Options {
+                limiters: limit.map(|r| Limiter::new(Some(r))).into_iter().collect(),
+                ..opts
+            };
+            let out_dir = out_dir.unwrap_or_default();
+            zip_get(url, &entries, out_dir, overwrite, headers, opts, quiet).await
+        }
+    }
+}
+
+/// Where `dm get` saves.
+struct Target {
+    output: Option<PathBuf>,
+    dir: Option<PathBuf>,
+    overwrite: bool,
+}
+
+async fn zip_list(url: &str, headers: &[(String, String)], opts: &Options) -> ExitCode {
+    let zip = match RemoteZip::open(url, headers, opts).await {
+        Ok(z) => z,
+        Err(e) => {
+            eprintln!("dm: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    println!("{:>10}  {:>10}  {:<8}  name", "size", "packed", "method");
+    let mut total = 0;
+    let mut files = 0;
+    for e in zip.entries() {
+        let note = match e.unsupported() {
+            Some(_) if e.encrypted => "  (encrypted)",
+            Some(_) => "  (cannot extract)",
+            None => "",
+        };
+        let method = if e.is_dir {
+            String::new()
+        } else {
+            files += 1;
+            total += e.size;
+            idma_engine::method_name(e.method)
+        };
+        println!(
+            "{:>10}  {:>10}  {method:<8}  {}{note}",
+            if e.is_dir {
+                String::new()
+            } else {
+                human(e.size as f64)
+            },
+            if e.is_dir {
+                String::new()
+            } else {
+                human(e.compressed_size as f64)
+            },
+            e.name
+        );
+    }
+    eprintln!(
+        "{files} files, {} unpacked; archive {}{}",
+        human(total as f64),
+        human(zip.size() as f64),
+        if zip.is_zip64() { " (ZIP64)" } else { "" }
+    );
+    ExitCode::SUCCESS
+}
+
+async fn zip_get(
+    url: String,
+    patterns: &[String],
+    out_dir: PathBuf,
+    overwrite: bool,
+    headers: Vec<(String, String)>,
+    opts: Options,
+    quiet: bool,
+) -> ExitCode {
+    let zip = match RemoteZip::open(&url, &headers, &opts).await {
+        Ok(z) => z,
+        Err(e @ Error::NoRanges) => {
+            eprintln!("dm: {e}");
+            eprintln!(
+                "dm: downloading the whole archive to {}",
+                display_dir(&out_dir)
+            );
+            let target = Target {
+                output: None,
+                dir: Some(out_dir),
+                overwrite: false,
+            };
+            return get(url, Vec::new(), headers, opts, target, quiet).await;
+        }
+        Err(e) => {
+            eprintln!("dm: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let (chosen, unmatched) = idma_engine::select_zip_entries(zip.entries(), patterns);
+    if !unmatched.is_empty() {
+        eprintln!(
+            "dm: not in the archive: {} (see `dm zip list`)",
+            unmatched.join(", ")
+        );
+        return ExitCode::from(2);
+    }
+    let cancel = CancellationToken::new();
+    let (tx, rx) = tokio::sync::watch::channel(Progress::default());
+    let ctrl_c = cancel.clone();
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            ctrl_c.cancel();
+        }
+    });
+    let printer = (!quiet).then(|| tokio::spawn(print_progress(rx)));
+    let result = zip
+        .extract(&chosen, &out_dir, overwrite, Some(&tx), &cancel)
+        .await;
+    if let Some(p) = printer {
+        p.abort();
+        eprintln!();
+    }
+    let done = match result {
+        Ok(d) => d,
+        Err(Error::Cancelled) => {
+            eprintln!("dm: cancelled; run the same command again to continue");
+            return ExitCode::from(130);
+        }
+        Err(e) => {
+            eprintln!("dm: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let mut failed = 0;
+    for d in done.iter().filter(|d| !d.name.ends_with('/')) {
+        match (&d.error, d.skipped) {
+            (Some(why), _) => {
+                failed += 1;
+                eprintln!("failed   {}: {why}", d.name);
+            }
+            (None, true) => {
+                if !quiet {
+                    eprintln!("there    {}", d.name);
+                }
+            }
+            (None, false) => {
+                if !quiet {
+                    eprintln!("saved    {}", d.name);
+                }
+            }
+        }
+    }
+    if failed > 0 {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+fn display_dir(dir: &Path) -> String {
+    if dir.as_os_str().is_empty() {
+        "the current folder".to_owned()
+    } else {
+        dir.display().to_string()
+    }
+}
+
+async fn get(
+    url: String,
+    mirrors: Vec<String>,
+    headers: Vec<(String, String)>,
+    opts: Options,
+    target: Target,
+    quiet: bool,
+) -> ExitCode {
+    let Target {
         output,
         dir,
         overwrite,
-        connections,
-        limit,
-        headers,
-        browser,
-        user_agent,
-        proxy,
-        insecure,
-        http1,
-        checksum,
-        mirrors,
-        quiet,
-    } = Cli::parse().command;
-    let headers = match headers
-        .iter()
-        .map(|h| {
-            h.split_once(':')
-                .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
-                .ok_or_else(|| format!("header must be `Name: value`, got `{h}`"))
-        })
-        .collect::<Result<Vec<_>, _>>()
-    {
-        Ok(h) => h,
-        Err(e) => {
-            eprintln!("dm: {e}");
-            return ExitCode::from(2);
-        }
-    };
-
-    let opts = Options {
-        connections,
-        limiters: limit.map(|r| Limiter::new(Some(r))).into_iter().collect(),
-        browser,
-        user_agent,
-        proxy,
-        insecure,
-        http1_only: http1,
-        checksum,
-        ..Options::default()
-    };
+    } = target;
     // A metalink: the file it describes, from its addresses, checked against its hash.
     let (url, mirrors, output, opts) = if idma_engine::metalink::is_metalink(&url) {
         match idma_engine::metalink::fetch_metalink(&url, &headers, &opts).await {
@@ -321,7 +580,8 @@ mod tests {
     fn cli_is_valid() {
         Cli::command().debug_assert();
         let parse = |args: &[&str]| match Cli::try_parse_from(args).expect("parse").command {
-            Command::Get { browser, .. } => browser,
+            Command::Get { net, .. } => net.browser,
+            Command::Zip { .. } => panic!("not get"),
         };
         assert_eq!(parse(&["dm", "get", "u", "-o", "f"]), Some(Browser::Chrome));
         assert_eq!(
@@ -332,6 +592,20 @@ mod tests {
             parse(&["dm", "get", "u", "-o", "f", "--browser", "Firefox"]),
             Some(Browser::Firefox)
         );
+        let zip = Cli::try_parse_from(["dm", "zip", "get", "u", "a.txt", "d/**", "-d", "out"])
+            .expect("zip get");
+        let Command::Zip {
+            command: ZipCommand::Get {
+                entries, out_dir, ..
+            },
+        } = zip.command
+        else {
+            panic!("not zip get")
+        };
+        assert_eq!(entries, ["a.txt", "d/**"]);
+        assert_eq!(out_dir, Some(PathBuf::from("out")));
+        assert!(Cli::try_parse_from(["dm", "zip", "get", "u"]).is_err());
+        assert!(Cli::try_parse_from(["dm", "zip", "list", "u", "-k"]).is_ok());
     }
 
     #[test]

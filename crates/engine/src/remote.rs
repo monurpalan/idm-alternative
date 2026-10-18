@@ -63,6 +63,31 @@ pub struct Remote {
     pub name: String,
 }
 
+impl Remote {
+    /// What a response to the first request (for `url`) tells about the file.
+    fn from_response(resp: &Response, url: &str, size: Option<u64>, ranges: bool) -> Self {
+        let final_url = resp.uri().to_string();
+        let name = crate::name::choose(
+            resp.headers()
+                .get(header::CONTENT_DISPOSITION)
+                .map(HeaderValue::as_bytes),
+            resp.headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            &final_url,
+            url,
+        );
+        Self {
+            url: final_url,
+            size,
+            ranges,
+            validators: Validators::from_headers(resp.headers()),
+            html: is_html(resp),
+            name,
+        }
+    }
+}
+
 /// Browsers whose TLS and HTTP/2 fingerprint and default headers the engine can present.
 /// Some CDNs and file hosts refuse or throttle clients that do not look like a browser.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -233,19 +258,6 @@ impl Http {
             h.insert(header::IF_RANGE, v);
         }
         let resp = self.get(url, h, slot).await?;
-        let validators = Validators::from_headers(resp.headers());
-        let html = is_html(&resp);
-        let final_url = resp.uri().to_string();
-        let name = crate::name::choose(
-            resp.headers()
-                .get(header::CONTENT_DISPOSITION)
-                .map(HeaderValue::as_bytes),
-            resp.headers()
-                .get(header::CONTENT_TYPE)
-                .and_then(|v| v.to_str().ok()),
-            &final_url,
-            url,
-        );
         let (size, ranges) = match resp.status() {
             StatusCode::PARTIAL_CONTENT => {
                 let (first, _, total) = content_range(&resp)?;
@@ -259,15 +271,44 @@ impl Http {
             StatusCode::RANGE_NOT_SATISFIABLE if start == 0 => (Some(0), false),
             _ => return Err(status_error(&resp)),
         };
-        let remote = Remote {
-            url: final_url,
-            size,
-            ranges,
-            validators,
-            html,
-            name,
-        };
-        Ok((remote, resp))
+        Ok((Remote::from_response(&resp, url, size, ranges), resp))
+    }
+
+    /// First request for the end of a file: asks for its last `len` bytes (`bytes=-len`), so
+    /// one round trip tells the size, whether ranges work, and brings the bytes. Returns
+    /// where the bytes start in the file and the bytes, or `None` when the server ignores
+    /// ranges (its response is not read).
+    pub(crate) async fn probe_tail(
+        &self,
+        url: &str,
+        len: u64,
+    ) -> Result<(Remote, Option<(u64, Vec<u8>)>)> {
+        let mut h = HeaderMap::new();
+        if let Ok(v) = HeaderValue::from_str(&format!("bytes=-{}", len.max(1))) {
+            h.insert(header::RANGE, v);
+        }
+        let resp = self.get(url, h, 0).await?;
+        match resp.status() {
+            StatusCode::PARTIAL_CONTENT => {
+                let (first, last, total) = content_range(&resp)?;
+                let remote = Remote::from_response(&resp, url, total, total.is_some());
+                let body = resp.bytes().await?.to_vec();
+                if body.len() as u64 != last - first + 1 {
+                    return Err(Error::Truncated);
+                }
+                Ok((remote, Some((first, body))))
+            }
+            StatusCode::OK => {
+                let remote = Remote::from_response(&resp, url, resp.content_length(), false);
+                Ok((remote, None))
+            }
+            // Only an empty file has no last bytes.
+            StatusCode::RANGE_NOT_SATISFIABLE => Ok((
+                Remote::from_response(&resp, url, Some(0), true),
+                Some((0, Vec::new())),
+            )),
+            _ => Err(status_error(&resp)),
+        }
     }
 
     /// Requests `[start, end)` of the file and checks the response is exactly that slice of

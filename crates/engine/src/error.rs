@@ -55,6 +55,15 @@ pub enum Error {
     InUse(std::path::PathBuf),
     #[error("cancelled")]
     Cancelled,
+    /// Reading a ZIP archive's list of files needs range requests, which this server does
+    /// not answer: only downloading the whole file works.
+    #[error(
+        "the server does not support range requests, so files cannot be picked out of the archive; download the whole archive instead"
+    )]
+    NoRanges,
+    /// Not a ZIP archive, or one this reader cannot handle.
+    #[error("not a readable ZIP archive: {0}")]
+    Archive(String),
 }
 
 impl Error {
@@ -69,6 +78,8 @@ impl Error {
                 | Error::LinkExpired(_)
                 | Error::AuthRequired { .. }
                 | Error::DiskFull { .. }
+                | Error::NoRanges
+                | Error::Archive(_)
         )
     }
 }

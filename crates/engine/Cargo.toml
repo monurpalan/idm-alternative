@@ -25,6 +25,8 @@ base64 = "0.22"
 aes = "0.9.3"
 cbc = { version = "0.2.1", features = ["alloc", "block-padding"] }
 url = "2"
+crc32fast = "1.5"
+flate2 = "1.1"
 idma-media = { version = "0.1.0", path = "../media" }
 
 [target.'cfg(windows)'.dependencies]
