@@ -8,7 +8,8 @@ export function bytes(n: number | null | undefined): string {
 	if (n === null || n === undefined) return '';
 	let v = n;
 	let i = 0;
-	while (v >= 1024 && i < UNITS.length - 1) {
+	// Up a unit from 1000, not 1024: "1,022.4 KB" is too wide for the speed column.
+	while (v >= 1000 && i < UNITS.length - 1) {
 		v /= 1024;
 		i++;
 	}
@@ -29,7 +30,9 @@ export function duration(secs: number | null | undefined): string {
 	const s = Math.max(0, Math.round(secs));
 	if (s < 60) return t('{s} s', { s });
 	const m = Math.floor(s / 60);
-	if (m < 60) return t('{m} min {s} s', { m, s: s % 60 });
+	// Seconds stop mattering after ten minutes, and the time-left column has no room for them.
+	if (m < 10) return t('{m} min {s} s', { m, s: s % 60 });
+	if (m < 60) return t('{m} min', { m });
 	const h = Math.floor(m / 60);
 	return h < 48 ? t('{h} h {m} min', { h, m: m % 60 }) : t('{d} days', { d: Math.floor(h / 24) });
 }

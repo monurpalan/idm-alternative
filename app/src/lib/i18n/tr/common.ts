@@ -5,6 +5,7 @@ export default {
 	'{p}%': '%{p}',
 	'{s} s': '{s} sn',
 	'{m} min {s} s': '{m} dk {s} sn',
+	'{m} min': '{m} dk',
 	'{h} h {m} min': '{h} sa {m} dk',
 	'{d} days': '{d} gün',
 	'All downloads': 'Tüm indirmeler',
