@@ -20,7 +20,10 @@ feature for feature, built by combining the best ideas from existing open-source
   An expired link is refreshed by starting the download again in the browser.
 - **Video.** A download button over videos in the page; HLS and DASH downloaded by the engine
   itself (parallel segments, AES-128) with quality, audio track and subtitle choice; sites such
-  as YouTube and X through yt-dlp, which the app installs and keeps up to date.
+  as YouTube and X through yt-dlp, which the app installs and keeps up to date. Tried on
+  2026-10-18 with public pages: YouTube, X, TikTok, Instagram, Facebook, Twitch, Dailymotion,
+  Bilibili, VK, Bluesky, SoundCloud, Bandcamp, Internet Archive, PeerTube, Streamable and Odysee
+  worked without a login; Vimeo and Reddit asked for one.
 - **Like IDM:** categories, a queue with automatic retries, a scheduler, "when done" sleep or
   shut down, batch downloads (`photo[001-100].jpg`), clipboard monitoring, saved logins per
   site, a virus scan when a download finishes, a small progress window per download, and a
@@ -139,16 +142,17 @@ so that price is only paid while the window is open.
 `dm` (the engine's command-line front end) against IDM 6.43, Gopeed 1.9.3, AB Download Manager
 1.11.1, aria2 and curl, measured with [`idma-bench`](bench/README.md) on 2026-10-18. Every file was
 verified byte for byte (local) or by size and SHA-256 (internet). Medians of 3 runs, clients in a
-new shuffled order each round. Free Download Manager is not in the table: it has no command line
-or local API to start a download from.
+new shuffled order each round (internet: 5 runs). Free Download Manager is not in the table: it has
+no command line or local API to start a download from.
 
-**Seconds, lower is better** ([local](bench/results/2026-10-18_011811.md),
-[internet](bench/results/2026-10-18_011946.md)). `dm x8` uses IDM's and AB DM's default of 8
+**Seconds, lower is better** ([local](bench/results/2026-10-18_011811.md), internet
+[1000 MiB](bench/results/2026-10-18_133925.md) and [100 MiB](bench/results/2026-10-18_134205.md)). `dm x8` uses IDM's and AB DM's default of 8
 connections; the others use their defaults (dm, aria2 and Gopeed 16).
 
 | Scenario | dm | dm x8 | IDM | aria2 | Gopeed | AB DM¹ | curl |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Internet, 100 MiB² | **2.58** | 2.68 | 4.31 | 2.96 | 12.78 | 2.77 | 4.60 |
+| Internet, 1000 MiB² | **12.94** | 16.05 | 20.04 | 15.46 | 48.25 | 23.91 | 25.24 |
+| Internet, 100 MiB² | 2.59 | **2.42** | 3.89 | 3.18 | 6.16 | 2.86 | 5.35 |
 | Clean, 1 GiB, local³ | 3.54 | **2.80** | 5.99 | 6.88 | 16.12 | 8.38 | 3.87 |
 | 4 MiB/s per connection, 256 MiB | **4.05** | 8.04 | 9.75 | 4.20 | 4.17 | 8.04 | 64.03 |
 | One connection crawls at 64 KiB/s | **2.40** | 4.43 | 8.61 | 10.28 | 10.10 | 31.58 | 32.03 |
@@ -159,8 +163,15 @@ connections; the others use their defaults (dm, aria2 and Gopeed 16).
 
 1. AB DM's own time from its download record (added → complete). Started through its command-line
    tool, which takes about a second more; with it the times are ~1 s higher.
-2. Linode Frankfurt, from Turkey, ~470 Mbit/s line. On 2026-10-16, 1000 MiB took dm 13.98 s,
-   aria2 14.32 s, IDM 19.90 s, curl 28.79 s.
+2. Linode Frankfurt, from Turkey, ~470 Mbit/s line, Sunday 13:30, 5 runs each. dm's slowest
+   1000 MiB run (13.68 s) beat every other client's median. A run the night before at 03:00 was
+   too noisy to use: the same client swung by 2 to 8 times between runs
+   ([results](bench/results/2026-10-18_033423.md)).
+   **IDM with 16 connections** (`MaxConnectionsNumber` in its registry key) was no faster on the
+   internet: 19.91 s for 1000 MiB against 18.82 s with its default 8, dm 13.2–13.5 s in the same
+   sessions ([16](bench/results/2026-10-18_132257.md), [8](bench/results/2026-10-18_132500.md));
+   locally it gained only where each connection is capped
+   ([results](bench/results/2026-10-18_132052.md)).
 3. The clean local run mostly measures the disk (a DRAM-less SSD that slows down while it writes
    back): the same client swings by a factor of two between runs.
 
@@ -205,9 +216,10 @@ What this does and does not say:
 
   1.9.3 took 12.78 s on the internet run in the first session and 5.09 s here, so read Gopeed's
   plain-download numbers loosely; its slowness with a bad connection repeats in both.
-- **On a plain download the field is close.** aria2 and AB DM are within 15 % of dm on the internet
-  run. IDM's gap is partly not network: it downloads parts into its own folder and joins them at
-  the end (~1–2.7 s per GiB here), and its start and exit are in the measurement.
+- **On a plain download the gap is smaller.** On 100 MiB dm, aria2 and AB DM are within about a
+  second of each other; on 1000 MiB dm is 16 % ahead of aria2 and 35 % ahead of IDM. Part of
+  IDM's gap is not network: it downloads parts into its own folder and joins them at the end
+  (~1–2.7 s per GiB here), and its start and exit are in the measurement.
 - **Looking for losses found one.** A server that forbids extra connections with 403 made dm stop
   (fixed, see above) and makes Gopeed hang; aria2, IDM and AB DM drop to 4 connections. Where
   connections do not help (a per-client limit) everyone ties; the tiny file shows IDM's and AB
