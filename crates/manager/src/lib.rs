@@ -1154,10 +1154,19 @@ impl Inner {
             ))
             .into());
         }
+        if opts.mark_of_the_web {
+            for path in done.iter().filter_map(|d| d.path.as_ref()) {
+                if path.is_file() {
+                    idma_engine::mark_of_the_web(path, &task.url, &task.headers);
+                }
+            }
+        }
         Ok(Outcome {
             size,
             resumed_from: 0,
             elapsed: started.elapsed(),
+            checksum: None,
+            checksum_from: None,
         })
     }
 
