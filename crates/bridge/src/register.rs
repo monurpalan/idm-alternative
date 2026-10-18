@@ -42,7 +42,7 @@ pub fn register(host: &Path, data_dir: &Path) -> Result<()> {
         &chromium,
         &serde_json::json!({
             "name": HOST_NAME,
-            "description": "idm-alternative download manager",
+            "description": "Shardload download manager",
             "path": path,
             "type": "stdio",
             "allowed_origins": [format!("chrome-extension://{CHROMIUM_EXTENSION_ID}/")],
@@ -52,7 +52,7 @@ pub fn register(host: &Path, data_dir: &Path) -> Result<()> {
         &firefox,
         &serde_json::json!({
             "name": HOST_NAME,
-            "description": "idm-alternative download manager",
+            "description": "Shardload download manager",
             "path": path,
             "type": "stdio",
             "allowed_extensions": [FIREFOX_EXTENSION_ID],

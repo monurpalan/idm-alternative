@@ -63,7 +63,7 @@ pub fn build(app: &AppHandle, limit: Option<u64>, lang: &str) -> tauri::Result<T
     let menu = Menu::with_items(
         app,
         &[
-            &MenuItem::with_id(app, SHOW, tr("Show idm-alternative"), true, None::<&str>)?,
+            &MenuItem::with_id(app, SHOW, tr("Show Shardload"), true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &limit_menu,
             &PredefinedMenuItem::separator(app)?,
@@ -79,7 +79,7 @@ pub fn build(app: &AppHandle, limit: Option<u64>, lang: &str) -> tauri::Result<T
         return Ok(Tray { limits });
     }
     let mut tray = TrayIconBuilder::with_id("main")
-        .tooltip("idm-alternative")
+        .tooltip("Shardload")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| crate::on_tray_menu(app, event.id().as_ref()))

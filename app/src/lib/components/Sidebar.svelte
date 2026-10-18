@@ -42,7 +42,7 @@
 <aside class="invert">
 	<div class="brand">
 		<span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-		<span class="name">idm-alternative</span>
+		<span class="name">Shardload</span>
 		<Button variant="ghost" icon="settings" onclick={onsettings} label={t('Settings')} title={t('Settings')} />
 	</div>
 

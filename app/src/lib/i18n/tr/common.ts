@@ -16,7 +16,7 @@ export default {
 	Unfinished: 'Bitmemiş',
 	Finished: 'Bitmiş',
 	'All downloads have finished': 'Tüm indirmeler bitti',
-	'idm-alternative closes in {n} seconds.': 'idm-alternative {n} saniye içinde kapanacak.',
+	'Shardload closes in {n} seconds.': 'Shardload {n} saniye içinde kapanacak.',
 	'The computer goes to sleep in {n} seconds.': 'Bilgisayar {n} saniye içinde uyku moduna geçecek.',
 	'The computer hibernates in {n} seconds.': 'Bilgisayar {n} saniye içinde hazırda bekletilecek.',
 	'The computer shuts down in {n} seconds.': 'Bilgisayar {n} saniye içinde kapanacak.',

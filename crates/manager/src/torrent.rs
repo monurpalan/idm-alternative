@@ -108,7 +108,7 @@ impl Torrents {
                     fastresume: false,
                     disable_local_service_discovery: true,
                     client_name_and_version: Some(format!(
-                        "idm-alternative {}",
+                        "Shardload {}",
                         env!("CARGO_PKG_VERSION")
                     )),
                     ..SessionOptions::default()

@@ -1,4 +1,4 @@
-//! Download engine for idm-alternative.
+//! Download engine for Shardload.
 //!
 //! - One preallocated (sparse) output file, written concurrently at offsets.
 //! - Dynamic segmentation: the first connection starts at byte 0; further connections

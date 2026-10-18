@@ -182,7 +182,7 @@ impl Http {
         match (&cfg.user_agent, cfg.browser) {
             (Some(ua), _) => builder = builder.user_agent(ua.as_str()),
             (None, None) => {
-                builder = builder.user_agent(format!("idm-alternative/{}", crate::VERSION));
+                builder = builder.user_agent(format!("Shardload/{}", crate::VERSION));
             }
             (None, Some(_)) => {}
         }

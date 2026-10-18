@@ -1,4 +1,4 @@
-//! MCP server for idm-alternative. An AI assistant's MCP client starts it and talks to it
+//! MCP server for Shardload. An AI assistant's MCP client starts it and talks to it
 //! over stdin/stdout; it passes each tool call to the app over the same named pipe the
 //! browser extension's host uses, starting the app in the tray when it is not running.
 //! Nothing listens on a network port.
@@ -132,14 +132,14 @@ impl Downloads {
     }
 
     #[tool(
-        description = "List the downloads in idm-alternative with id, url, file name, path, status (queued, downloading, paused, done, error), error, size and received bytes, speed in bytes per second, place in the queue (queue_pos, lower starts first) and own speed limit."
+        description = "List the downloads in Shardload with id, url, file name, path, status (queued, downloading, paused, done, error), error, size and received bytes, speed in bytes per second, place in the queue (queue_pos, lower starts first) and own speed limit."
     )]
     async fn list_downloads(&self) -> Result<CallToolResult, ErrorData> {
         self.ask(Request::Tasks).await
     }
 
     #[tool(
-        description = "Add a download to idm-alternative and start it (unless start is false): a direct file link, some files out of a ZIP archive (archive_entries), a magnet link or .torrent file (optionally only some of its files), a .meta4 metalink, or a page of a video site with video_height or audio_only. Returns the new download with its id."
+        description = "Add a download to Shardload and start it (unless start is false): a direct file link, some files out of a ZIP archive (archive_entries), a magnet link or .torrent file (optionally only some of its files), a .meta4 metalink, or a page of a video site with video_height or audio_only. Returns the new download with its id."
     )]
     async fn add_download(
         &self,
@@ -223,7 +223,7 @@ impl Downloads {
         answer(reply)
     }
 
-    #[tool(description = "Start or resume downloads in idm-alternative.")]
+    #[tool(description = "Start or resume downloads in Shardload.")]
     async fn resume_downloads(
         &self,
         Parameters(p): Parameters<IdsParams>,
@@ -231,7 +231,7 @@ impl Downloads {
         self.ask(Request::Resume { ids: p.ids }).await
     }
 
-    #[tool(description = "Pause downloads in idm-alternative; they keep their progress.")]
+    #[tool(description = "Pause downloads in Shardload; they keep their progress.")]
     async fn pause_downloads(
         &self,
         Parameters(p): Parameters<IdsParams>,
@@ -240,7 +240,7 @@ impl Downloads {
     }
 
     #[tool(
-        description = "Remove downloads from idm-alternative's list; with delete_files also delete their files."
+        description = "Remove downloads from Shardload's list; with delete_files also delete their files."
     )]
     async fn remove_downloads(
         &self,
@@ -296,7 +296,7 @@ fn answer(reply: Result<Reply, String>) -> Result<CallToolResult, ErrorData> {
             r.error.unwrap_or_else(|| "the app refused".into()),
         )]),
         Err(e) => CallToolResult::error(vec![ContentBlock::text(format!(
-            "could not reach idm-alternative: {e}"
+            "could not reach Shardload: {e}"
         ))]),
     })
 }
@@ -305,12 +305,9 @@ fn answer(reply: Result<Reply, String>) -> Result<CallToolResult, ErrorData> {
 impl ServerHandler for Downloads {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new(
-                "idm-alternative",
-                env!("CARGO_PKG_VERSION"),
-            ))
+            .with_server_info(Implementation::new("shardload", env!("CARGO_PKG_VERSION")))
             .with_instructions(
-                "Controls the idm-alternative download manager on this computer: add downloads \
+                "Controls the Shardload download manager on this computer: add downloads \
                  (files, chosen files out of ZIP archives, torrents, metalinks, video pages), \
                  find the files a site links to, list \
                  downloads and their progress, wait for them to finish, pause, resume, reorder and \

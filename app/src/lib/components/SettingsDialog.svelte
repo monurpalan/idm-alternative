@@ -114,7 +114,7 @@
 
 	async function exportFile() {
 		const path = await pickSaveFile({
-			defaultPath: 'idm-alternative-settings.json',
+			defaultPath: 'shardload-settings.json',
 			filters: JSON_FILES
 		});
 		if (!path) return;

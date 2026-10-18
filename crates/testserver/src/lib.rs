@@ -1,4 +1,4 @@
-//! Hostile HTTP test server for idm-alternative.
+//! Hostile HTTP test server for Shardload.
 //!
 //! `GET /file/{name}?<params>` serves a deterministic file whose behaviour is chosen by
 //! query parameters (see [`scenario::Scenario`]): slow or stalling connections, dropped

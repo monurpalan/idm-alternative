@@ -16,7 +16,7 @@ async function load() {
 		.sendNativeMessage('io.github.monurpalan.idma', { type: 'ping' })
 		.catch((e: unknown) => ({ ok: false, error: String(e) }));
 	$('status').textContent = reply?.ok
-		? `Connected to idm-alternative ${reply.version ?? ''}`
+		? `Connected to Shardload ${reply.version ?? ''}`
 		: `Cannot reach the app: ${reply?.error ?? 'no answer'}`;
 	$('status').className = reply?.ok ? 'success' : 'error';
 }

@@ -15,7 +15,7 @@
 
 	const WHAT: Record<WhenDone, string> = {
 		nothing: '',
-		exit: msg('idm-alternative closes in {n} seconds.'),
+		exit: msg('Shardload closes in {n} seconds.'),
 		sleep: msg('The computer goes to sleep in {n} seconds.'),
 		hibernate: msg('The computer hibernates in {n} seconds.'),
 		shutdown: msg('The computer shuts down in {n} seconds.')

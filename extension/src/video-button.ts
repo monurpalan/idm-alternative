@@ -34,7 +34,7 @@ function build() {
 			button:hover { opacity: 1; }
 			button[disabled] { background: #f3f1ec; cursor: default; }
 		</style>
-		<button type="button" title="Download with idm-alternative">⬇ Download</button>`;
+		<button type="button" title="Download with Shardload">⬇ Download</button>`;
 	button = root.querySelector('button');
 	button?.addEventListener('click', async (e) => {
 		e.preventDefault();
@@ -46,12 +46,12 @@ function build() {
 			.sendMessage({ videoButton: { src: current.currentSrc || current.src } })
 			.catch((err: unknown) => ({ ok: false, error: String(err) }))) as { ok: boolean; error?: string };
 		button.textContent = reply?.ok ? 'Sent ✓' : 'Not available';
-		button.title = reply?.ok ? 'Sent to idm-alternative' : (reply?.error ?? '');
+		button.title = reply?.ok ? 'Sent to Shardload' : (reply?.error ?? '');
 		setTimeout(() => {
 			if (!button) return;
 			button.disabled = false;
 			button.textContent = '⬇ Download';
-			button.title = 'Download with idm-alternative';
+			button.title = 'Download with Shardload';
 		}, 2000);
 	});
 	host.addEventListener('pointerenter', () => clearTimeout(hideTimer));

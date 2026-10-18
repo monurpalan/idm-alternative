@@ -74,7 +74,7 @@ pub fn register(host: &Path, _data_dir: &Path) -> Result<()> {
         };
         let mut value = serde_json::json!({
             "name": HOST_NAME,
-            "description": "idm-alternative download manager",
+            "description": "Shardload download manager",
             "path": path,
             "type": "stdio",
         });

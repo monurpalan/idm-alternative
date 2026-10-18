@@ -1723,9 +1723,9 @@ fn export_settings(app: State<'_, App>, path: PathBuf) -> CmdResult<()> {
 async fn import_settings(handle: AppHandle, path: PathBuf) -> CmdResult<Settings> {
     let text = std::fs::read_to_string(&path).map_err(msg)?;
     let file: SettingsFile = serde_json::from_str(&text)
-        .map_err(|e| format!("this is not an idm-alternative settings file ({e})"))?;
+        .map_err(|e| format!("this is not a Shardload settings file ({e})"))?;
     if file.app != "idm-alternative" {
-        return Err("this is not an idm-alternative settings file".into());
+        return Err("this is not a Shardload settings file".into());
     }
     apply_settings(&handle, file.settings).await
 }

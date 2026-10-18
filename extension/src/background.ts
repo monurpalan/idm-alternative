@@ -79,7 +79,7 @@ api.downloads.onCreated.addListener(async (item) => {
 	}
 	if (!reply?.ok) {
 		// Never lose a download: the browser gets it back.
-		console.warn('idm-alternative: giving the download back to the browser:', reply?.error);
+		console.warn('Shardload: giving the download back to the browser:', reply?.error);
 		givenBack.add(url);
 		await api.downloads.download({ url });
 	}
@@ -125,12 +125,12 @@ chrome.runtime.onInstalled.addListener(() => {
 	chrome.contextMenus.removeAll(() => {
 		chrome.contextMenus.create({
 			id: MENU_LINK,
-			title: 'Download with idm-alternative',
+			title: 'Download with Shardload',
 			contexts: ['link', 'image', 'video', 'audio']
 		});
 		chrome.contextMenus.create({
 			id: MENU_PAGE,
-			title: 'Download all links with idm-alternative',
+			title: 'Download all links with Shardload',
 			contexts: ['page']
 		});
 	});
@@ -153,7 +153,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 		const url = info.linkUrl || info.srcUrl;
 		if (!url) return;
 		const reply = await handOver(url, info.pageUrl);
-		if (!reply.ok) console.warn('idm-alternative: the app could not take the link:', reply.error);
+		if (!reply.ok) console.warn('Shardload: the app could not take the link:', reply.error);
 	} else if (info.menuItemId === MENU_PAGE && tab?.id !== undefined) {
 		const [result] = await api.scripting.executeScript({
 			target: { tabId: tab.id },
@@ -161,7 +161,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 		});
 		const links = (result?.result ?? []) as { url: string; text: string }[];
 		const reply = await send({ type: 'links', referrer: info.pageUrl ?? tab.url ?? null, links });
-		if (!reply.ok) console.warn('idm-alternative: the app could not take the links:', reply.error);
+		if (!reply.ok) console.warn('Shardload: the app could not take the links:', reply.error);
 	}
 });
 
@@ -180,7 +180,7 @@ function updateMedia(tabId: number, change: (list: MediaItem[]) => MediaItem[]) 
 		if (list.length) await api.storage.session.set({ [key]: list });
 		else await api.storage.session.remove(key);
 		await api.action.setBadgeText({ tabId, text: list.length ? String(list.length) : '' }).catch(() => {});
-	}).catch((e) => console.warn('idm-alternative: media list:', e));
+	}).catch((e) => console.warn('Shardload: media list:', e));
 }
 
 api.action.setBadgeBackgroundColor({ color: '#2563eb' }).catch(() => {});

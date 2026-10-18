@@ -9,9 +9,9 @@ const { key } = JSON.parse(readFileSync('extension-key.json', 'utf8'));
 
 const common = {
 	manifest_version: 3,
-	name: 'idm-alternative',
+	name: 'Shardload',
 	version: pkg.version,
-	description: 'Hands downloads to the idm-alternative download manager.',
+	description: 'Hands downloads to Shardload, a free and open-source IDM alternative.',
 	permissions: ['downloads', 'nativeMessaging', 'cookies', 'contextMenus', 'scripting', 'storage', 'webRequest'],
 	host_permissions: ['<all_urls>'],
 	content_scripts: [
@@ -20,7 +20,7 @@ const common = {
 	],
 	options_ui: { page: 'options.html', open_in_tab: false },
 	action: {
-		default_title: 'idm-alternative',
+		default_title: 'Shardload',
 		default_popup: 'popup.html',
 		default_icon: { 16: 'icons/icon-16.png', 32: 'icons/icon-32.png' }
 	},

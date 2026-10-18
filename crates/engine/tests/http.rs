@@ -123,7 +123,7 @@ async fn plain_client_and_http1_only() {
     let s = stats(&base).await;
     assert_eq!(s["h2_gets"], 0, "{s}");
     let ua = s["user_agent"].as_str().unwrap_or_default();
-    assert!(ua.starts_with("idm-alternative/"), "{ua}");
+    assert!(ua.starts_with("Shardload/"), "{ua}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

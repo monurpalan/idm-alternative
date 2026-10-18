@@ -89,7 +89,7 @@ impl Mcp {
                 }),
             )
             .await;
-        assert_eq!(init["serverInfo"]["name"], "idm-alternative");
+        assert_eq!(init["serverInfo"]["name"], "shardload");
         mcp.send(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))
             .await;
         mcp
@@ -287,7 +287,7 @@ async fn a_missing_app_is_reported() {
         error
             .as_str()
             .expect("text")
-            .starts_with("could not reach idm-alternative"),
+            .starts_with("could not reach Shardload"),
         "{error}"
     );
 }

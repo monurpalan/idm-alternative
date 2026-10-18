@@ -41,7 +41,7 @@ pub fn t(lang: &str, text: &str, params: &[(&str, &str)]) -> String {
 
 fn turkish(text: &str) -> Option<&'static str> {
     Some(match text {
-        "Show idm-alternative" => "idm-alternative'i göster",
+        "Show Shardload" => "Shardload'u göster",
         "Speed limit" => "Hız sınırı",
         "No limit" => "Sınır yok",
         "Start all" => "Tümünü başlat",

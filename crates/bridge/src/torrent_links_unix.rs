@@ -27,7 +27,7 @@ fn applications(classes: &str) -> Option<PathBuf> {
 
 fn entry(app: &Path) -> String {
     format!(
-        "[Desktop Entry]\nType=Application\nName=idm-alternative\nComment=Download torrents and magnet links\nExec=\"{}\" %u\nNoDisplay=true\nMimeType={};\n",
+        "[Desktop Entry]\nType=Application\nName=Shardload\nComment=Download torrents and magnet links\nExec=\"{}\" %u\nNoDisplay=true\nMimeType={};\n",
         app.display(),
         TYPES.join(";")
     )

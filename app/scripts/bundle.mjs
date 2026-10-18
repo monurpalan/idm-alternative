@@ -60,6 +60,17 @@ try {
 	rmSync(merged, { force: true });
 }
 
+// The same installer under a name without the version, so that
+// `releases/latest/download/shardload-setup.exe` always points at the newest one.
+const LATEST_NAME = 'shardload-setup.exe';
+
+if (process.platform === 'win32') {
+	const { version } = JSON.parse(readFileSync(join(app, 'src-tauri', 'tauri.conf.json'), 'utf8'));
+	const nsis = join(targetDir, 'release', 'bundle', 'nsis');
+	const setup = readdirSync(nsis).find((f) => f.endsWith(`_${version}_x64-setup.exe`));
+	if (setup) copyFileSync(join(nsis, setup), join(nsis, LATEST_NAME));
+}
+
 if (signing && process.platform === 'win32') {
 	const { version } = JSON.parse(readFileSync(join(app, 'src-tauri', 'tauri.conf.json'), 'utf8'));
 	const nsis = join(targetDir, 'release', 'bundle', 'nsis');
@@ -76,5 +87,5 @@ if (signing && process.platform === 'win32') {
 		}
 	};
 	writeFileSync(join(nsis, 'latest.json'), JSON.stringify(latest, null, 2));
-	console.log(`\nFor the release v${version}, upload these from ${nsis}:\n  ${setup}\n  latest.json`);
+	console.log(`\nFor the release v${version}, upload these from ${nsis}:\n  ${setup}\n  ${LATEST_NAME}\n  latest.json`);
 }

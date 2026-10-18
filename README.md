@@ -1,14 +1,109 @@
-# idm-alternative
+<p align="center"><img src="app/src-tauri/icons/128x128.png" width="72" alt=""></p>
 
-An open-source download manager for Windows (and Linux) that aims to match Internet Download Manager
-feature for feature, built by combining the best ideas from existing open-source projects.
+<h1 align="center">Shardload</h1>
 
-> **Status:** usable day to day on Windows. The engine, the desktop app, browser integration,
-> video, torrents and an MCP server work and are installed from a per-user installer.
+<p align="center"><b>A free, open-source IDM alternative for Windows and Linux.</b><br>
+Splits every file into parts and downloads them at once, takes over the browser's downloads,
+saves videos and torrents. No ads, no trial, no account.</p>
+
+<p align="center">
+<a href="https://github.com/monurpalan/idm-alternative/releases/latest/download/shardload-setup.exe"><b>⬇ Download for Windows</b></a>
+&nbsp;·&nbsp;
+<a href="https://github.com/monurpalan/idm-alternative/releases/latest">Linux (.deb, AppImage)</a>
+&nbsp;·&nbsp;
+<a href="README.tr.md">Türkçe</a>
+</p>
 
 ![The download list with the details of a running download: speed graph and segment map](docs/screenshots/main.png)
 
+## Install
+
+1. **Run `shardload-setup.exe`.** It installs for your Windows user only, without administrator
+   rights, and checks for new versions once a day.
+   The installer is not code-signed yet, so Windows may say *"Windows protected your PC"*:
+   click **More info → Run anyway**.
+2. **Add the browser extension** from the
+   [latest release](https://github.com/monurpalan/idm-alternative/releases/latest) (not in the
+   stores yet):
+   - Chrome, Edge, Brave, Vivaldi, Opera: unzip `shardload-extension-chromium.zip`, open
+     `chrome://extensions`, turn on *Developer mode*, *Load unpacked* and pick the folder.
+   - Firefox: unzip `shardload-extension-firefox.zip`, open `about:debugging#/runtime/this-firefox`,
+     *Load Temporary Add-on…* and pick `manifest.json` (until the extension is signed, Firefox
+     forgets it when it restarts).
+3. **That's it.** Downloads you start in the browser now open in Shardload. You can also paste a
+   link with Ctrl+V or drop one on the window.
+
+**Linux (x64):** the `.deb` (`sudo apt install ./idm-alternative_*_amd64.deb`) or the AppImage
+(`chmod +x`, then run it) from the same release.
+
 ## What it does
+
+- **Faster downloads.** Up to 16 connections per file. When one connection slows down, a free
+  one takes over the rest of its part, so the last percent does not drag. Resumes after a crash
+  or restart and checks the file against the publisher's checksum when there is one.
+- **Takes over the browser's downloads** in Chrome, Edge, Brave, Vivaldi, Opera and Firefox,
+  with their cookies, so downloads behind a login work too. An expired link is renewed by
+  starting the download again in the browser.
+- **Video.** A Download button over videos in the page. YouTube, X, Instagram, TikTok, Twitch and
+  many more through yt-dlp, which the app sets up and keeps up to date; HLS and DASH streams with
+  a choice of quality, audio track and subtitles.
+- **Torrents.** Magnet links and `.torrent` files in the same list, with a choice of files;
+  nothing keeps seeding afterwards.
+- **One file from several servers at once** (mirrors and Metalink), each checked to serve the
+  same bytes.
+- **Just the files you need out of a ZIP**, without downloading the whole archive.
+- **Site grabber.** Lists every file a site links to (archives, documents, video, pictures) so
+  you can pick which to download.
+- **Everything you know from IDM:** categories, a queue with automatic retries, a scheduler,
+  sleep or shut down when all downloads finish, batch downloads (`photo[001-100].jpg`),
+  clipboard monitoring, saved logins per site, a virus scan of finished files, a small progress
+  window per download, a tray icon and speed limits.
+- **For AI assistants:** an [MCP](https://modelcontextprotocol.io) server, installed with the
+  app, lets an assistant add, find, watch and manage downloads for you.
+- **Command line:** `dm`, the same engine in a terminal.
+- English and Turkish.
+
+| | |
+|---|---|
+| ![New download](docs/screenshots/add.png) | ![Video quality, audio and subtitles](docs/screenshots/video.png) |
+| ![Settings](docs/screenshots/settings.png) | ![A download's progress window](docs/screenshots/progress.png) |
+
+## How it compares
+
+**Speed.** Seconds, lower is better; medians of several runs on one machine and one line
+([how it was measured](#speed-tests)):
+
+| | Shardload | IDM 6.43 | aria2 | AB Download Manager | Gopeed |
+|---|---:|---:|---:|---:|---:|
+| Internet, 1000 MiB | **12.94** | 20.04 | 15.46 | 23.91 | 48.25 |
+| One connection slows to 64 KiB/s | **2.40** | 8.61 | 10.28 | 31.58 | 10.10 |
+| Connections drop every 4 MiB | **1.50** | 4.82 | 3.14 | 9.87 | 7.51 |
+
+**Features**, as each project describes itself on its own site or README (checked 2026-10-18;
+"?" where it does not say):
+
+| | Shardload | IDM | Free Download Manager | Gopeed | AB Download Manager |
+|---|---|---|---|---|---|
+| Price | Free | 30-day trial, then paid | Free | Free | Free |
+| Source code | Open (MIT) | Closed | Open¹ | Open (GPL-3.0) | Open (Apache-2.0) |
+| Windows · Linux | ✓ · ✓ | ✓ · – | ✓ · ✓ | ✓ · ✓ | ✓ · ✓ |
+| macOS · Android | – · – | – · – | ✓ · ✓ | ✓ · ✓ | ✓ · ✓ |
+| Browser extension | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Torrents and magnet links | ✓ | – | ✓ | ✓ | ? |
+| YouTube and other video sites | Built in | Video the page plays | Through add-ons | Through extensions | ? |
+| Queue and scheduler | ✓ | ✓ | ? | ? | ✓ |
+
+1. Its site calls it open source but names no license.
+
+Shardload also picks files out of a ZIP without downloading the archive, downloads one file
+from several mirrors at once, lists the files a whole site links to, and can be driven by an AI
+assistant over MCP; see [every feature](#every-feature) below.
+
+## In detail
+
+For those who want to know exactly what it does, how it was measured and how it is built.
+
+### Every feature
 
 - **Fast, resilient downloads.** Up to 16 connections per file with time-based work stealing:
   a connection that crawls has its range taken over, so the last percent does not drag. One
@@ -20,8 +115,8 @@ feature for feature, built by combining the best ideas from existing open-source
   each is shown to serve the same bytes; new connections go to the source that gives a
   connection the most, and a mirror that fails or crawls is dropped. A `.meta4` / `.metalink`
   link brings its mirrors, name and checksum by itself (`dm get URL -m MIRROR`, or "Add
-  mirrors" in the app).
-- **Browser integration** for Chrome, Edge and Firefox: downloads are taken over with the
+  mirror links…" in the app).
+- **Browser integration** for Chrome, Edge, Brave, Vivaldi, Opera and Firefox: downloads are taken over with the
   browser's cookies, referrer and user agent, over native messaging (no open localhost port).
   An expired link is refreshed by starting the download again in the browser.
 - **Video.** A download button over videos in the page; HLS and DASH downloaded by the engine
@@ -50,149 +145,13 @@ feature for feature, built by combining the best ideas from existing open-source
   with the app, lets any MCP client add downloads (files, chosen files out of ZIP archives,
   torrents with a choice of files, metalinks, video pages at a chosen quality), find the files
   a site links to, list downloads with their progress, wait for them to finish, pause, resume,
-  reorder and remove them, limit their speed and choose what happens when all are done. It reaches the app through the same
-  per-user pipe as the browser; nothing listens on a network port. Register it in the client
+  reorder and remove them, limit their speed and choose what happens when all are done. It
+  reaches the app through the same per-user pipe as the browser; nothing listens on a network port. Register it in the client
   as a stdio server whose command is `%LOCALAPPDATA%\idm-alternative\idma-mcp.exe`.
 
-| | |
-|---|---|
-| ![Add URL](docs/screenshots/add.png) | ![Video quality, audio and subtitles](docs/screenshots/video.png) |
-| ![Settings](docs/screenshots/settings.png) | ![A download's progress window](docs/screenshots/progress.png) |
+### Speed tests
 
-## How it fits together
-
-```mermaid
-flowchart LR
-    subgraph Browser
-        ext["Extension (MV3)<br/>capture, video button,<br/>media detection"]
-    end
-    host["idma-host<br/>native messaging host"]
-    mcp["idma-mcp<br/>MCP server"]
-    assistant["AI assistant<br/>(MCP client)"]
-    subgraph App["Desktop app (Tauri)"]
-        ui["Svelte UI<br/>WebView2, closed in the tray"]
-        shell["Rust shell<br/>tray, scheduler, clipboard,<br/>updates, virus scan"]
-        manager["manager<br/>list and queue in SQLite,<br/>events, saved logins"]
-        engine["engine<br/>segmented HTTP, HLS, DASH,<br/>resume state, checksums"]
-    end
-    tools["yt-dlp, deno, ffmpeg"]
-    ext -- "stdin/stdout" --> host
-    host -- "named pipe<br/>(per user, token)" --> shell
-    assistant -- "stdin/stdout" --> mcp
-    mcp -- "named pipe" --> shell
-    ui <-- "commands, events" --> shell
-    shell --> manager --> engine
-    manager -- "sites like YouTube" --> tools
-    engine -- "joining video and audio" --> tools
-```
-
-The engine knows one download at a time and nothing about lists; the manager owns the list,
-the queue and the events; the app is a thin shell that the browser host and the MCP server
-reach through a named pipe only this Windows user can open. The browser host passes on only
-what the extension may send (downloads for the user to confirm); listing, adding without
-asking and removing are for the user's own tools. More in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-and the decisions in [docs/decisions](docs/decisions).
-
-## Stack
-
-| Layer | Tech |
-|---|---|
-| Engine, manager, CLI, native host, test server | Rust (tokio, wreq) |
-| Desktop app | Tauri 2 + Svelte 5 (SvelteKit, static) |
-| Storage | SQLite (sqlx), request headers encrypted with DPAPI |
-| Browser extension | TypeScript, Manifest V3 (+ Firefox build) |
-| Media | the engine for HLS/DASH; yt-dlp + deno for sites; ffmpeg to join tracks |
-
-## Repository layout
-
-```
-crates/
-  engine/       download engine (library): HTTP segments, HLS, DASH, subtitles
-  manager/      download list, queue, events, saved logins, batch patterns
-  media/        HLS and DASH playlist parsing
-  bridge/       messages and the named pipe between the app and its local clients
-  native-host/  `idma-host`, the native messaging host the browser starts
-  mcp/          `idma-mcp`, the MCP server for AI assistants
-  cli/          `dm` command-line front end
-  testserver/   HTTP server reproducing hostile download scenarios (and HLS/DASH)
-  bench/        benchmark runner
-app/            Tauri 2 + SvelteKit desktop app, installer (`npm run bundle`)
-extension/      browser extension (MV3; Chromium and Firefox builds)
-docs/           architecture, design decisions, screenshots
-```
-
-## Building
-
-Requires Rust 1.99 (pinned in `rust-toolchain.toml`) and, on Windows, the MSVC build tools. The engine uses
-[wreq](https://github.com/0x676e67/wreq) (BoringSSL, for browser TLS fingerprints), whose build also needs
-CMake, NASM and LLVM (libclang) on `PATH`, e.g. `winget install Kitware.CMake NASM.NASM LLVM.LLVM`.
-Keep the checkout path short: MSBuild fails on BoringSSL objects past 260 characters.
-
-```bash
-cargo build
-cargo test
-```
-
-The desktop app (`app/`) also needs Node 24. It embeds the built web UI, so plain `cargo`
-commands leave it out:
-
-```bash
-cd app
-npm ci
-npm run tauri dev     # development, with hot reload
-npm run bundle        # installer in target/release/bundle/nsis
-```
-
-`npm run bundle` builds the browser host (`idma-host.exe`) first and ships it next to the app.
-When the update signing key is on the machine (`%USERPROFILE%\.tauri\idma.key`, its password
-DPAPI-encrypted in `idma.key.password`), it also signs the installer and writes `latest.json`;
-uploading both to a GitHub release `v<version>` is what the app's daily update check looks for.
-The check needs the releases to be public.
-The installer is per user (no administrator rights) and silent with `/S`. Uninstalling removes
-the app's keys from the browsers and the "start with Windows" entry, and keeps the download
-list in `%APPDATA%\io.github.monurpalan.idma`.
-
-### Linux
-
-CI builds, tests and packages the app on Ubuntu 24.04 (`.deb` and AppImage, kept as the run's
-`linux-packages` artifact). To build locally, install the GTK/WebKit stack Tauri needs and
-CMake and libclang for BoringSSL:
-
-```bash
-sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev cmake clang libclang-dev patchelf
-```
-
-```bash
-cd app && npm ci && npm run bundle -- --bundles deb,appimage
-```
-
-On Linux the app talks to the browser host and the MCP server over a Unix socket in
-`~/.local/share/io.github.monurpalan.idma` (readable by the user only), registers the host
-by writing its manifest into each browser's folder (not Snap or Flatpak browsers), opens
-magnet links through a desktop entry, sleeps and shuts down through `systemctl`, and scans
-with ClamAV (`clamscan`) when virus scanning is on. Watching the clipboard is Windows-only
-for now, and request headers are kept as they are (no DPAPI): the data folder is the user's.
-
-## Size and memory
-
-Measured on the development machine (release build, Windows 11):
-
-| | |
-|---|---|
-| Installer | 9.6 MiB |
-| Installed | 39.5 MB (app 35.9 MB, of which ~7 MB is the torrent client; MCP server 2.7 MB; browser host 0.8 MB) |
-| Idle memory, app process | 32 MB working set (8 MB private) |
-| Idle memory, WebView2 (6 processes) | 367 MB working set (160 MB private) |
-| Idle in the tray (window closed) | 5 MB private, no WebView2 processes |
-| 500 downloads in the list, 20 running (~10 MB/s) | UI 9% of a core, engine 18–22%; scrolling at 60 fps |
-
-Most of the memory is the WebView2 runtime that every Tauri app shares with Edge; IDM's
-native window needs far less. In the tray the app closes its window and the WebView with it,
-so that price is only paid while the window is open.
-
-## Benchmarks
-
-`dm` (the engine's command-line front end) against IDM 6.43, Gopeed 1.9.3, AB Download Manager
+`dm` (Shardload's engine from the command line) against IDM 6.43, Gopeed 1.9.3, AB Download Manager
 1.11.1, aria2 and curl, measured with [`idma-bench`](bench/README.md) on 2026-10-18. Every file was
 verified byte for byte (local) or by size and SHA-256 (internet). Medians of 3 runs, clients in a
 new shuffled order each round (internet: 5 runs). Free Download Manager is not in the table: it has
@@ -281,6 +240,88 @@ What this does and does not say:
   better there; this machine has no HDD), many small files in one go, and weak hardware.
 - **One machine, one line, one server.** Everyone ran with default settings. Browser integration,
   site compatibility and video are not measured here.
+
+### Size and memory
+
+Measured on the development machine (release build, Windows 11):
+
+| | |
+|---|---|
+| Installer | 9.6 MiB |
+| Installed | 39.5 MB (app 35.9 MB, of which ~7 MB is the torrent client; MCP server 2.7 MB; browser host 0.8 MB) |
+| Idle memory, app process | 32 MB working set (8 MB private) |
+| Idle memory, WebView2 (6 processes) | 367 MB working set (160 MB private) |
+| Idle in the tray (window closed) | 5 MB private, no WebView2 processes |
+| 500 downloads in the list, 20 running (~10 MB/s) | UI 9% of a core, engine 18–22%; scrolling at 60 fps |
+
+Most of the memory is the WebView2 runtime that every Tauri app shares with Edge; IDM's
+native window needs far less. In the tray the app closes its window and the WebView with it,
+so that price is only paid while the window is open.
+
+### How it works
+
+```mermaid
+flowchart LR
+    subgraph Browser
+        ext["Extension (MV3)<br/>capture, video button,<br/>media detection"]
+    end
+    host["idma-host<br/>native messaging host"]
+    mcp["idma-mcp<br/>MCP server"]
+    assistant["AI assistant<br/>(MCP client)"]
+    subgraph App["Desktop app (Tauri)"]
+        ui["Svelte UI<br/>WebView2, closed in the tray"]
+        shell["Rust shell<br/>tray, scheduler, clipboard,<br/>updates, virus scan"]
+        manager["manager<br/>list and queue in SQLite,<br/>events, saved logins"]
+        engine["engine<br/>segmented HTTP, HLS, DASH,<br/>resume state, checksums"]
+    end
+    tools["yt-dlp, deno, ffmpeg"]
+    ext -- "stdin/stdout" --> host
+    host -- "named pipe<br/>(per user, token)" --> shell
+    assistant -- "stdin/stdout" --> mcp
+    mcp -- "named pipe" --> shell
+    ui <-- "commands, events" --> shell
+    shell --> manager --> engine
+    manager -- "sites like YouTube" --> tools
+    engine -- "joining video and audio" --> tools
+```
+
+The engine knows one download at a time and nothing about lists; the manager owns the list,
+the queue and the events; the app is a thin shell that the browser host and the MCP server
+reach through a named pipe only this Windows user can open. The browser host passes on only
+what the extension may send (downloads for the user to confirm); listing, adding without
+asking and removing are for the user's own tools. More in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
+the decisions in [docs/decisions](docs/decisions), and how to build it in
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+### On Linux
+
+Built, tested and packaged on Ubuntu 24.04 in CI, but not yet tried much on a desktop: please
+report what does not work. The app talks to the browser and the MCP server over a socket only
+your user can open, registers the browser host in each browser's folder (not Snap or Flatpak
+browsers), sleeps and shuts down through `systemctl`, and scans with ClamAV when virus scanning
+is on. Clipboard monitoring is Windows-only for now.
+
+## Questions
+
+**Is it related to IDM?** No. Shardload is an independent project and is not affiliated with
+Internet Download Manager or Tonec Inc.; the name only says what it is an alternative to.
+
+**Is it safe?** The code is open, every release is built from it, and the release lists the
+SHA-256 of each file in `SHA256SUMS`. The installer is not code-signed yet, which is why
+Windows warns before running it.
+
+**Where are my downloads and settings?** Files go to your Downloads folder unless you choose
+another one. The list and settings live in `%APPDATA%\io.github.monurpalan.idma`.
+
+**How do I uninstall it?** Windows Settings → Apps → *idm-alternative* → Uninstall. Uninstalling
+also removes the browser registration; the download list stays in case you come back.
+
+**Something does not work.** Please [open an issue](https://github.com/monurpalan/idm-alternative/issues)
+with what you did and what happened; *Settings → App → Open the log folder* has the app's log.
+
+## Building and contributing
+
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## License
 

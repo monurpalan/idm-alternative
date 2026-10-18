@@ -9,7 +9,7 @@ use idma_engine::{
     RemoteZip, Request,
 };
 
-/// Command-line front end for the idm-alternative download engine.
+/// Command-line front end for the Shardload download engine.
 #[derive(Parser)]
 #[command(name = "dm", version = idma_engine::VERSION)]
 struct Cli {
