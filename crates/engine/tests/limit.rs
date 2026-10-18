@@ -142,3 +142,65 @@ async fn low_limit_uses_few_connections() {
     assert_verified(&out, 7, size);
     assert!((1..=3).contains(&peak), "peak {peak} connections");
 }
+
+/// Bytes the server sent beyond the file, as a fraction of it.
+fn waste(sent: u64, size: u64) -> f64 {
+    sent as f64 / size as f64 - 1.0
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn limit_with_slow_connections_wastes_little() {
+    let _serial = serial().await;
+    let base = start().await;
+    let dir = workdir("limit-slow-conns");
+    let out = dir.join("f.bin");
+    // Each connection gets 1 MiB/s, so the 4 MiB/s limit needs several; every one of them is
+    // throttled and fills the buffers to the server. Requests used to cover whole segments,
+    // and splitting one threw away what it had buffered: 8–37 % extra.
+    let (size, rate) = (24 * MB, 4 * MB);
+    let o = Options {
+        limiters: vec![Limiter::new(Some(rate))],
+        ..opts(16)
+    };
+    let url = format!("{base}/file/f.bin?size={size}&seed=7&rate={}", MB);
+    let done = get(&request(url, &out), &o).await.expect("download");
+    assert_verified(&out, 7, size);
+    let r = ratio(size, done.elapsed, rate);
+    assert!((0.93..=1.05).contains(&r), "{r:.3} of the limit");
+    let w = waste(bytes_sent(&base).await, size);
+    assert!(w < 0.08, "{:.1} % extra", w * 100.0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn limit_set_during_a_download_wastes_little() {
+    let _serial = serial().await;
+    let base = start().await;
+    let dir = workdir("limit-set-later");
+    let out = dir.join("f.bin");
+    // 16 connections at 512 KiB/s each, then a 2 MiB/s limit: about 8 MiB in the first
+    // second, the other 16 MiB at the limit. The open requests asked for whole segments;
+    // throttled, their buffers used to fill and get thrown away (44 % extra).
+    let (size, rate) = (24 * MB, 2 * MB);
+    let limiter = Limiter::new(None);
+    let o = Options {
+        limiters: vec![limiter.clone()],
+        ..opts(16)
+    };
+    let req = request(
+        format!("{base}/file/f.bin?size={size}&seed=7&rate={}", 512 << 10),
+        &out,
+    );
+    let set = async {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        limiter.set_rate(Some(rate));
+    };
+    let (done, ()) = tokio::join!(get(&req, &o), set);
+    let elapsed = done.expect("download").elapsed;
+    assert_verified(&out, 7, size);
+    assert!(
+        (8.0..10.5).contains(&elapsed.as_secs_f64()),
+        "took {elapsed:?}"
+    );
+    let w = waste(bytes_sent(&base).await, size);
+    assert!(w < 0.08, "{:.1} % extra", w * 100.0);
+}

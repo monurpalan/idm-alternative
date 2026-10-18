@@ -179,6 +179,14 @@ impl Table {
         speeds.get(speeds.len() / 2).copied()
     }
 
+    /// Active connections whose speed has not been measured yet: just started.
+    pub fn unmeasured(&self) -> usize {
+        self.segs
+            .iter()
+            .filter(|s| s.owner.is_some() && s.speed == 0.0)
+            .count()
+    }
+
     pub fn total_speed(&self) -> f64 {
         self.segs.iter().map(|s| s.speed).sum()
     }

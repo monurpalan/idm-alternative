@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
@@ -28,6 +28,9 @@ const TICK: Duration = Duration::from_millis(100);
 /// Under a speed limit, at most one connection per this many bytes/s: connections that
 /// trickle are more likely to be dropped by servers and gain nothing.
 const MIN_LIMITED_CONN_RATE: u64 = 32 << 10;
+/// Bounds of a request's size under a speed limit (see [`Ctx::window_end`]).
+const MIN_WINDOW: u64 = 256 << 10;
+const MAX_WINDOW: u64 = 16 << 20;
 
 pub struct Request {
     pub url: String,
@@ -310,6 +313,9 @@ struct Ctx {
     table: Mutex<Table>,
     read_timeout: Duration,
     limiters: Vec<Limiter>,
+    /// How many connections should close at the end of their current request, because a
+    /// speed limit needs fewer than are open.
+    shed: AtomicUsize,
     cancel: CancellationToken,
 }
 
@@ -321,6 +327,25 @@ impl Ctx {
     /// The lowest active speed limit, if any.
     fn tightest_limit(&self) -> Option<u64> {
         self.limiters.iter().filter_map(Limiter::rate).min()
+    }
+
+    /// Where the next request for `pos..end` should stop. Under a speed limit, requests ask
+    /// for half a second of the limit at most: a throttled connection fills the buffers
+    /// between it and the server, and whatever is buffered past the point where its range
+    /// shrinks or it closes is thrown away. Small requests bound that loss and let a
+    /// connection close between two of them without any.
+    fn window_end(&self, pos: u64, end: u64) -> u64 {
+        match self.tightest_limit() {
+            Some(rate) if self.ranges => end.min(pos + (rate / 2).clamp(MIN_WINDOW, MAX_WINDOW)),
+            _ => end,
+        }
+    }
+
+    /// Whether this connection should close now, claiming one of the requested closes.
+    fn take_shed(&self) -> bool {
+        self.shed
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_sub(1))
+            .is_ok()
     }
 
     /// Where requests go now, and the generation of that answer.
@@ -415,6 +440,7 @@ impl Job<'_> {
             table: Mutex::new(table),
             read_timeout: self.opts.read_timeout,
             limiters: self.opts.limiters.clone(),
+            shed: AtomicUsize::new(0),
             cancel: cancel.child_token(),
         });
 
@@ -520,9 +546,20 @@ impl Job<'_> {
                         let allowed = limit.map_or(conn_limit, |r| {
                             conn_limit.min(usize::try_from(r / MIN_LIMITED_CONN_RATE).unwrap_or(usize::MAX).max(1))
                         });
+                        // Lowering the limit below that while more run (a limit set during
+                        // the download): the surplus closes between two requests, which costs
+                        // nothing.
+                        ctx.shed.store(t.active().saturating_sub(allowed), Ordering::Release);
+                        // Connections started in the last tick or two have no speed yet; they
+                        // are counted at the typical speed, or each tick would add more.
+                        let unmeasured = t.unmeasured();
                         let mut budget = match (limit, t.typical_speed()) {
-                            (Some(r), Some(per)) => ((r as f64 - t.total_speed()) / per).ceil().max(1.0) as usize,
-                            (Some(_), None) => 1,
+                            (Some(r), Some(per)) => {
+                                let missing = r as f64 - t.total_speed() - unmeasured as f64 * per;
+                                let n = (missing / per).ceil().max(0.0) as usize;
+                                if unmeasured == 0 { n.max(1) } else { n }
+                            }
+                            (Some(_), None) => usize::from(unmeasured == 0),
                             (None, _) => usize::MAX,
                         };
                         if fatal.is_none() {
@@ -537,7 +574,11 @@ impl Job<'_> {
                                 }
                             }
                         }
+                        // Under a saturated limit a slow connection is slowed by the limit,
+                        // not the server: dropping it gains nothing and throws away what
+                        // it buffered.
                         if !single
+                            && !saturated
                             && fatal.is_none()
                             && let Some(idx) = t.laggard(now)
                             && let Some((stop, _)) = running.get(&idx).filter(|(s, _)| !s.is_cancelled())
@@ -744,43 +785,85 @@ async fn connection(
     initial: Option<Response>,
     stop: &CancellationToken,
 ) -> Result<()> {
-    let (start, end) = {
-        let t = ctx.table();
-        (t.segs[idx].received, t.segs[idx].end)
-    };
-    if start >= end {
-        return Ok(());
-    }
-    let resp = match initial {
-        Some(r) => r,
-        None => {
-            let end = (end != u64::MAX).then_some(end);
-            let mut relinked = false;
-            loop {
-                let (remote, generation) = ctx.remote();
-                let r = tokio::select! {
-                    r = ctx.http.range(&remote, start, end, slot) => r,
-                    () = stop.cancelled() => return Err(Error::Cancelled),
-                };
-                match r {
-                    Err(Error::LinkExpired(code)) if !relinked => {
-                        ctx.relink(generation, code, slot).await?;
-                        relinked = true;
-                    }
-                    r => break r?,
-                }
-            }
-        }
-    };
-
+    let start = ctx.table().segs[idx].received;
     let mut w = Writer {
         buf: Vec::with_capacity(WRITE_CHUNK),
         offset: start,
         last: Instant::now(),
     };
-    let mut body = std::pin::pin!(resp.bytes_stream());
     let mut pos = start;
+    let mut initial = initial;
     let result = loop {
+        let end = ctx.table().segs[idx].end;
+        if pos >= end {
+            break Ok(());
+        }
+        // The first response may cover more than the segment (the probe asks for the rest
+        // of the file); later ones are asked for exactly.
+        let (resp, asked_end) = match initial.take() {
+            Some(r) => (r, u64::MAX),
+            None => {
+                if pos > start && ctx.take_shed() {
+                    // Asked to close: the rest of the segment goes back to the table.
+                    break Ok(());
+                }
+                let asked_end = ctx.window_end(pos, end);
+                match request(ctx, pos, asked_end, slot, stop).await {
+                    Ok(r) => (r, asked_end),
+                    Err(e) => break Err(e),
+                }
+            }
+        };
+        if let Err(e) = receive(ctx, idx, resp, &mut pos, asked_end, &mut w, stop).await {
+            break Err(e);
+        }
+    };
+    // Keep whatever arrived before a failure.
+    let flushed = w.flush(ctx, idx).await;
+    result.and(flushed)
+}
+
+/// Asks for `start..end` of the file (`end` = `u64::MAX`: to the end), resolving the
+/// original URL again once if the current one has expired.
+async fn request(
+    ctx: &Ctx,
+    start: u64,
+    end: u64,
+    slot: u64,
+    stop: &CancellationToken,
+) -> Result<Response> {
+    let end = (end != u64::MAX).then_some(end);
+    let mut relinked = false;
+    loop {
+        let (remote, generation) = ctx.remote();
+        let r = tokio::select! {
+            r = ctx.http.range(&remote, start, end, slot) => r,
+            () = stop.cancelled() => return Err(Error::Cancelled),
+        };
+        match r {
+            Err(Error::LinkExpired(code)) if !relinked => {
+                ctx.relink(generation, code, slot).await?;
+                relinked = true;
+            }
+            r => return r,
+        }
+    }
+}
+
+/// Reads one response into segment `idx` until the segment's end (which may move closer
+/// while it runs, when another connection steals the rest) or the end of what was asked
+/// for (`asked_end`), whichever comes first.
+async fn receive(
+    ctx: &Ctx,
+    idx: usize,
+    resp: Response,
+    pos: &mut u64,
+    asked_end: u64,
+    w: &mut Writer,
+    stop: &CancellationToken,
+) -> Result<()> {
+    let mut body = Box::pin(resp.bytes_stream());
+    loop {
         let chunk = tokio::select! {
             () = stop.cancelled() => break Err(Error::Cancelled),
             r = tokio::time::timeout(ctx.read_timeout, body.next()) => match r {
@@ -794,45 +877,54 @@ async fn connection(
             let mut t = ctx.table();
             let seg = &mut t.segs[idx];
             if seg.end == u64::MAX {
-                seg.end = pos; // size was unknown: the stream's end is the file's end
-                break Ok(());
+                seg.end = *pos; // size was unknown: the stream's end is the file's end
+                return Ok(());
             }
-            break if pos >= seg.end {
+            return if *pos >= seg.end.min(asked_end) {
                 Ok(())
             } else {
                 Err(Error::Truncated)
             };
         };
         // Clip to the current end; it may have shrunk since the request was made.
-        let (take, seg_end) = {
+        let (take, until) = {
             let mut t = ctx.table();
             let seg = &mut t.segs[idx];
-            let take = (seg.end.saturating_sub(pos)).min(chunk.len() as u64) as usize;
-            seg.received = pos + take as u64;
-            (take, seg.end)
+            let until = seg.end.min(asked_end);
+            let take = (until.saturating_sub(*pos)).min(chunk.len() as u64) as usize;
+            seg.received = *pos + take as u64;
+            (take, until)
         };
         w.buf.extend_from_slice(&chunk[..take]);
-        pos += take as u64;
-        for limiter in &ctx.limiters {
-            tokio::select! {
-                () = stop.cancelled() => break,
-                () = limiter.acquire(take) => {}
-            }
+        *pos += take as u64;
+        let finished = *pos >= until;
+        // A request made before a limit was set (or lowered) asks for far more than a window
+        // now: it is closed and asked again in windows.
+        let rewindow =
+            !finished && asked_end.saturating_sub(ctx.window_end(*pos, u64::MAX)) > MIN_WINDOW;
+        if finished || rewindow {
+            // Closed before waiting for the limit, so the buffers stop filling: whatever
+            // the server sent past this point is lost.
+            drop(body);
+            pay(ctx, take, stop).await;
+            w.flush(ctx, idx).await?;
+            return Ok(());
         }
-        let finished = pos >= seg_end;
-        if (finished || w.buf.len() >= WRITE_CHUNK || w.last.elapsed() >= WRITE_EVERY)
-            && let Err(e) = w.flush(ctx, idx).await
-        {
-            break Err(e);
+        pay(ctx, take, stop).await;
+        if w.buf.len() >= WRITE_CHUNK || w.last.elapsed() >= WRITE_EVERY {
+            w.flush(ctx, idx).await?;
         }
-        if finished {
-            // Dropping the response abandons the rest of an open-ended body.
-            break Ok(());
+    }
+}
+
+/// Waits until every speed limit has paid for `bytes` just received.
+async fn pay(ctx: &Ctx, bytes: usize, stop: &CancellationToken) {
+    for limiter in &ctx.limiters {
+        tokio::select! {
+            () = stop.cancelled() => return,
+            () = limiter.acquire(bytes) => {}
         }
-    };
-    // Keep whatever arrived before a failure.
-    let flushed = w.flush(ctx, idx).await;
-    result.and(flushed)
+    }
 }
 
 struct Writer {
