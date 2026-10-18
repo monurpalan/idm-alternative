@@ -32,6 +32,6 @@
 	</Checkbox>
 	{#snippet actions()}
 		<Button onclick={() => dialog?.close()}>{t('Cancel')}</Button>
-		<Button type="submit" variant="primary">{t('Remove')}</Button>
+		<Button type="submit" variant="primary" danger>{t('Remove')}</Button>
 	{/snippet}
 </Dialog>

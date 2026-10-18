@@ -1,19 +1,22 @@
-/* The extension's pages follow the app's design rules: three colors (ink, paper, accent),
+/* The extension's pages follow the app's design rules: three colors (ink, paper, accent)
+   plus green and red for success and failure only,
    shades only as those colors made transparent, a 4px spacing grid and four text sizes.
    Keep these in step with app/src/app.css. */
 :root {
 	--ink: #16181d;
 	--paper: #f3f1ec;
-	--accent: #d9480f;
+	--accent: #2563eb;
+	--success: #2f9e44;
+	--danger: #e03131;
 	--bg: var(--paper);
 	--fg: var(--ink);
-	--on-accent: var(--ink);
+	--on-accent: var(--paper);
 	--muted: color-mix(in srgb, var(--fg) 58%, transparent);
 	--line: color-mix(in srgb, var(--fg) 18%, transparent);
 	--line-soft: color-mix(in srgb, var(--fg) 9%, transparent);
 	--field: color-mix(in srgb, var(--fg) 3%, transparent);
 	--hover: color-mix(in srgb, var(--fg) 8%, transparent);
-	--selected: color-mix(in srgb, var(--accent) 20%, transparent);
+	--selected: color-mix(in srgb, var(--accent) 16%, transparent);
 	--space-1: 4px;
 	--space-2: 8px;
 	--space-3: 12px;
@@ -101,6 +104,9 @@ input[type='checkbox'] {
 	color: var(--muted);
 	font-size: var(--text-caption);
 }
+.success {
+	color: var(--success);
+}
 .error {
-	color: var(--accent);
+	color: var(--danger);
 }

@@ -299,14 +299,14 @@
 		background: var(--accent);
 	}
 	.s-done .marker {
-		border-color: var(--faint);
-		background: var(--faint);
+		border-color: var(--success);
+		background: var(--success);
 	}
 	.s-error .status {
-		color: var(--accent);
+		color: var(--danger);
 	}
 	.s-error .marker {
-		border-color: var(--accent);
+		border-color: var(--danger);
 	}
 	.empty {
 		display: flex;

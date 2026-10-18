@@ -1,12 +1,14 @@
 /* Design tokens and base styles shared by every component.
  *
- * The look: a measuring instrument on paper. Warm paper, black ink and one signal orange;
+ * The look: a measuring instrument on paper. Warm paper, black ink and the blue of the logo;
  * names in IBM Plex Sans, every number in IBM Plex Mono so columns of figures line up and
  * read like a readout; labels small, mono and in capitals; square corners.
  *
- * Colors: three, and only three: ink, paper and the accent. Light and dark themes swap ink
- * and paper; every other shade (lines, muted text, hover, selection) is one of the three at
- * a lower opacity or two of them mixed, never a new color.
+ * Colors: three for the design (ink, paper and the accent, the logo's blue) plus two that
+ * only ever mean a state: --success (finished) and --danger (failed, or an action that
+ * deletes). Light and dark themes swap ink and paper; every other shade (lines, muted text,
+ * hover, selection) is one of these at a lower opacity or two of them mixed, never a new
+ * color.
  * Spacing: multiples of 4px only (--space-*).
  * Type: four sizes (--text-h1, --text-h2, --text-body, --text-caption).
  * Components take these through the UI kit in `lib/components/ui`; nothing sets its own
@@ -19,7 +21,9 @@
 :root {
 	--ink: #16181d;
 	--paper: #f3f1ec;
-	--accent: #d9480f;
+	--accent: #2563eb;
+	--success: #2f9e44;
+	--danger: #e03131;
 
 	--bg: var(--paper);
 	--fg: var(--ink);
@@ -76,7 +80,7 @@
 :root,
 .invert {
 	/* Text on the accent. */
-	--on-accent: var(--ink);
+	--on-accent: var(--paper);
 	--muted: color-mix(in srgb, var(--fg) 58%, transparent);
 	--faint: color-mix(in srgb, var(--fg) 34%, transparent);
 	--line-strong: color-mix(in srgb, var(--fg) 72%, transparent);

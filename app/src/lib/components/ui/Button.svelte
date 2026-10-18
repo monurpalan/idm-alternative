@@ -1,6 +1,6 @@
 <script lang="ts">
 	// The app's only button. Variants:
-	// - primary: the main action of a window (accent);
+	// - primary: the main action of a window (accent; red with `danger`, for deleting);
 	// - secondary: every other action (default);
 	// - ghost: quiet actions inside lists and panels;
 	// - link: an action that reads as a link;
@@ -41,7 +41,7 @@
 		pressed?: boolean;
 		/** Which side the content sits on (centered by default). */
 		align?: 'start' | 'end';
-		/** `menu`: an action that deletes, in the accent. */
+		/** `menu`: an action that deletes, in red. */
 		danger?: boolean;
 		role?: 'menuitem';
 		onclick?: (e: MouseEvent) => void;
@@ -108,6 +108,16 @@
 	.primary:hover:not(:disabled) {
 		border-color: var(--accent);
 		background: color-mix(in srgb, var(--accent) 88%, var(--paper));
+	}
+
+	.primary.danger {
+		border-color: var(--danger);
+		background: var(--danger);
+		color: var(--paper);
+	}
+	.primary.danger:hover:not(:disabled) {
+		border-color: var(--danger);
+		background: color-mix(in srgb, var(--danger) 88%, var(--paper));
 	}
 
 	.secondary[aria-pressed='true'] {
@@ -193,6 +203,6 @@
 		opacity: 1;
 	}
 	.danger {
-		color: var(--accent);
+		color: var(--danger);
 	}
 </style>

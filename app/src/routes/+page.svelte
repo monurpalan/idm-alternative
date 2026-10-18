@@ -501,7 +501,7 @@
 		min-width: 0;
 	}
 	.message.error {
-		box-shadow: inset var(--space-1) 0 0 var(--accent);
-		color: var(--accent);
+		box-shadow: inset var(--space-1) 0 0 var(--danger);
+		color: var(--danger);
 	}
 </style>

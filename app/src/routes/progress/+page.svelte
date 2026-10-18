@@ -174,6 +174,6 @@
 		margin-top: auto;
 	}
 	.error {
-		color: var(--accent);
+		color: var(--danger);
 	}
 </style>

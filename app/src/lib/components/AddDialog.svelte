@@ -367,7 +367,7 @@
 		overflow-wrap: anywhere;
 	}
 	.error {
-		color: var(--accent);
+		color: var(--danger);
 	}
 	.strong {
 		color: var(--fg);

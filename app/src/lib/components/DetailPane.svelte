@@ -317,7 +317,7 @@
 		font-variant-numeric: tabular-nums;
 	}
 	.error {
-		color: var(--accent);
+		color: var(--danger);
 	}
 	.inline {
 		display: grid;
@@ -332,7 +332,7 @@
 		grid-template-columns: 96px 1fr 1fr auto auto;
 	}
 	.attention label {
-		color: var(--accent);
+		color: var(--danger);
 	}
 	.charts {
 		display: grid;

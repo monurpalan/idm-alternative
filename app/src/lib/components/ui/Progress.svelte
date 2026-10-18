@@ -1,7 +1,7 @@
 <script lang="ts">
 	// A progress bar cut into small segments, after the engine that splits a download into
 	// ranges, with its figure beside it. `value` 0–1, or null when the size is unknown.
-	// States: `running` (accent), `done` and `stopped` (faint), `error` (faint accent).
+	// States: `running` (accent), `done` (faint green), `stopped` (faint), `error` (faint red).
 	let {
 		value,
 		state = 'running',
@@ -49,10 +49,10 @@
 		background: var(--accent);
 	}
 	.done progress::-webkit-progress-value {
-		background: var(--faint);
+		background: color-mix(in srgb, var(--success) 45%, transparent);
 	}
 	.done progress::-moz-progress-bar {
-		background: var(--faint);
+		background: color-mix(in srgb, var(--success) 45%, transparent);
 	}
 	.stopped progress::-webkit-progress-value {
 		background: var(--faint);
@@ -61,10 +61,10 @@
 		background: var(--faint);
 	}
 	.error progress::-webkit-progress-value {
-		background: color-mix(in srgb, var(--accent) 45%, transparent);
+		background: color-mix(in srgb, var(--danger) 45%, transparent);
 	}
 	.error progress::-moz-progress-bar {
-		background: color-mix(in srgb, var(--accent) 45%, transparent);
+		background: color-mix(in srgb, var(--danger) 45%, transparent);
 	}
 	.text {
 		overflow: hidden;

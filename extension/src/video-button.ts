@@ -24,8 +24,8 @@ function build() {
 				padding: 0 12px;
 				border: 0;
 				border-radius: 4px;
-				background: #d9480f;
-				color: #16181d;
+				background: #2563eb;
+				color: #f3f1ec;
 				font: 600 13px system-ui, 'Segoe UI', sans-serif;
 				box-shadow: 0 4px 16px color-mix(in srgb, #16181d 35%, transparent);
 				cursor: pointer;

@@ -1,6 +1,6 @@
 <script lang="ts">
 	// Text inside a window. Variants: `body`, `muted` (secondary facts), `caption` (small
-	// print), `label` (the small capitals over a group or a figure) and `error` (accent).
+	// print), `label` (the small capitals over a group or a figure) and `error` (red).
 	// `mono` for figures, `truncate` keeps it to one line, `inline` for a run inside a line.
 	import type { Snippet } from 'svelte';
 
@@ -52,7 +52,7 @@
 		text-transform: uppercase;
 	}
 	.error {
-		color: var(--accent);
+		color: var(--danger);
 	}
 	.truncate {
 		overflow: hidden;
