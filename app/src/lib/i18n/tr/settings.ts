@@ -33,16 +33,17 @@ export default {
 	Sun: 'Paz',
 	Forget: 'Unut',
 	'Video tools': 'Video araçları',
-	Found: 'Bulundu',
-	'Not found: install it (e.g. winget install ffmpeg) to join video and audio':
-		'Bulunamadı: görüntü ile sesi birleştirmek için kurun (ör. winget install ffmpeg)',
+	'Joins video and audio into one file; set up by itself when a download needs it':
+		'Görüntü ile sesi tek dosyada birleştirir; bir indirme gerektirdiğinde kendiliğinden kurulur',
+	'Yours, on PATH: version {v}': 'Sizin kurduğunuz, PATH’te: sürüm {v}',
+	'Yours, on PATH': 'Sizin kurduğunuz, PATH’te',
 	'YouTube, X, Instagram and other sites': 'YouTube, X, Instagram ve diğer siteler',
 	'Needed by yt-dlp for YouTube': 'yt-dlp, YouTube için buna ihtiyaç duyar',
 	'Version {v}': 'Sürüm {v}',
 	Update: 'Güncelle',
 	'Set up': 'Kur',
-	'Update yt-dlp and deno when a new version is out (checked once a day)':
-		'Yeni sürüm çıktığında yt-dlp ve deno’yu güncelle (günde bir kez denetlenir)',
+	'Update yt-dlp, deno and ffmpeg when a new version is out (checked once a day)':
+		'Yeni sürüm çıktığında yt-dlp, deno ve ffmpeg’i güncelle (günde bir kez denetlenir)',
 	"Downloaded from the projects' official GitHub releases and checked against their published SHA-256.":
 		'Projelerin resmî GitHub sürümlerinden indirilir ve yayımlanan SHA-256 değerleriyle doğrulanır.',
 	App: 'Uygulama',

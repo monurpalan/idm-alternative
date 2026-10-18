@@ -59,6 +59,23 @@ pub enum Error {
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+/// Sets up ffmpeg when a download needs it (to join separate video and audio) and the
+/// configuration has none: gets the client settings, reports the setup's progress on the
+/// sender, stops when cancelled, and returns the program, which the manager then keeps in
+/// its configuration.
+#[derive(Clone)]
+pub struct FfmpegSetup(pub Arc<SetupFn>);
+
+type SetupFn =
+    dyn Fn(Options, watch::Sender<Progress>, CancellationToken) -> SetupFuture + Send + Sync;
+type SetupFuture = Pin<Box<dyn Future<Output = std::result::Result<PathBuf, String>> + Send>>;
+
+impl std::fmt::Debug for FfmpegSetup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("FfmpegSetup")
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     /// Default folder for new downloads.
@@ -83,6 +100,10 @@ pub struct Config {
     /// Puts stream video and audio into one file; without it a stream is saved as the
     /// joined `.ts` segments, and one with separate audio cannot be saved.
     pub ffmpeg: Option<PathBuf>,
+    /// Sets ffmpeg up while it is missing: without it (or when it fails), a page is saved as
+    /// a single file, which may be lower quality, and a stream with separate audio cannot be
+    /// saved.
+    pub ffmpeg_setup: Option<FfmpegSetup>,
     /// yt-dlp, for pages of sites such as YouTube; and deno, which it needs there.
     pub ytdlp: Option<PathBuf>,
     pub deno: Option<PathBuf>,
@@ -102,6 +123,7 @@ impl Default for Config {
             max_retries: 5,
             retry_delay: Duration::from_secs(5),
             ffmpeg: None,
+            ffmpeg_setup: None,
             ytdlp: None,
             deno: None,
             torrent: TorrentConfig::default(),
@@ -182,6 +204,9 @@ struct Inner {
     retries: Mutex<HashMap<TaskId, Retry>>,
     torrents: torrent::Torrents,
     closed: AtomicBool,
+    /// Said about a download that went differently than asked (saved as a single file
+    /// without ffmpeg); kept with it once it is done.
+    notes: Mutex<HashMap<TaskId, String>>,
 }
 
 struct Retry {
@@ -220,6 +245,15 @@ fn subtitle_path(video: &Path, label: &str, ext: &str) -> PathBuf {
     video.with_file_name(shardload_engine::name::sanitize(&format!(
         "{stem}.{label}.{ext}"
     )))
+}
+
+/// Whether a download joins separate video and audio, which needs ffmpeg: a page in a
+/// format that merges two, or a stream with its own audio.
+fn joins_tracks(stream: &Stream) -> bool {
+    match &stream.ytdlp {
+        Some(format) => ytdlp::merges(format),
+        None => stream.audio.is_some() && stream.torrent.is_none() && stream.archive.is_none(),
+    }
 }
 
 /// Failures that may pass by themselves: the network, or a server that is busy or erroring.
@@ -341,6 +375,7 @@ impl Manager {
             naming: tokio::sync::Mutex::new(()),
             retries: Mutex::new(HashMap::new()),
             closed: AtomicBool::new(false),
+            notes: Mutex::new(HashMap::new()),
         });
         inner.fill().await?;
         Ok(Self { inner })
@@ -920,6 +955,7 @@ impl Inner {
     ) {
         let id = task.id;
         let result = self.download(task, &cancel, limiter).await;
+        let note = lock(&self.notes).remove(&id);
         let why = *lock(&stop);
         // The server asks to log in and a login is saved for the site: try it once.
         let logged_in = why.is_none()
@@ -935,7 +971,12 @@ impl Inner {
             }
             (Ok(outcome), _) => {
                 lock(&self.retries).remove(&id);
-                self.db.finish(id, outcome.size, now_ms()).await
+                match self.db.finish(id, outcome.size, now_ms()).await {
+                    Ok(()) if note.is_some() => {
+                        self.db.set_status(id, Status::Done, note.as_deref()).await
+                    }
+                    other => other,
+                }
             }
             (Err(Error::Engine(shardload_engine::Error::Cancelled)), Some(Stop::Pause)) => {
                 self.db.set_status(id, Status::Paused, None).await
@@ -1410,6 +1451,68 @@ impl Inner {
         Some((delay, offline))
     }
 
+    /// ffmpeg from the app's [`FfmpegSetup`], with its progress shown as the download's.
+    /// The inner error says why there is none.
+    async fn set_up_ffmpeg(
+        &self,
+        id: TaskId,
+        cancel: &CancellationToken,
+    ) -> Result<std::result::Result<PathBuf, String>> {
+        let (setup, opts) = {
+            let cfg = lock(&self.config);
+            (cfg.ffmpeg_setup.clone(), cfg.engine.clone())
+        };
+        let Some(FfmpegSetup(setup)) = setup else {
+            return Ok(Err("this program cannot set it up".into()));
+        };
+        let (tx, mut rx) = watch::channel(Progress::default());
+        let events = self.events.clone();
+        let forward = tokio::spawn(async move {
+            while rx.changed().await.is_ok() {
+                let p = rx.borrow_and_update().clone();
+                let _ = events.send(Event::Progress(TaskProgress {
+                    id,
+                    phase: shardload_engine::Phase::SettingUp,
+                    size: p.size,
+                    received: p.received,
+                    speed: p.speed,
+                    connections: p.connections,
+                    verified: 0,
+                    checksum_from: None,
+                    segments: Vec::new(),
+                }));
+                tokio::time::sleep(PROGRESS_EVERY).await;
+            }
+        });
+        // Shown at once, before the first byte.
+        tx.send_modify(|_| {});
+        let result = setup(opts, tx, cancel.clone()).await;
+        forward.await.ok();
+        match result {
+            Ok(path) => {
+                // For the downloads that come next.
+                lock(&self.config).ffmpeg = Some(path.clone());
+                Ok(Ok(path))
+            }
+            Err(_) if cancel.is_cancelled() => Err(shardload_engine::Error::Cancelled.into()),
+            Err(e) => {
+                tracing::warn!(id, "could not set up ffmpeg: {e}");
+                Ok(Err(e))
+            }
+        }
+    }
+
+    /// Keeps `note` with the download (see [`Inner::notes`]) and shows it now.
+    async fn note(&self, task: &mut Task, note: String) -> Result<()> {
+        self.db
+            .set_status(task.id, Status::Downloading, Some(&note))
+            .await?;
+        task.error = Some(note.clone());
+        lock(&self.notes).insert(task.id, note);
+        self.emit(Event::Updated(task.clone()));
+        Ok(())
+    }
+
     async fn download(
         &self,
         mut task: Task,
@@ -1436,18 +1539,47 @@ impl Inner {
             .map_err(Error::BadChecksum)?;
         opts.checksum_from = task.checksum_from.clone();
 
-        if let Some(format) = task.stream.as_ref().and_then(|s| s.ytdlp.clone()) {
-            let ytdlp = ytdlp.ok_or_else(|| {
-                shardload_engine::Error::State(
-                    "yt-dlp is not set up (Settings, Video tools)".into(),
-                )
-            })?;
+        let page_format = task.stream.as_ref().and_then(|s| s.ytdlp.clone());
+        if page_format.is_some() && ytdlp.is_none() {
+            return Err(shardload_engine::Error::State(
+                "yt-dlp is not set up (Settings, Video tools)".into(),
+            )
+            .into());
+        }
+        // Set up the first time a download needs to join video and audio.
+        let mut no_ffmpeg = None;
+        let ffmpeg = match ffmpeg {
+            None if task.stream.as_ref().is_some_and(joins_tracks) => {
+                match self.set_up_ffmpeg(task.id, cancel).await? {
+                    Ok(path) => Some(path),
+                    Err(why) => {
+                        no_ffmpeg = Some(why);
+                        None
+                    }
+                }
+            }
+            other => other,
+        };
+
+        if let Some(mut format) = page_format {
+            let ytdlp = ytdlp.expect("checked above");
+            let fallback = no_ffmpeg.filter(|_| ytdlp::merges(&format));
+            if let Some(why) = &fallback {
+                // Never two files (a silent video and its sound): one format with both.
+                format = ytdlp::single_file(&format);
+                let note = format!(
+                    "Saved as one file with its own sound, which may be lower quality than \
+                     chosen: ffmpeg, which joins separate video and audio, is not set up \
+                     ({why}). Download it again once it is (Settings, Video tools)."
+                );
+                self.note(&mut task, note).await?;
+            }
             let tools = ytdlp::Tools {
                 ytdlp,
                 deno,
                 ffmpeg,
             };
-            return self
+            let result = self
                 .download_page(
                     task,
                     &format,
@@ -1457,6 +1589,18 @@ impl Inner {
                     cancel,
                 )
                 .await;
+            return match (result, fallback) {
+                // No format with both (YouTube has none any more): nothing was downloaded.
+                (Err(Error::Engine(shardload_engine::Error::State(e))), Some(why))
+                    if e.contains("Requested format is not available") =>
+                {
+                    Err(shardload_engine::Error::State(format!(
+                        "this video only comes as separate video and audio, and ffmpeg, which                          joins them, could not be set up ({why}); start the download again to                          try once more"
+                    ))
+                    .into())
+                }
+                (result, _) => result,
+            };
         }
         if torrent::is_torrent(&task.url) {
             let limit = task.speed_limit;
@@ -1493,6 +1637,13 @@ impl Inner {
                 }
                 Some(_) => {}
                 None => {
+                    if let Some(why) = no_ffmpeg.filter(|_| stream.audio.is_some()) {
+                        return Err(shardload_engine::Error::State(format!(
+                            "this stream has separate audio, which ffmpeg joins with the \
+                             video, and ffmpeg could not be set up: {why}"
+                        ))
+                        .into());
+                    }
                     return self
                         .download_stream(task, stream, opts, conflict, ffmpeg, cancel)
                         .await;

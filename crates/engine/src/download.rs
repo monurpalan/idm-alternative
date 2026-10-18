@@ -147,6 +147,9 @@ pub enum Phase {
     /// Asking the server about the file.
     #[default]
     Probing,
+    /// Setting up a helper program the download needs first (the manager's ffmpeg); the
+    /// sizes are the helper's.
+    SettingUp,
     Downloading,
     /// Hashing the finished file; see [`Progress::verified`].
     Verifying,

@@ -39,6 +39,26 @@ pub fn selector(height: Option<u32>) -> String {
     }
 }
 
+/// Whether a format selector asks yt-dlp to merge two formats (`video+audio`), which needs
+/// ffmpeg.
+pub fn merges(format: &str) -> bool {
+    format.split('/').any(|choice| choice.contains('+'))
+}
+
+/// The selector without its merging choices, for when ffmpeg is missing: one format that
+/// has both video and audio, so yt-dlp never leaves a silent video next to its sound.
+pub fn single_file(format: &str) -> String {
+    let single: Vec<&str> = format
+        .split('/')
+        .filter(|choice| !choice.contains('+'))
+        .collect();
+    if single.is_empty() {
+        "best".to_owned()
+    } else {
+        single.join("/")
+    }
+}
+
 /// How formats are ranked: the chosen height and frame rate first, then H.264 video and AAC
 /// audio, which every player opens. yt-dlp's own default puts AV1 and Opus first, which
 /// Windows' player cannot open without an extension. Its `-t mp4` preset ranks the codec
@@ -374,6 +394,18 @@ mod tests {
             "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
         );
         assert_eq!(selector(None), "bestaudio/best");
+    }
+
+    #[test]
+    fn selectors_without_ffmpeg() {
+        let video = selector(Some(1080));
+        assert!(merges(&video));
+        assert_eq!(single_file(&video), "best[height<=1080]/best");
+        assert!(!merges(&single_file(&video)));
+        // Audio alone is one format already.
+        assert!(!merges(&selector(None)));
+        assert_eq!(single_file(&selector(None)), "bestaudio/best");
+        assert_eq!(single_file("bv*+ba"), "best");
     }
 
     #[test]

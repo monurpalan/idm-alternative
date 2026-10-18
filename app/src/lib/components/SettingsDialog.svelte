@@ -16,6 +16,7 @@
 		setSettings,
 		tools,
 		type Settings,
+		type ToolId,
 		type ToolStatus
 	} from '../api.ts';
 	import { msg, t } from '../i18n.svelte.ts';
@@ -35,9 +36,14 @@
 
 	const DAYS = [msg('Mon'), msg('Tue'), msg('Wed'), msg('Thu'), msg('Fri'), msg('Sat'), msg('Sun')];
 
-	const TOOLS: { id: 'ytdlp' | 'deno'; name: string; why: string }[] = [
+	const TOOLS: { id: ToolId; name: string; why: string }[] = [
 		{ id: 'ytdlp', name: 'yt-dlp', why: msg('YouTube, X, Instagram and other sites') },
-		{ id: 'deno', name: 'deno', why: msg('Needed by yt-dlp for YouTube') }
+		{ id: 'deno', name: 'deno', why: msg('Needed by yt-dlp for YouTube') },
+		{
+			id: 'ffmpeg',
+			name: 'ffmpeg',
+			why: msg('Joins video and audio into one file; set up by itself when a download needs it')
+		}
 	];
 
 	let s = $state<Settings | null>(null);
@@ -47,7 +53,7 @@
 	let saving = $state(false);
 	let dialog: { close(): void } | undefined = $state();
 	let toolStatus = $state<ToolStatus | null>(null);
-	let installing = $state<'ytdlp' | 'deno' | null>(null);
+	let installing = $state<ToolId | null>(null);
 	let toolError = $state<string | null>(null);
 	let logins = $state<SavedLogin[]>([]);
 
@@ -73,7 +79,7 @@
 		}
 	}
 
-	async function setUp(tool: 'ytdlp' | 'deno') {
+	async function setUp(tool: ToolId) {
 		installing = tool;
 		toolError = null;
 		try {
@@ -257,26 +263,29 @@
 				{/each}
 			{:else if tab === 'tools'}
 				{#if toolStatus}
-					<div class="tool">
-						<Text mono inline>ffmpeg</Text>
-						<Text variant="muted" inline>
-							{toolStatus.ffmpeg
-								? t('Found')
-								: t('Not found: install it (e.g. winget install ffmpeg) to join video and audio')}
-						</Text>
-					</div>
 					{#each TOOLS as tool (tool.id)}
 						{@const version = toolStatus[tool.id]}
+						{@const onPath = tool.id === 'ffmpeg' && toolStatus.ffmpeg_on_path}
 						<div class="tool">
 							<Text mono inline>{tool.name}</Text>
-							<Text variant="muted" inline>{version ? t('Version {v}', { v: version }) : t(tool.why)}</Text>
-							<Button disabled={installing !== null} onclick={() => setUp(tool.id)}>
-								{installing === tool.id ? t('Downloading…') : version ? t('Update') : t('Set up')}
-							</Button>
+							<Text variant="muted" inline>
+								{onPath
+									? version
+										? t('Yours, on PATH: version {v}', { v: version })
+										: t('Yours, on PATH')
+									: version
+										? t('Version {v}', { v: version })
+										: t(tool.why)}
+							</Text>
+							{#if !onPath}
+								<Button disabled={installing !== null} onclick={() => setUp(tool.id)}>
+									{installing === tool.id ? t('Downloading…') : version ? t('Update') : t('Set up')}
+								</Button>
+							{/if}
 						</div>
 					{/each}
 					<Checkbox bind:checked={s.update_tools}
-						>{t('Update yt-dlp and deno when a new version is out (checked once a day)')}</Checkbox
+						>{t('Update yt-dlp, deno and ffmpeg when a new version is out (checked once a day)')}</Checkbox
 					>
 					<Text variant="caption">
 						{t(

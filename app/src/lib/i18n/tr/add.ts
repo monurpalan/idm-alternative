@@ -76,7 +76,6 @@ export default {
 	'Read the playlist first': 'Önce oynatma listesi okunmalı',
 	'Protected streams cannot be downloaded': 'Korumalı yayınlar indirilemez',
 	'Live streams cannot be downloaded yet': 'Canlı yayınlar henüz indirilemiyor',
-	'This stream has separate audio: ffmpeg is needed': 'Bu yayının sesi ayrı: ffmpeg gerekli',
 	'As offered': 'Sunulduğu gibi',
 	Track: 'Parça',
 	Stream: 'Yayın',
@@ -89,8 +88,10 @@ export default {
 	Audio: 'Ses',
 	'Subtitles (saved next to the video)': 'Altyazılar (videonun yanına kaydedilir)',
 	'Name from the address': 'Adresteki ad',
-	'ffmpeg was not found: the video is saved as joined .ts segments.':
-		'ffmpeg bulunamadı: video birleştirilmiş .ts parçaları olarak kaydedilir.',
+	'ffmpeg, which joins the video and its audio, is set up when the download starts.':
+		'Görüntüyü sesiyle birleştiren ffmpeg, indirme başlarken kurulur.',
+	'Without ffmpeg the video is saved as joined .ts segments.':
+		'ffmpeg olmadan video birleştirilmiş .ts parçaları olarak kaydedilir.',
 	'https://…   (photo[001-100].jpg adds a numbered batch)':
 		'https://…   (foto[001-100].jpg numaralı toplu ekler)',
 	'Mirrors: other links to the same file, one per line':

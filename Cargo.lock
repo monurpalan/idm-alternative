@@ -3538,6 +3538,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
+name = "lzma-rs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "297e814c836ae64db86b36cf2a557ba54368d03f6afcd7d947c266692f71115e"
+dependencies = [
+ "byteorder",
+ "crc",
+]
+
+[[package]]
 name = "mac-notification-sys"
 version = "0.6.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5689,12 +5699,14 @@ name = "shardload-app"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "lzma-rs",
  "serde",
  "serde_json",
  "shardload-bridge",
  "shardload-engine",
  "shardload-manager",
  "shardload-media",
+ "tar",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
