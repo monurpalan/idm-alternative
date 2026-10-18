@@ -56,6 +56,7 @@ export default {
 	Connecting: 'Bağlanıyor',
 	Retrying: 'Yeniden deneniyor',
 	Waiting: 'Bekliyor',
+	'Waiting for the network': 'Ağ bekleniyor',
 	Paused: 'Duraklatıldı',
 	'Login needed': 'Giriş gerekli',
 	'Link expired': 'Bağlantı eskidi',

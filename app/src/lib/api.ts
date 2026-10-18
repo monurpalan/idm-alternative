@@ -20,7 +20,7 @@ export interface Task {
 	status: Status;
 	error: string | null;
 	/** What the failure needs from the user, when it is something they can fix. */
-	error_kind: 'auth' | 'expired' | 'changed' | 'disk' | 'checksum' | null;
+	error_kind: 'auth' | 'expired' | 'changed' | 'disk' | 'checksum' | 'offline' | null;
 	category: Category;
 	connections: number;
 	speed_limit: number | null;

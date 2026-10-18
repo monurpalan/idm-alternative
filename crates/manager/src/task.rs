@@ -114,6 +114,9 @@ pub enum ErrorKind {
     Disk,
     /// The finished file does not match the given checksum.
     Checksum,
+    /// No route to the internet: the download is queued and checks again on its own. Not a
+    /// failure, so nothing needs doing.
+    Offline,
 }
 
 impl ErrorKind {
@@ -136,6 +139,7 @@ impl ErrorKind {
             ErrorKind::Changed => "changed",
             ErrorKind::Disk => "disk",
             ErrorKind::Checksum => "checksum",
+            ErrorKind::Offline => "offline",
         }
     }
 
@@ -146,6 +150,7 @@ impl ErrorKind {
             "changed" => ErrorKind::Changed,
             "disk" => ErrorKind::Disk,
             "checksum" => ErrorKind::Checksum,
+            "offline" => ErrorKind::Offline,
             _ => return None,
         })
     }

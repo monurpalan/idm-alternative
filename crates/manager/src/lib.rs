@@ -14,6 +14,7 @@ pub mod batch;
 mod db;
 pub mod folder;
 pub mod grabber;
+mod retry;
 mod secret;
 mod task;
 pub mod torrent;
@@ -72,7 +73,8 @@ pub struct Config {
     /// Client settings every download starts from (browser profile, proxy, timeouts…).
     pub engine: Options,
     /// A download that fails for a reason that may pass (network, server busy or erroring)
-    /// is retried this many times before it stays failed.
+    /// is retried this many times before it stays failed. While the machine has no route to
+    /// the internet, a download waits instead, and these retries do not count.
     pub max_retries: u32,
     /// Wait before the first retry; doubles with each one, up to five minutes.
     pub retry_delay: Duration,
@@ -151,9 +153,6 @@ pub enum Move {
     Down,
     Bottom,
 }
-
-/// Longest wait between automatic retries.
-const MAX_RETRY_DELAY: Duration = Duration::from_secs(300);
 
 /// How often running downloads report progress.
 const PROGRESS_EVERY: Duration = Duration::from_millis(250);
@@ -936,7 +935,17 @@ impl Inner {
             (Err(Error::Engine(idma_engine::Error::Cancelled)), Some(Stop::Shutdown)) => Ok(()),
             (Err(Error::Engine(idma_engine::Error::Cancelled)), Some(Stop::Remove)) => Ok(()),
             (Err(e), _) => match self.schedule_retry(id, e) {
-                Some(delay) => {
+                Some((delay, true)) => {
+                    tracing::info!(id, "no network connection, checking again in {delay:?}");
+                    let note = format!(
+                        "no network connection (checking again in {} s)",
+                        delay.as_secs().max(1)
+                    );
+                    self.db
+                        .set_failure(id, Status::Queued, Some(&note), Some(ErrorKind::Offline))
+                        .await
+                }
+                Some((delay, false)) => {
                     tracing::info!(id, "download failed, retrying in {delay:?}: {e}");
                     let note = format!("{e} (retrying in {} s)", delay.as_secs().max(1));
                     self.db.set_status(id, Status::Queued, Some(&note)).await
@@ -1355,21 +1364,20 @@ impl Inner {
     }
 
     /// After a failure: when it may pass and retries are left, records when to try again,
-    /// wakes the queue then, and returns the wait.
-    fn schedule_retry(self: &Arc<Self>, id: TaskId, e: &Error) -> Option<Duration> {
+    /// wakes the queue then, and returns the wait and whether the machine is offline.
+    fn schedule_retry(self: &Arc<Self>, id: TaskId, e: &Error) -> Option<(Duration, bool)> {
         let (max, base) = {
             let cfg = lock(&self.config);
             (cfg.max_retries, cfg.retry_delay)
         };
         let mut retries = lock(&self.retries);
-        let attempts = retries.get(&id).map_or(0, |r| r.attempts) + 1;
-        if !retryable(e) || attempts > max {
+        let previous = retries.get(&id).map_or(0, |r| r.attempts);
+        let offline = matches!(e, Error::Engine(engine) if retry::offline(engine));
+        let Some((attempts, delay)) = retry::plan(previous, max, base, retryable(e), offline)
+        else {
             retries.remove(&id);
             return None;
-        }
-        let delay = base
-            .saturating_mul(1 << (attempts - 1).min(16))
-            .min(MAX_RETRY_DELAY);
+        };
         retries.insert(
             id,
             Retry {
@@ -1384,7 +1392,7 @@ impl Inner {
                 tracing::error!("could not start queued downloads: {e}");
             }
         });
-        Some(delay)
+        Some((delay, offline))
     }
 
     async fn download(

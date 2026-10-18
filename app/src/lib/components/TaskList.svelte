@@ -105,6 +105,7 @@
 				}
 				return r.task.path ? t('Downloading') : t('Connecting');
 			case 'queued':
+				if (task.error_kind === 'offline') return t('Waiting for the network');
 				// Waiting for an automatic retry after a failure that may pass.
 				return task.error ? t('Retrying') : t('Waiting');
 			case 'paused':
