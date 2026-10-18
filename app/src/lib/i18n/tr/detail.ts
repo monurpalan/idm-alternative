@@ -24,6 +24,9 @@ export default {
 	Hide: 'Gizle',
 	'Close the details': 'Ayrıntıları kapat',
 	Problem: 'Sorun',
+	Warning: 'Uyarı',
+	'A program named like a document: open it only if you trust where it came from':
+		'Belge gibi adlandırılmış bir program: yalnızca kaynağına güveniyorsanız açın',
 	Apply: 'Uygula',
 	'Downloads from this site sign in by themselves':
 		'Bu sitedeki indirmeler kendiliğinden giriş yapar',

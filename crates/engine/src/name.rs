@@ -140,15 +140,16 @@ fn percent_decode(s: &str) -> Vec<u8> {
 }
 
 /// A name that can be created as a single file in any folder on Windows (and elsewhere):
-/// only the part after the last `/` or `\`, no characters Windows forbids, no trailing dots
-/// or spaces, not a device name such as `CON` or `com1.txt`, and short enough.
+/// only the part after the last `/` or `\`, no characters Windows forbids, no direction
+/// overrides (see [`is_bidi_control`]), no trailing dots or spaces, not a device name such as
+/// `CON` or `com1.txt`, and short enough.
 pub fn sanitize(name: &str) -> String {
     let base = name.rsplit(['/', '\\']).next().unwrap_or_default();
     let mut s: String = base
         .chars()
         .map(|c| match c {
             '<' | '>' | ':' | '"' | '|' | '?' | '*' => '_',
-            c if c.is_control() => '_',
+            c if c.is_control() || is_bidi_control(c) => '_',
             c => c,
         })
         .collect();
@@ -160,6 +161,16 @@ pub fn sanitize(name: &str) -> String {
         s.insert(0, '_');
     }
     truncate(&s)
+}
+
+/// Characters that change the direction text is shown in, which let a name read as something
+/// it is not: `invoice` + U+202E + `fdp.exe` shows as `invoiceexe.pdf`. ZWNJ and ZWJ (U+200C,
+/// U+200D) are not among them: Persian and Indic names need them.
+fn is_bidi_control(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+    )
 }
 
 /// Device names are reserved with any extension, e.g. `nul.tar.gz`.
@@ -321,6 +332,14 @@ mod tests {
         assert_eq!(sanitize("COM10.log"), "COM10.log");
         assert_eq!(sanitize("console.txt"), "console.txt");
         assert_eq!(sanitize(".bashrc"), ".bashrc");
+        assert_eq!(sanitize("invoice\u{202E}fdp.exe"), "invoice_fdp.exe");
+        assert_eq!(
+            sanitize("\u{2066}a\u{2069}\u{200F}\u{061C}.txt"),
+            "_a___.txt"
+        );
+        // ZWNJ in Persian and ZWJ in Devanagari stay.
+        assert_eq!(sanitize("می\u{200C}خواهم.pdf"), "می\u{200C}خواهم.pdf");
+        assert_eq!(sanitize("क्\u{200D}ष.txt"), "क्\u{200D}ष.txt");
 
         let long = format!("{}.zip", "ş".repeat(400));
         let short = sanitize(&long);
@@ -333,6 +352,13 @@ mod tests {
         let page = "https://h.com/get?id=7";
         assert_eq!(choose(None, None, page, page), "get");
         assert_eq!(choose(None, Some("application/zip"), page, page), "get.zip");
+        let spoof = "attachment; filename*=UTF-8''invoice%E2%80%AEfdp.exe";
+        assert_eq!(
+            choose(Some(spoof.as_bytes()), None, page, page),
+            "invoice_fdp.exe"
+        );
+        let spoof_url = "https://h.com/invoice%E2%80%AEfdp.exe";
+        assert_eq!(choose(None, None, spoof_url, spoof_url), "invoice_fdp.exe");
         assert_eq!(
             choose(None, Some("application/octet-stream"), page, page),
             "get"

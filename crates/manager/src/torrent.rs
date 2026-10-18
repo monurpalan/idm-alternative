@@ -9,7 +9,14 @@
 //! The session does not accept incoming connections; it connects out to the peers trackers
 //! and the DHT name. The DHT's UDP socket may make Windows ask once whether to allow the app
 //! on the network: either answer works, since replies to what we send are let in.
+//!
+//! File names come from whoever made the torrent, and librqbit writes them as they are. So
+//! files go to disk through [`SafeNames`], at the paths [`safe_paths`] gives: the rules of any
+//! other download's name, so a part such as `C:x` cannot leave the folder on Windows and a
+//! right-to-left override cannot make `fdp.exe` read as `exe.pdf`.
 
+use std::collections::HashSet;
+use std::io::IoSlice;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
@@ -17,7 +24,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use idma_engine::{CancellationToken, Phase, Progress};
-use librqbit::{AddTorrent, AddTorrentOptions, AddTorrentResponse, Session, SessionOptions};
+use librqbit::storage::filesystem::FilesystemStorageFactory;
+use librqbit::storage::{BoxStorageFactory, StorageFactory, StorageFactoryExt, TorrentStorage};
+use librqbit::{
+    AddTorrent, AddTorrentOptions, AddTorrentResponse, ManagedTorrentShared, Session,
+    SessionOptions, TorrentMetadata,
+};
 use tokio::sync::{OnceCell, watch};
 
 /// How long to look for a magnet link's metadata before giving up.
@@ -149,11 +161,17 @@ impl Torrents {
         let AddTorrentResponse::ListOnly(list) = response else {
             return Err("the torrent client did not list the files".into());
         };
+        let paths = safe_paths(list.info.iter_file_details().map(|f| f.filename.to_vec()));
         let files = list
             .info
             .iter_file_details()
-            .map(|f| TorrentFile {
-                name: f.filename.to_vec().join("/"),
+            .zip(paths)
+            .map(|(f, path)| TorrentFile {
+                name: path
+                    .iter()
+                    .map(|p| p.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join("/"),
                 size: f.len,
             })
             .collect::<Vec<_>>();
@@ -180,6 +198,7 @@ impl Torrents {
         let opts = AddTorrentOptions {
             output_folder: Some(folder.to_string_lossy().into_owned()),
             only_files: files,
+            storage_factory: Some(SafeNames.boxed()),
             // Resuming means writing into the files an earlier attempt left.
             overwrite: true,
             initial_peers: self.initial_peers(),
@@ -247,6 +266,130 @@ fn bps(rate: Option<u64>) -> Option<NonZeroU32> {
     rate.and_then(|r| NonZeroU32::new(u32::try_from(r).unwrap_or(u32::MAX)))
 }
 
+/// Where each of a torrent's files (given as its path parts) goes inside the download folder:
+/// every part made a valid file name, and a file whose path comes out the same as an earlier
+/// one's (`a?.txt` after `a*.txt`, or `A.txt` after `a.txt`, one file on Windows) numbered.
+pub fn safe_paths(files: impl Iterator<Item = Vec<String>>) -> Vec<PathBuf> {
+    let mut seen = HashSet::new();
+    files
+        .map(|parts| {
+            let mut parts: Vec<String> = parts
+                .iter()
+                .map(|p| idma_engine::name::sanitize(p))
+                .collect();
+            let last = parts.pop().unwrap_or_default();
+            let path = |name: &str| -> PathBuf {
+                parts.iter().map(String::as_str).chain([name]).collect()
+            };
+            let mut candidate = path(&last);
+            let mut n = 2;
+            while !seen.insert(candidate.to_string_lossy().to_lowercase()) {
+                let (stem, ext) = idma_engine::name::split_extension(&last);
+                candidate = path(&format!("{stem} ({n}){ext}"));
+                n += 1;
+            }
+            candidate
+        })
+        .collect()
+}
+
+/// librqbit's file storage, with the files at the paths [`safe_paths`] gives instead of the
+/// torrent's own.
+#[derive(Clone, Copy)]
+struct SafeNames;
+
+impl StorageFactory for SafeNames {
+    type Storage = SafeNamesStorage<Box<dyn TorrentStorage>>;
+
+    fn create(
+        &self,
+        shared: &ManagedTorrentShared,
+        metadata: &TorrentMetadata,
+    ) -> anyhow::Result<Self::Storage> {
+        let inner = FilesystemStorageFactory::default().create(shared, metadata)?;
+        Ok(SafeNamesStorage {
+            inner: Box::new(inner),
+            paths: Vec::new(),
+        })
+    }
+
+    fn clone_box(&self) -> BoxStorageFactory {
+        self.boxed()
+    }
+}
+
+struct SafeNamesStorage<S> {
+    inner: S,
+    paths: Vec<PathBuf>,
+}
+
+impl<S: TorrentStorage> TorrentStorage for SafeNamesStorage<S> {
+    fn init(
+        &mut self,
+        shared: &ManagedTorrentShared,
+        metadata: &TorrentMetadata,
+    ) -> anyhow::Result<()> {
+        self.paths = safe_paths(
+            metadata
+                .info
+                .iter_file_details()
+                .map(|f| f.filename.to_vec()),
+        );
+        let mut file_infos = metadata.file_infos.clone();
+        for (info, path) in file_infos.iter_mut().zip(&self.paths) {
+            info.relative_filename.clone_from(path);
+        }
+        let safe = TorrentMetadata {
+            info: metadata.info.clone(),
+            torrent_bytes: metadata.torrent_bytes.clone(),
+            info_bytes: metadata.info_bytes.clone(),
+            file_infos,
+        };
+        self.inner.init(shared, &safe)
+    }
+
+    fn pread_exact(&self, file_id: usize, offset: u64, buf: &mut [u8]) -> anyhow::Result<()> {
+        self.inner.pread_exact(file_id, offset, buf)
+    }
+
+    fn pwrite_all(&self, file_id: usize, offset: u64, buf: &[u8]) -> anyhow::Result<()> {
+        self.inner.pwrite_all(file_id, offset, buf)
+    }
+
+    fn pwrite_all_vectored(
+        &self,
+        file_id: usize,
+        offset: u64,
+        bufs: [IoSlice<'_>; 2],
+    ) -> anyhow::Result<usize> {
+        self.inner.pwrite_all_vectored(file_id, offset, bufs)
+    }
+
+    fn remove_file(&self, file_id: usize, filename: &Path) -> anyhow::Result<()> {
+        let path = self.paths.get(file_id).map_or(filename, PathBuf::as_path);
+        self.inner.remove_file(file_id, path)
+    }
+
+    fn remove_directory_if_empty(&self, path: &Path) -> anyhow::Result<()> {
+        let safe: PathBuf = path
+            .iter()
+            .map(|p| idma_engine::name::sanitize(&p.to_string_lossy()))
+            .collect();
+        self.inner.remove_directory_if_empty(&safe)
+    }
+
+    fn ensure_file_length(&self, file_id: usize, length: u64) -> anyhow::Result<()> {
+        self.inner.ensure_file_length(file_id, length)
+    }
+
+    fn take(&self) -> anyhow::Result<Box<dyn TorrentStorage>> {
+        Ok(Box::new(SafeNamesStorage {
+            inner: self.inner.take()?,
+            paths: self.paths.clone(),
+        }))
+    }
+}
+
 /// What to hand librqbit: links as they are, a file on disk as its bytes.
 fn source(url: &str) -> Result<AddTorrent<'static>> {
     let url = url.trim();
@@ -273,5 +416,37 @@ mod tests {
         assert!(is_torrent(r"C:\Users\me\Downloads\a.torrent"));
         assert!(!is_torrent("https://x.org/a.zip"));
         assert!(!is_torrent("https://x.org/torrent/page"));
+    }
+
+    #[test]
+    fn file_names_are_made_safe() {
+        let raw: &[&[&str]] = &[
+            &["Album", "01 Song.mp3"],
+            &["C:x", "evil.exe"],
+            &["invoice\u{202E}fdp.exe"],
+            &["con.txt"],
+            &["a?.txt"],
+            &["a*.txt"],
+            &["A_.TXT"],
+            &["notes. "],
+        ];
+        let safe = safe_paths(
+            raw.iter()
+                .map(|parts| parts.iter().map(|p| (*p).to_owned()).collect()),
+        );
+        let want: Vec<PathBuf> = [
+            &["Album", "01 Song.mp3"][..],
+            &["C_x", "evil.exe"],
+            &["invoice_fdp.exe"],
+            &["_con.txt"],
+            &["a_.txt"],
+            &["a_ (2).txt"],
+            &["A_ (3).TXT"],
+            &["notes"],
+        ]
+        .iter()
+        .map(|parts| parts.iter().collect())
+        .collect();
+        assert_eq!(safe, want);
     }
 }

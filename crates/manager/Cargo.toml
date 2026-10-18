@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+anyhow.workspace = true
 futures-util.workspace = true
 base64 = "0.22"
 idma-engine = { path = "../engine" }
