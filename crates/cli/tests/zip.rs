@@ -1,4 +1,4 @@
-//! `dm zip list` and `dm zip get`.
+//! `shard zip list` and `shard zip get`.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -24,16 +24,16 @@ fn fresh_dir(name: &str) -> PathBuf {
     dir
 }
 
-async fn dm(args: Vec<String>) -> Output {
+async fn shard(args: Vec<String>) -> Output {
     tokio::task::spawn_blocking(move || {
-        Command::new(env!("CARGO_BIN_EXE_dm"))
+        Command::new(env!("CARGO_BIN_EXE_shard"))
             .args(&args)
             .args(["--browser", "none"])
             .output()
     })
     .await
     .expect("join")
-    .expect("run dm")
+    .expect("run shard")
 }
 
 fn args(list: &[&str], dir: &Path) -> Vec<String> {
@@ -47,7 +47,7 @@ fn args(list: &[&str], dir: &Path) -> Vec<String> {
 async fn lists_and_picks_files() {
     let base = start().await;
     let url = format!("{base}/zip/sample.zip?seed=7");
-    let out = dm(vec!["zip".into(), "list".into(), url.clone()]).await;
+    let out = shard(vec!["zip".into(), "list".into(), url.clone()]).await;
     assert!(out.status.success(), "{out:?}");
     let listing = String::from_utf8_lossy(&out.stdout);
     for e in sample_entries(7) {
@@ -60,7 +60,7 @@ async fn lists_and_picks_files() {
     assert!(listing.contains("(encrypted)"));
 
     let dir = fresh_dir("zip-get");
-    let out = dm(args(
+    let out = shard(args(
         &["zip", "get", &url, "data/raw.bin", "docs/*.txt", "-q"],
         &dir,
     ))
@@ -79,12 +79,12 @@ async fn lists_and_picks_files() {
     assert!(!dir.join("readme.txt").exists());
 
     // A name that is not there: nothing is downloaded.
-    let out = dm(args(&["zip", "get", &url, "missing.txt"], &dir)).await;
+    let out = shard(args(&["zip", "get", &url, "missing.txt"], &dir)).await;
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&out.stderr).contains("missing.txt"));
 
     // Entries that cannot be extracted fail the command, the rest is saved.
-    let out = dm(args(
+    let out = shard(args(
         &["zip", "get", &url, "secret.txt", "readme.txt"],
         &dir,
     ))
@@ -100,13 +100,13 @@ async fn without_ranges_downloads_the_whole_archive() {
     let base = start().await;
     let url = format!("{base}/zip/sample.zip?seed=8&ranges=0");
     let dir = fresh_dir("zip-whole");
-    let out = dm(args(&["zip", "get", &url, "readme.txt", "-q"], &dir)).await;
+    let out = shard(args(&["zip", "get", &url, "readme.txt", "-q"], &dir)).await;
     assert!(out.status.success(), "{out:?}");
     assert!(String::from_utf8_lossy(&out.stderr).contains("range requests"));
     let whole = std::fs::read(dir.join("sample.zip")).expect("archive");
     assert!(whole == sample(8, false));
 
-    let out = dm(vec!["zip".into(), "list".into(), url]).await;
+    let out = shard(vec!["zip".into(), "list".into(), url]).await;
     assert!(!out.status.success());
     std::fs::remove_dir_all(&dir).ok();
 }

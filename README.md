@@ -60,7 +60,8 @@ saves videos and torrents. No ads, no trial, no account.</p>
   window per download, a tray icon and speed limits.
 - **For AI assistants:** an [MCP](https://modelcontextprotocol.io) server, installed with the
   app, lets an assistant add, find, watch and manage downloads for you.
-- **Command line:** `dm`, the same engine in a terminal.
+- **Command line:** `shard`, the same engine in a terminal (built from source for now, see
+  [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)).
 - English and Turkish.
 
 | | |
@@ -114,7 +115,7 @@ For those who want to know exactly what it does, how it was measured and how it 
 - **Mirrors and Metalink.** Other addresses of the same file are used at the same time once
   each is shown to serve the same bytes; new connections go to the source that gives a
   connection the most, and a mirror that fails or crawls is dropped. A `.meta4` / `.metalink`
-  link brings its mirrors, name and checksum by itself (`dm get URL -m MIRROR`, or "Add
+  link brings its mirrors, name and checksum by itself (`shard get URL -m MIRROR`, or "Add
   mirror links…" in the app).
 - **Browser integration** for Chrome, Edge, Brave, Vivaldi, Opera and Firefox: downloads are taken over with the
   browser's cookies, referrer and user agent, over native messaging (no open localhost port).
@@ -131,8 +132,8 @@ For those who want to know exactly what it does, how it was measured and how it 
 - **Files out of a ZIP archive** without downloading the rest: when the server supports range
   requests, the archive's list of files is read from its end, and only the chosen files are
   fetched and unpacked (stored or deflate, ZIP64 too, each checked against its CRC-32) into a
-  folder named after the archive. "Pick files from the archive…" in the app, `dm zip list
-  URL` / `dm zip get URL 'docs/**/*.pdf' -d out`, and the MCP tool `inspect_archive`. Without
+  folder named after the archive. "Pick files from the archive…" in the app, `shard zip list
+  URL` / `shard zip get URL 'docs/**/*.pdf' -d out`, and the MCP tool `inspect_archive`. Without
   range support the whole archive is downloaded.
 - **Torrents:** magnet links and `.torrent` files (librqbit) in the same list and queue, with
   a choice of files; nothing seeds after a download is done. Opening magnet links and
@@ -151,17 +152,18 @@ For those who want to know exactly what it does, how it was measured and how it 
 
 ### Speed tests
 
-`dm` (Shardload's engine from the command line) against IDM 6.43, Gopeed 1.9.3, AB Download Manager
+`shard` (Shardload's engine from the command line; `dm` in the result files, its
+earlier name) against IDM 6.43, Gopeed 1.9.3, AB Download Manager
 1.11.1, aria2 and curl, measured with [`idma-bench`](bench/README.md) on 2026-10-18. Every file was
 verified byte for byte (local) or by size and SHA-256 (internet). Medians of 3 runs, clients in a
 new shuffled order each round (internet: 5 runs). Free Download Manager is not in the table: it has
 no command line or local API to start a download from.
 
 **Seconds, lower is better** ([local](bench/results/2026-10-18_011811.md), internet
-[1000 MiB](bench/results/2026-10-18_133925.md) and [100 MiB](bench/results/2026-10-18_134205.md)). `dm x8` uses IDM's and AB DM's default of 8
-connections; the others use their defaults (dm, aria2 and Gopeed 16).
+[1000 MiB](bench/results/2026-10-18_133925.md) and [100 MiB](bench/results/2026-10-18_134205.md)). `shard x8` uses IDM's and AB DM's default of 8
+connections; the others use their defaults (shard, aria2 and Gopeed 16).
 
-| Scenario | dm | dm x8 | IDM | aria2 | Gopeed | AB DM¹ | curl |
+| Scenario | shard | shard x8 | IDM | aria2 | Gopeed | AB DM¹ | curl |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Internet, 1000 MiB² | **12.94** | 16.05 | 20.04 | 15.46 | 48.25 | 23.91 | 25.24 |
 | Internet, 100 MiB² | 2.59 | **2.42** | 3.89 | 3.18 | 6.16 | 2.86 | 5.35 |
@@ -175,23 +177,23 @@ connections; the others use their defaults (dm, aria2 and Gopeed 16).
 
 1. AB DM's own time from its download record (added → complete). Started through its command-line
    tool, which takes about a second more; with it the times are ~1 s higher.
-2. Linode Frankfurt, from Turkey, ~470 Mbit/s line, Sunday 13:30, 5 runs each. dm's slowest
+2. Linode Frankfurt, from Turkey, ~470 Mbit/s line, Sunday 13:30, 5 runs each. shard's slowest
    1000 MiB run (13.68 s) beat every other client's median. A run the night before at 03:00 was
    too noisy to use: the same client swung by 2 to 8 times between runs
    ([results](bench/results/2026-10-18_033423.md)).
    **IDM with 16 connections** (`MaxConnectionsNumber` in its registry key) was no faster on the
-   internet: 19.91 s for 1000 MiB against 18.82 s with its default 8, dm 13.2–13.5 s in the same
+   internet: 19.91 s for 1000 MiB against 18.82 s with its default 8, shard 13.2–13.5 s in the same
    sessions ([16](bench/results/2026-10-18_132257.md), [8](bench/results/2026-10-18_132500.md));
    locally it gained only where each connection is capped
    ([results](bench/results/2026-10-18_132052.md)).
 3. The clean local run mostly measures the disk (a DRAM-less SSD that slows down while it writes
    back): the same client swings by a factor of two between runs.
 
-**Scenarios added to find where dm loses** (2026-10-18; results: [per-client limit](bench/results/2026-10-18_020038.md),
+**Scenarios added to find where shard loses** (2026-10-18; results: [per-client limit](bench/results/2026-10-18_020038.md),
 [403](bench/results/2026-10-18_021842.md), [latency](bench/results/2026-10-18_022025.md),
-[tiny](bench/results/2026-10-18_022033.md), [dm after the fix](bench/results/2026-10-18_024457.md)):
+[tiny](bench/results/2026-10-18_022033.md), [shard after the fix](bench/results/2026-10-18_024457.md)):
 
-| Scenario | dm | dm x8 | IDM | aria2 | Gopeed | AB DM⁴ | curl |
+| Scenario | shard | shard x8 | IDM | aria2 | Gopeed | AB DM⁴ | curl |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | 16 MiB/s for all connections together (a per-IP limit), 128 MiB | 8.04 | 8.04 | 9.01 | 8.12 | 8.17 | 9.02 | **8.02** |
 | Server forbids (403) every connection beyond 4, 256 MiB | 8.35⁵ | **8.14**⁵ | 9.18 | 8.27 | hangs | 10.24 | 32.03 |
@@ -199,13 +201,13 @@ connections; the others use their defaults (dm, aria2 and Gopeed 16).
 | A 256 KiB file | **0.02** | 0.02 | 0.96 | 0.03 | 0.13 | 1.06 | 0.02 |
 
 4. Measured time here, including the ~1 s its command-line tool takes to start.
-5. **dm failed this scenario** before 2026-10-18: it took the 403 for an expired link and stopped
+5. **shard failed this scenario** before 2026-10-18: it took the 403 for an expired link and stopped
    the whole download. Now a refusal while other connections still download lowers the
    connection count, like a 503; with no connection left working it is still an expired link.
 
 What this does and does not say:
 
-- **Where dm stands out is a bad connection.** When one connection crawls, dm finishes in 2.4 s
+- **Where shard stands out is a bad connection.** When one connection crawls, shard finishes in 2.4 s
   because a finished connection takes over the slow one's range; Gopeed and aria2 wait for it
   (~10 s), AB DM much longer (31.6 s). The same holds, less sharply, when connections keep dropping.
 - **Gopeed 1.9.3 wrote a corrupt file** when a server advertises ranges but answers every request
@@ -214,10 +216,10 @@ What this does and does not say:
   [#1458](https://github.com/GopeedLab/gopeed/issues/1458): 2.0.0-beta.3 gets it right (checked
   here, 6 of 6), but 1.9.3 is still its latest stable release.
 - **Gopeed's times swing between sessions, and 2.0 is not faster.** A second session with both
-  versions and dm side by side ([local](bench/results/2026-10-18_014929.md),
+  versions and shard side by side ([local](bench/results/2026-10-18_014929.md),
   [internet](bench/results/2026-10-18_015011.md)):
 
-  | Scenario | dm | Gopeed 1.9.3 | Gopeed 2.0.0-beta.3 |
+  | Scenario | shard | Gopeed 1.9.3 | Gopeed 2.0.0-beta.3 |
   |---|---:|---:|---:|
   | Internet, 100 MiB | **2.55** | 5.09 | 5.64 |
   | Clean, 1 GiB, local | **3.37** | 33.81 | 16.39 |
@@ -228,11 +230,11 @@ What this does and does not say:
 
   1.9.3 took 12.78 s on the internet run in the first session and 5.09 s here, so read Gopeed's
   plain-download numbers loosely; its slowness with a bad connection repeats in both.
-- **On a plain download the gap is smaller.** On 100 MiB dm, aria2 and AB DM are within about a
-  second of each other; on 1000 MiB dm is 16 % ahead of aria2 and 35 % ahead of IDM. Part of
+- **On a plain download the gap is smaller.** On 100 MiB shard, aria2 and AB DM are within about a
+  second of each other; on 1000 MiB shard is 16 % ahead of aria2 and 35 % ahead of IDM. Part of
   IDM's gap is not network: it downloads parts into its own folder and joins them at the end
   (~1–2.7 s per GiB here), and its start and exit are in the measurement.
-- **Looking for losses found one.** A server that forbids extra connections with 403 made dm stop
+- **Looking for losses found one.** A server that forbids extra connections with 403 made shard stop
   (fixed, see above) and makes Gopeed hang; aria2, IDM and AB DM drop to 4 connections. Where
   connections do not help (a per-client limit) everyone ties; the tiny file shows IDM's and AB
   DM's start-up cost, not their engines.

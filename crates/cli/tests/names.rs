@@ -1,4 +1,4 @@
-//! Without `-o`, `dm` saves under the name the server suggests, in `-d` or the current folder.
+//! Without `-o`, `shard` saves under the name the server suggests, in `-d` or the current folder.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -37,7 +37,7 @@ async fn saves_under_server_name() {
     ] {
         let d = dir.clone();
         let status = tokio::task::spawn_blocking(move || {
-            Command::new(env!("CARGO_BIN_EXE_dm"))
+            Command::new(env!("CARGO_BIN_EXE_shard"))
                 .args(["get", &url, "-q", "-d"])
                 .arg(&d)
                 .stdout(Stdio::null())
@@ -46,7 +46,7 @@ async fn saves_under_server_name() {
         })
         .await
         .expect("join")
-        .expect("run dm");
+        .expect("run shard");
         assert!(status.success(), "{status}");
         assert_eq!(
             verify_file(&dir.join(want), 3, size).expect("verify"),
@@ -57,8 +57,8 @@ async fn saves_under_server_name() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-fn dm(url: &str, dir: &Path) -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_dm"));
+fn shard(url: &str, dir: &Path) -> Command {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_shard"));
     c.args(["get", url, "-q", "-c", "2", "-d"])
         .arg(dir)
         .stdout(Stdio::null())
@@ -67,11 +67,11 @@ fn dm(url: &str, dir: &Path) -> Command {
 }
 
 async fn run(url: &str, dir: &Path) {
-    let mut c = dm(url, dir);
+    let mut c = shard(url, dir);
     let status = tokio::task::spawn_blocking(move || c.status())
         .await
         .expect("join")
-        .expect("run dm");
+        .expect("run shard");
     assert!(status.success(), "{status}");
 }
 
@@ -101,7 +101,7 @@ async fn existing_files_get_numbered_and_interrupted_ones_resume() {
     // 8 MiB at 2 × 1 MiB/s: killed after the first checkpoint, long before the end.
     let size = 8 << 20;
     let url = format!("{base}/file/slow.bin?size={size}&seed=6&rate=1M");
-    let mut child = dm(&url, &dir).spawn().expect("spawn");
+    let mut child = shard(&url, &dir).spawn().expect("spawn");
     tokio::time::sleep(Duration::from_secs(3)).await;
     assert!(
         child.try_wait().expect("try_wait").is_none(),

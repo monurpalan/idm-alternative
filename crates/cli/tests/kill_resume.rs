@@ -1,4 +1,4 @@
-//! `dm` killed mid-download (TerminateProcess / SIGKILL, no chance to clean up) resumes
+//! `shard` killed mid-download (TerminateProcess / SIGKILL, no chance to clean up) resumes
 //! from its state file when run again, and the result is byte-identical.
 
 use std::path::PathBuf;
@@ -18,8 +18,8 @@ async fn start() -> String {
     format!("http://{addr}")
 }
 
-fn dm(url: &str, out: &PathBuf) -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_dm"));
+fn shard(url: &str, out: &PathBuf) -> Command {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_shard"));
     c.args(["get", url, "-o"])
         .arg(out)
         // Requests for checksum files would count in the bytes the server sent.
@@ -43,14 +43,14 @@ async fn killed_process_resumes() {
     // 4 connections at 1 MiB/s: about 8 s in total. Checkpoints happen every 2 s.
     let url = format!("{base}/file/f.bin?size={size}&seed=5&rate=1M");
 
-    let mut child = dm(&url, &out).spawn().expect("spawn dm");
+    let mut child = shard(&url, &out).spawn().expect("spawn shard");
     // Kill once a checkpoint has recorded 8 MiB, not after a fixed time: on a slow CI machine
     // the first checkpoints can come late.
     let deadline = std::time::Instant::now() + Duration::from_secs(60);
     while saved(&state) < 8 * MB {
         assert!(
             child.try_wait().expect("try_wait").is_none(),
-            "dm finished before it could be killed"
+            "shard finished before it could be killed"
         );
         assert!(
             std::time::Instant::now() < deadline,
@@ -64,10 +64,10 @@ async fn killed_process_resumes() {
     assert!(!out.exists());
     let before = bytes_sent(&base).await;
 
-    let status = tokio::task::spawn_blocking(move || dm(&url, &out).status())
+    let status = tokio::task::spawn_blocking(move || shard(&url, &out).status())
         .await
         .expect("join")
-        .expect("run dm");
+        .expect("run shard");
     assert!(status.success(), "{status}");
     let out = dir.join("f.bin");
     assert_eq!(verify_file(&out, 5, size).expect("verify"), Verdict::Ok);

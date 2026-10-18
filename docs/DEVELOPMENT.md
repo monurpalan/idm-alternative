@@ -24,7 +24,7 @@ crates/
   bridge/       messages and the named pipe between the app and its local clients
   native-host/  `idma-host`, the native messaging host the browser starts
   mcp/          `idma-mcp`, the MCP server for AI assistants
-  cli/          `dm` command-line front end
+  cli/          `shard` command-line front end
   testserver/   HTTP server reproducing hostile download scenarios (and HLS/DASH)
   bench/        benchmark runner
 app/            Tauri 2 + SvelteKit desktop app, installer (`npm run bundle`)

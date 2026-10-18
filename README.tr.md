@@ -62,7 +62,8 @@ AppImage (`chmod +x` ve çalıştırın).
 - **Yapay zekâ asistanları için:** uygulamayla birlikte kurulan bir
   [MCP](https://modelcontextprotocol.io) sunucusu; bir asistan sizin için indirme ekleyip
   bulabilir, izleyip yönetebilir.
-- **Komut satırı:** `dm`, aynı motor terminalde.
+- **Komut satırı:** `shard`, aynı motor terminalde (şimdilik kaynaktan derleniyor, bkz.
+  [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)).
 - Türkçe ve İngilizce arayüz.
 
 ## Karşılaştırma

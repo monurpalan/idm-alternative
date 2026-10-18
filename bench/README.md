@@ -3,11 +3,12 @@
 `idma-bench` starts the [test server](../crates/testserver/README.md) in-process, runs every
 enabled client on every scenario in [bench.toml](bench.toml), and writes a Markdown summary to
 `results/` (raw per-run JSON goes to `results/raw/`, which is not committed).
+Result files from before the command-line tool was renamed call `shard` by its old name, `dm`.
 
 ```bash
 cargo run --release -p idma-bench                         # all scenarios, enabled clients
 cargo run --release -p idma-bench -- --scenario slow-tail # one scenario
-cargo run --release -p idma-bench -- --client "dm,dm x8,IDM" # these clients only (enables disabled ones)
+cargo run --release -p idma-bench -- --client "shard,shard x8,IDM" # these clients only (enables disabled ones)
 cargo run --release -p idma-bench -- --scenario internet-linode-1g # real internet (off by default)
 cargo run --release -p idma-bench -- --out-dir E:/scratch # where downloads are written
 ```
@@ -65,12 +66,12 @@ Their *CPU %* and *RAM* columns measure the script, not the app: ignore them.
 - **Free Download Manager** has no command line or local API to add a download (`fdm.exe`
   with any argument only opens the window), so it is not measured.
 
-## Scenarios that do not favour dm
+## Scenarios that do not favour shard
 
 `per-client-limit` (`total_rate`: one budget for all connections, like a per-IP limit),
 `conn-ban` (`max_conns` with `refuse_status=403`), `high-latency` and `tiny` were added to look
 for conditions where many connections do not help or are punished. They found one: until
-2026-10-18 dm stopped on `conn-ban`, taking the 403 for an expired link.
+2026-10-18 shard stopped on `conn-ban`, taking the 403 for an expired link.
 
 ## Caveats
 

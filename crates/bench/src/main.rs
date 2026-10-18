@@ -30,7 +30,7 @@ struct Cli {
     #[arg(long)]
     scenario: Option<String>,
     /// Only run these clients (comma-separated; a name that is not a client's exact name
-    /// selects every client containing it). Also enables disabled ones, e.g. `--client "dm,IDM"`.
+    /// selects every client containing it). Also enables disabled ones, e.g. `--client "shard,IDM"`.
     #[arg(long)]
     client: Option<String>,
     /// Override the repeat count from the config.

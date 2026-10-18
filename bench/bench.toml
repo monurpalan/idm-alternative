@@ -29,14 +29,14 @@ args = [
 ]
 
 [[client]]
-name = "dm"
-program = "${CARGO_TARGET_DIR}/release/dm.exe"
+name = "shard"
+program = "${CARGO_TARGET_DIR}/release/shard.exe"
 args = ["get", "{url}", "-o", "{path}"]
 
 # Same connection count as IDM's default, for a like-for-like comparison.
 [[client]]
-name = "dm x8"
-program = "${CARGO_TARGET_DIR}/release/dm.exe"
+name = "shard x8"
+program = "${CARGO_TARGET_DIR}/release/shard.exe"
 args = ["get", "{url}", "-o", "{path}", "-c", "8"]
 enabled = false
 
@@ -117,7 +117,7 @@ size = "128M"
 query = "range_as_200=1&rate=16M"
 
 # ---------------------------------------------------------------- internet
-# Scenarios added to look for where dm loses (2026-10-18): conditions that do not reward
+# Scenarios added to look for where shard loses (2026-10-18): conditions that do not reward
 # many connections or that punish them.
 
 [[scenario]]

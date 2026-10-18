@@ -1,13 +1,13 @@
 [package]
 name = "idma-cli"
-description = "`dm` command-line front end for the download engine"
+description = "`shard` command-line front end for the download engine"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "dm"
+name = "shard"
 path = "src/main.rs"
 
 [dependencies]

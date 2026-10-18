@@ -11,7 +11,7 @@ use idma_engine::{
 
 /// Command-line front end for the Shardload download engine.
 #[derive(Parser)]
-#[command(name = "dm", version = idma_engine::VERSION)]
+#[command(name = "shard", version = idma_engine::VERSION)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -138,7 +138,7 @@ impl Net {
             })
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| {
-                eprintln!("dm: {e}");
+                eprintln!("shard: {e}");
                 ExitCode::from(2)
             })?;
         let opts = Options {
@@ -226,7 +226,7 @@ async fn main() -> ExitCode {
     }
 }
 
-/// Where `dm get` saves.
+/// Where `shard get` saves.
 struct Target {
     output: Option<PathBuf>,
     dir: Option<PathBuf>,
@@ -237,7 +237,7 @@ async fn zip_list(url: &str, headers: &[(String, String)], opts: &Options) -> Ex
     let zip = match RemoteZip::open(url, headers, opts).await {
         Ok(z) => z,
         Err(e) => {
-            eprintln!("dm: {e}");
+            eprintln!("shard: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -293,9 +293,9 @@ async fn zip_get(
     let zip = match RemoteZip::open(&url, &headers, &opts).await {
         Ok(z) => z,
         Err(e @ Error::NoRanges) => {
-            eprintln!("dm: {e}");
+            eprintln!("shard: {e}");
             eprintln!(
-                "dm: downloading the whole archive to {}",
+                "shard: downloading the whole archive to {}",
                 display_dir(&out_dir)
             );
             let target = Target {
@@ -306,14 +306,14 @@ async fn zip_get(
             return get(url, Vec::new(), headers, opts, target, quiet).await;
         }
         Err(e) => {
-            eprintln!("dm: {e}");
+            eprintln!("shard: {e}");
             return ExitCode::FAILURE;
         }
     };
     let (chosen, unmatched) = idma_engine::select_zip_entries(zip.entries(), patterns);
     if !unmatched.is_empty() {
         eprintln!(
-            "dm: not in the archive: {} (see `dm zip list`)",
+            "shard: not in the archive: {} (see `shard zip list`)",
             unmatched.join(", ")
         );
         return ExitCode::from(2);
@@ -337,11 +337,11 @@ async fn zip_get(
     let done = match result {
         Ok(d) => d,
         Err(Error::Cancelled) => {
-            eprintln!("dm: cancelled; run the same command again to continue");
+            eprintln!("shard: cancelled; run the same command again to continue");
             return ExitCode::from(130);
         }
         Err(e) => {
-            eprintln!("dm: {e}");
+            eprintln!("shard: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -412,7 +412,7 @@ async fn get(
                 (first, mirrors, output, opts)
             }
             Err(e) => {
-                eprintln!("dm: {e}");
+                eprintln!("shard: {e}");
                 return ExitCode::FAILURE;
             }
         }
@@ -436,7 +436,7 @@ async fn get(
                 path
             }
             Err(e) => {
-                eprintln!("dm: {e}");
+                eprintln!("shard: {e}");
                 return ExitCode::FAILURE;
             }
         },
@@ -487,15 +487,15 @@ async fn get(
             ExitCode::SUCCESS
         }
         Err(e @ Error::DiskFull { .. }) => {
-            eprintln!("dm: {e}; free some space and run the same command again to resume");
+            eprintln!("shard: {e}; free some space and run the same command again to resume");
             ExitCode::FAILURE
         }
         Err(Error::Cancelled) => {
-            eprintln!("dm: cancelled; run the same command again to resume");
+            eprintln!("shard: cancelled; run the same command again to resume");
             ExitCode::from(130)
         }
         Err(e) => {
-            eprintln!("dm: {e}");
+            eprintln!("shard: {e}");
             ExitCode::FAILURE
         }
     }
@@ -610,16 +610,19 @@ mod tests {
             Command::Get { net, .. } => net.browser,
             Command::Zip { .. } => panic!("not get"),
         };
-        assert_eq!(parse(&["dm", "get", "u", "-o", "f"]), Some(Browser::Chrome));
         assert_eq!(
-            parse(&["dm", "get", "u", "-o", "f", "--browser", "none"]),
+            parse(&["shard", "get", "u", "-o", "f"]),
+            Some(Browser::Chrome)
+        );
+        assert_eq!(
+            parse(&["shard", "get", "u", "-o", "f", "--browser", "none"]),
             None
         );
         assert_eq!(
-            parse(&["dm", "get", "u", "-o", "f", "--browser", "Firefox"]),
+            parse(&["shard", "get", "u", "-o", "f", "--browser", "Firefox"]),
             Some(Browser::Firefox)
         );
-        let zip = Cli::try_parse_from(["dm", "zip", "get", "u", "a.txt", "d/**", "-d", "out"])
+        let zip = Cli::try_parse_from(["shard", "zip", "get", "u", "a.txt", "d/**", "-d", "out"])
             .expect("zip get");
         let Command::Zip {
             command: ZipCommand::Get {
@@ -631,8 +634,8 @@ mod tests {
         };
         assert_eq!(entries, ["a.txt", "d/**"]);
         assert_eq!(out_dir, Some(PathBuf::from("out")));
-        assert!(Cli::try_parse_from(["dm", "zip", "get", "u"]).is_err());
-        assert!(Cli::try_parse_from(["dm", "zip", "list", "u", "-k"]).is_ok());
+        assert!(Cli::try_parse_from(["shard", "zip", "get", "u"]).is_err());
+        assert!(Cli::try_parse_from(["shard", "zip", "list", "u", "-k"]).is_ok());
     }
 
     #[test]
