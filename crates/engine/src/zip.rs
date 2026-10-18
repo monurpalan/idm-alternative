@@ -199,6 +199,11 @@ impl RemoteZip {
         &self.remote.url
     }
 
+    /// The archive's file name, from `Content-Disposition` or the URL.
+    pub fn name(&self) -> &str {
+        &self.remote.name
+    }
+
     /// Size of the whole archive.
     pub fn size(&self) -> u64 {
         self.remote.size.unwrap_or_default()

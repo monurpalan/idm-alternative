@@ -8,9 +8,12 @@
 		addTask,
 		batchPreview,
 		getSettings,
+		inspectArchive,
 		inspectTorrent,
 		isTorrent,
+		isZip,
 		probe,
+		type ArchiveInfo,
 		type Batch,
 		type Headers,
 		type Login,
@@ -45,10 +48,22 @@
 	let batch = $state<Batch | null>(null);
 	/** A magnet link or `.torrent` file: its files, and which of them to download. */
 	let torrent = $state<TorrentInfo | null>(null);
-	let chosen = $state<boolean[]>([]);
-	const chosenSize = $derived(
-		torrent ? torrent.files.reduce((sum, f, i) => (chosen[i] ? sum + f.size : sum), 0) : 0
+	/** A ZIP archive on a server with ranges, when the user asked to choose files from it. */
+	let archive = $state<ArchiveInfo | null>(null);
+	let readingArchive = $state(false);
+	/** The files to choose from (a torrent's, or an archive's without its folders), and why
+	 * one cannot be chosen. */
+	const files = $derived(
+		torrent
+			? torrent.files.map((f) => ({ name: f.name, size: f.size, why: null as string | null }))
+			: archive
+				? archive.entries
+						.filter((e) => !e.is_dir)
+						.map((e) => ({ name: e.name, size: e.size, why: e.unsupported }))
+				: []
 	);
+	let chosen = $state<boolean[]>([]);
+	const chosenSize = $derived(files.reduce((sum, f, i) => (chosen[i] ? sum + f.size : sum), 0));
 	let checking = $state(false);
 	let error = $state<string | null>(null);
 	let busy = $state(false);
@@ -87,6 +102,7 @@
 		info = null;
 		batch = null;
 		torrent = null;
+		archive = null;
 		try {
 			if (isTorrent(u)) {
 				const tor = await inspectTorrent(u);
@@ -111,6 +127,23 @@
 			if (asked === u) error = String(e);
 		} finally {
 			if (asked === u) checking = false;
+		}
+	}
+
+	/** Reads the archive's list of files (only its end is fetched) to choose from. */
+	async function chooseFromArchive() {
+		const u = url.trim();
+		readingArchive = true;
+		error = null;
+		try {
+			const a = await inspectArchive(u, login(), headers);
+			if (asked !== u) return;
+			archive = a;
+			chosen = a.entries.filter((e) => !e.is_dir).map(() => false);
+		} catch (e) {
+			if (asked === u) error = String(e);
+		} finally {
+			readingArchive = false;
 		}
 	}
 
@@ -142,6 +175,22 @@
 						torrent: {
 							files: all ? null : chosen.flatMap((c, i) => (c ? [i] : []))
 						}
+					}
+				});
+				onclose();
+				return;
+			}
+			if (archive) {
+				await addTask({
+					url: u,
+					name: null,
+					dir: dir || null,
+					start,
+					login: login(),
+					headers,
+					stream: {
+						audio: null,
+						archive: { entries: files.filter((_, i) => chosen[i]).map((f) => f.name) }
 					}
 				});
 				onclose();
@@ -196,6 +245,12 @@
 			<span class="error">{error}</span>
 		{:else if torrent}
 			{t('Torrent: {n} files, {size}', { n: torrent.files.length, size: bytes(torrent.size) })}
+		{:else if readingArchive}
+			{t('Reading the archive…')}
+		{:else if archive}
+			{t('ZIP archive: {n} files, {size}', { n: files.length, size: bytes(archive.size) })} ·
+			{t('Only the files you pick are downloaded, into a folder named after the archive.')}
+			<Button variant="link" onclick={() => (archive = null)}>{t('Download it all')}</Button>
 		{:else if batch}
 			{t('Batch: {n} downloads', { n: batch.count })} ·
 			<span title={batch.first}>{batch.first.split('/').pop()}</span>
@@ -211,24 +266,32 @@
 			{#if info.saved_login}{t('Logs in as {user} (saved for this site)', { user: info.saved_login })} ·{/if}
 			{info.size !== null ? bytes(info.size) : t('Size unknown')}
 			· {info.resumable ? t('Can resume and use several connections') : t('Cannot resume (one connection)')}
+			{#if isZip(url, info.name)}
+				<br />
+				{#if info.resumable}
+					<Button variant="link" onclick={chooseFromArchive}>{t('Pick files from the archive…')}</Button>
+				{:else}
+					{t('This server only sends the whole archive.')}
+				{/if}
+			{/if}
 		{:else}
 			&nbsp;
 		{/if}
 	</p>
 
-	{#if torrent && torrent.files.length > 1}
+	{#if (torrent && torrent.files.length > 1) || archive}
 		<fieldset class="files">
 			<legend>
 				{t('Files ({size} chosen)', { size: bytes(chosenSize) })}
-				<Button variant="link" onclick={() => (chosen = chosen.map(() => true))}>{t('All')}</Button>
+				<Button variant="link" onclick={() => (chosen = files.map((f) => !f.why))}>{t('All')}</Button>
 				<Button variant="link" onclick={() => (chosen = chosen.map(() => false))}>{t('None')}</Button>
 			</legend>
 			<ul>
-				{#each torrent.files as f, i (i)}
+				{#each files as f, i (i)}
 					<li>
-						<Checkbox bind:checked={chosen[i]}>
-							<span class="file">
-								<span class="fname" title={f.name}>{f.name}</span>
+						<Checkbox bind:checked={chosen[i]} disabled={!!f.why}>
+							<span class="file" title={f.why ?? f.name}>
+								<span class="fname">{f.name}</span>
 								<span class="muted">{bytes(f.size)}</span>
 							</span>
 						</Checkbox>
@@ -257,11 +320,11 @@
 		<Input
 			bind:value={name}
 			placeholder={batch ? t('Each from its server') : t('Name from the server')}
-			disabled={!info || info.needs_login || !!torrent}
+			disabled={!info || info.needs_login || !!torrent || !!archive}
 		/>
 	</Field>
 
-	{#if !batch && !torrent}
+	{#if !batch && !torrent && !archive}
 		{#if showMirrors || mirrors}
 			<Field label={t('Mirrors: other links to the same file, one per line')}>
 				<Textarea bind:value={mirrors} rows={3} placeholder={t('https://mirror.example.org/file.iso')} />
@@ -284,7 +347,10 @@
 		<Button
 			type="submit"
 			variant="primary"
-			disabled={busy || !url.trim() || (!!torrent && !chosen.some((c) => c))}
+			disabled={busy ||
+				!url.trim() ||
+				((!!torrent || !!archive) && !chosen.some((c) => c)) ||
+				readingArchive}
 		>
 			{batch ? t('Start {n} downloads', { n: batch.count }) : t('Start download')}
 		</Button>

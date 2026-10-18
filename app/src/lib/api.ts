@@ -157,6 +157,8 @@ export const addTask = (request: {
 		subtitles?: { id: string; language: string | null }[];
 		/** A torrent: indices of the files to download, all when null. */
 		torrent?: { files: number[] | null } | null;
+		/** Files out of a ZIP archive (`url`), by name, into a folder named after it. */
+		archive?: { entries: string[] } | null;
 	} | null;
 	/** Other addresses of the same file. */
 	mirrors?: string[];
@@ -177,6 +179,31 @@ export interface TorrentInfo {
 }
 
 export const inspectTorrent = (url: string) => invoke<TorrentInfo>('inspect_torrent', { url });
+
+/** An address whose name says ZIP archive. */
+export const isZip = (url: string, name?: string | null) =>
+	/\.zip$/i.test(url.trim().split(/[?#]/)[0]) || /\.zip$/i.test(name ?? '');
+
+/** What a ZIP archive on the server holds, read without downloading it. */
+export interface ArchiveInfo {
+	name: string;
+	size: number;
+	zip64: boolean;
+	/** Paths inside the archive, `/`-separated; folders end with `/`. */
+	entries: {
+		name: string;
+		size: number;
+		compressed_size: number;
+		method: string;
+		is_dir: boolean;
+		encrypted: boolean;
+		/** Why it cannot be extracted. */
+		unsupported: string | null;
+	}[];
+}
+
+export const inspectArchive = (url: string, login: Login | null = null, headers: Headers | null = null) =>
+	invoke<ArchiveInfo>('inspect_archive', { url, login, headers });
 
 /** A file the site grabber found, with its link text and the page it was on. */
 export interface GrabbedFile {

@@ -31,6 +31,12 @@ feature for feature, built by combining the best ideas from existing open-source
 - **Site grabber:** reads a page and, to a chosen depth, the pages below it on the same site,
   and lists the files they link to (archives, documents, video, pictures) to pick from;
   nothing is downloaded to find them. Also an MCP tool (`find_site_files`).
+- **Files out of a ZIP archive** without downloading the rest: when the server supports range
+  requests, the archive's list of files is read from its end, and only the chosen files are
+  fetched and unpacked (stored or deflate, ZIP64 too, each checked against its CRC-32) into a
+  folder named after the archive. "Choose files in the archive…" in the app, `dm zip list
+  URL` / `dm zip get URL 'docs/**/*.pdf' -d out`, and the MCP tool `inspect_archive`. Without
+  range support the whole archive is downloaded.
 - **Torrents:** magnet links and `.torrent` files (librqbit) in the same list and queue, with
   a choice of files; nothing seeds after a download is done. Opening magnet links and
   `.torrent` files from Windows is a setting, off by default.
@@ -39,10 +45,10 @@ feature for feature, built by combining the best ideas from existing open-source
   site, a virus scan when a download finishes, a small progress window per download, and a
   tray icon. Interface in English and Turkish.
 - **For AI assistants:** `idma-mcp`, an [MCP](https://modelcontextprotocol.io) server installed
-  with the app, lets any MCP client add downloads (files, torrents with a choice of files,
-  metalinks, video pages at a chosen quality), find the files a site links to, list downloads
-  with their progress, wait for them to finish, pause, resume, reorder and remove them, limit
-  their speed and choose what happens when all are done. It reaches the app through the same
+  with the app, lets any MCP client add downloads (files, chosen files out of ZIP archives,
+  torrents with a choice of files, metalinks, video pages at a chosen quality), find the files
+  a site links to, list downloads with their progress, wait for them to finish, pause, resume,
+  reorder and remove them, limit their speed and choose what happens when all are done. It reaches the app through the same
   per-user pipe as the browser; nothing listens on a network port. Register it in the client
   as a stdio server whose command is `%LOCALAPPDATA%\idm-alternative\idma-mcp.exe`.
 

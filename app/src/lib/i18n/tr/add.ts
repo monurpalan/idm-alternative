@@ -7,6 +7,13 @@ export default {
 		'Torrent okunuyor… (magnet linki eşlere sorulur, bir dakika sürebilir)',
 	'Torrent: {n} files, {size}': 'Torrent: {n} dosya, {size}',
 	'Files ({size} chosen)': 'Dosyalar ({size} seçili)',
+	'Reading the archive…': 'Arşiv okunuyor…',
+	'ZIP archive: {n} files, {size}': 'ZIP arşivi: {n} dosya, {size}',
+	'Only the files you pick are downloaded, into a folder named after the archive.':
+		'Yalnızca seçtiğiniz dosyalar, arşivin adını taşıyan bir klasöre indirilir.',
+	'Download it all': 'Tamamını indir',
+	'Pick files from the archive…': 'Arşivden dosya seç…',
+	'This server only sends the whole archive.': 'Bu sunucu arşivi yalnızca bütün olarak gönderiyor.',
 	'Start page': 'Başlangıç sayfası',
 	Depth: 'Derinlik',
 	'This page only': 'Yalnızca bu sayfa',

@@ -49,6 +49,11 @@ struct AddParams {
     audio_only: Option<bool>,
     /// A torrent: indices of the files to download, from inspect_torrent. All when omitted.
     torrent_files: Option<Vec<usize>>,
+    /// A ZIP archive: names of the files inside it to download (from inspect_archive), or
+    /// globs (`*` within a folder, `**` across folders), or folder names. Only these are
+    /// fetched and extracted, into a folder named after the archive; without this the
+    /// archive itself is downloaded.
+    archive_entries: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -134,7 +139,7 @@ impl Downloads {
     }
 
     #[tool(
-        description = "Add a download to idm-alternative and start it (unless start is false): a direct file link, a magnet link or .torrent file (optionally only some of its files), a .meta4 metalink, or a page of a video site with video_height or audio_only. Returns the new download with its id."
+        description = "Add a download to idm-alternative and start it (unless start is false): a direct file link, some files out of a ZIP archive (archive_entries), a magnet link or .torrent file (optionally only some of its files), a .meta4 metalink, or a page of a video site with video_height or audio_only. Returns the new download with its id."
     )]
     async fn add_download(
         &self,
@@ -150,6 +155,7 @@ impl Downloads {
             video_height: p.video_height,
             audio_only: p.audio_only,
             torrent_files: p.torrent_files,
+            archive_entries: p.archive_entries,
         }))
         .await
     }
@@ -172,6 +178,16 @@ impl Downloads {
         Parameters(p): Parameters<UrlParams>,
     ) -> Result<CallToolResult, ErrorData> {
         self.ask(Request::InspectTorrent { url: p.url }).await
+    }
+
+    #[tool(
+        description = "List the files in a ZIP archive on the web without downloading it: name, size, packed size, compression method, whether it is a folder, and why a file cannot be extracted (encrypted, or a method other than stored and deflate). Needs a server that supports range requests; otherwise it fails and only the whole archive can be downloaded. Pass the wanted names as add_download's archive_entries."
+    )]
+    async fn inspect_archive(
+        &self,
+        Parameters(p): Parameters<UrlParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.ask(Request::InspectArchive { url: p.url }).await
     }
 
     #[tool(
@@ -295,7 +311,8 @@ impl ServerHandler for Downloads {
             ))
             .with_instructions(
                 "Controls the idm-alternative download manager on this computer: add downloads \
-                 (files, torrents, metalinks, video pages), find the files a site links to, list \
+                 (files, chosen files out of ZIP archives, torrents, metalinks, video pages), \
+                 find the files a site links to, list \
                  downloads and their progress, wait for them to finish, pause, resume, reorder and \
                  remove them, limit their speed, and choose what happens when all are done.",
             )

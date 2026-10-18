@@ -434,6 +434,36 @@ async fn inspect_torrent(app: State<'_, App>, url: String) -> CmdResult<idma_man
     app.manager.inspect_torrent(&url).await.map_err(msg)
 }
 
+/// The files in a ZIP archive on a server that supports range requests, for picking some.
+#[tauri::command]
+async fn inspect_archive(
+    app: State<'_, App>,
+    url: String,
+    login: Option<Login>,
+    headers: Option<Vec<(String, String)>>,
+) -> CmdResult<idma_manager::ArchiveInfo> {
+    // The site's saved login, which the download would use too.
+    let saved = match &login {
+        Some(_) => None,
+        None => app
+            .manager
+            .saved_login(&url)
+            .await
+            .ok()
+            .flatten()
+            .map(|(user, password)| Login {
+                user,
+                password,
+                remember: false,
+            }),
+    };
+    let headers = request_headers(headers, login.as_ref().or(saved.as_ref()));
+    app.manager
+        .inspect_archive(&url, &headers)
+        .await
+        .map_err(msg)
+}
+
 /// What an HLS or DASH stream offers (qualities, audio, subtitles), read with the page's
 /// headers.
 #[tauri::command]
@@ -1358,6 +1388,16 @@ async fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma
                 Err(e) => Reply::error(e.to_string()),
             }
         }
+        Request::InspectArchive { url } => {
+            let app = handle.state::<App>();
+            match app.manager.inspect_archive(&url, &[]).await {
+                Ok(info) => Reply {
+                    data: serde_json::to_value(info).ok(),
+                    ..Reply::ok()
+                },
+                Err(e) => Reply::error(e.to_string()),
+            }
+        }
         Request::Wait { ids, timeout_secs } => {
             let timeout = std::time::Duration::from_secs(timeout_secs.unwrap_or(60).clamp(1, 600));
             match wait_for(handle, &ids, timeout).await {
@@ -1448,7 +1488,8 @@ async fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma
 }
 
 /// A download added by a local tool: a file, a page of a video site (through yt-dlp, with
-/// `video_height` or `audio_only`), or a torrent (with `torrent_files`).
+/// `video_height` or `audio_only`), a torrent (with `torrent_files`), or files out of a ZIP
+/// archive (with `archive_entries`).
 async fn tool_add(handle: &AppHandle, add: idma_bridge::AddDownload) -> CmdResult<Task> {
     let app = handle.state::<App>();
     let mut name = add.name.filter(|n| !n.trim().is_empty());
@@ -1475,6 +1516,14 @@ async fn tool_add(handle: &AppHandle, add: idma_bridge::AddDownload) -> CmdResul
             torrent: Some(idma_manager::TorrentChoice {
                 files: Some(files),
                 folder: None,
+            }),
+            ..Default::default()
+        });
+    } else if let Some(entries) = add.archive_entries.filter(|e| !e.is_empty()) {
+        stream = Some(idma_manager::Stream {
+            archive: Some(idma_manager::ArchiveChoice {
+                entries,
+                ..Default::default()
             }),
             ..Default::default()
         });
@@ -1811,6 +1860,7 @@ fn main() {
             refresh_in_browser,
             inspect_media,
             inspect_torrent,
+            inspect_archive,
             grab_site,
             cancel_grab,
             tools,

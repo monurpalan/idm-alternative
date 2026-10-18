@@ -158,6 +158,7 @@ async fn tools_reach_the_app() {
         [
             "add_download",
             "find_site_files",
+            "inspect_archive",
             "inspect_torrent",
             "inspect_video",
             "list_downloads",
@@ -187,7 +188,7 @@ async fn tools_reach_the_app() {
         json!({
             "type": "add", "url": "https://x/b.zip", "dir": null, "name": "b.zip", "start": null,
             "mirrors": [], "checksum": null, "video_height": null, "audio_only": null,
-            "torrent_files": null
+            "torrent_files": null, "archive_entries": null
         })
     );
 
@@ -206,6 +207,13 @@ async fn tools_reach_the_app() {
         )
         .await;
     assert_eq!(torrent["torrent_files"], json!([0, 2]));
+    let (_, zip) = mcp
+        .tool(
+            "add_download",
+            json!({ "url": "https://x/a.zip", "archive_entries": ["docs/*.pdf"] }),
+        )
+        .await;
+    assert_eq!(zip["archive_entries"], json!(["docs/*.pdf"]));
 
     // Each new tool sends its own request.
     for (tool, args, want) in [
@@ -218,6 +226,11 @@ async fn tools_reach_the_app() {
             "inspect_torrent",
             json!({ "url": "magnet:?x" }),
             json!({ "type": "inspect_torrent", "url": "magnet:?x" }),
+        ),
+        (
+            "inspect_archive",
+            json!({ "url": "https://x/a.zip" }),
+            json!({ "type": "inspect_archive", "url": "https://x/a.zip" }),
         ),
         (
             "set_speed_limit",

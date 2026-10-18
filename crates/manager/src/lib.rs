@@ -32,8 +32,8 @@ use tokio::task::JoinHandle;
 
 use db::{Db, Insert};
 pub use task::{
-    Category, ErrorKind, NewTask, Status, Stream, Subtitle, Task, TaskId, TaskProgress,
-    TorrentChoice,
+    ArchiveChoice, Category, ErrorKind, NewTask, Status, Stream, Subtitle, Task, TaskId,
+    TaskProgress, TorrentChoice,
 };
 pub use torrent::{TorrentConfig, TorrentFile, TorrentInfo};
 
@@ -113,6 +113,32 @@ pub enum Event {
     Updated(Task),
     Progress(TaskProgress),
     Removed(TaskId),
+}
+
+/// What a ZIP archive on a server holds (see [`Manager::inspect_archive`]).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ArchiveInfo {
+    /// The archive's file name.
+    pub name: String,
+    pub size: u64,
+    pub zip64: bool,
+    pub entries: Vec<ArchiveEntry>,
+}
+
+/// One file or folder in an archive.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ArchiveEntry {
+    /// Path inside the archive, `/`-separated; folders end with `/`.
+    pub name: String,
+    pub size: u64,
+    pub compressed_size: u64,
+    /// `stored`, `deflate`, `bzip2`, `lzma`...
+    pub method: String,
+    pub is_dir: bool,
+    pub encrypted: bool,
+    /// Why it cannot be extracted (encrypted, or a compression method other than stored and
+    /// deflate).
+    pub unsupported: Option<String>,
 }
 
 /// Where to move a download in the queue.
@@ -460,8 +486,11 @@ impl Manager {
         self.inner.db.delete(id).await?;
         if delete_files && let Some(path) = &task.path {
             delete_files_of(path);
-            // A torrent with several files: the folder chosen for it on the first start.
-            if torrent::is_torrent(&task.url) && path.is_dir() {
+            // A torrent with several files, or files out of an archive: the folder chosen
+            // for them on the first start.
+            let folder = torrent::is_torrent(&task.url)
+                || task.stream.as_ref().is_some_and(|s| s.archive.is_some());
+            if folder && path.is_dir() {
                 std::fs::remove_dir_all(path).ok();
             }
         }
@@ -478,6 +507,10 @@ impl Manager {
         self.inner.stop(id, Stop::Remove).await;
         if let Some(path) = &task.path {
             delete_files_of(path);
+            // Files out of an archive: their folder, or they would count as done.
+            if task.stream.as_ref().is_some_and(|s| s.archive.is_some()) && path.is_dir() {
+                std::fs::remove_dir_all(path).ok();
+            }
         }
         self.inner.db.reset(id).await?;
         let task = self.get(id).await?;
@@ -586,6 +619,36 @@ impl Manager {
             .inspect(url)
             .await
             .map_err(|e| idma_engine::Error::State(e).into())
+    }
+
+    /// The files in a ZIP archive on the server, read without downloading it (the server must
+    /// support range requests; [`idma_engine::Error::NoRanges`] otherwise): for choosing
+    /// which to download.
+    pub async fn inspect_archive(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+    ) -> Result<ArchiveInfo> {
+        let opts = lock(&self.inner.config).engine.clone();
+        let zip = idma_engine::RemoteZip::open(url, headers, &opts).await?;
+        Ok(ArchiveInfo {
+            name: zip.name().to_owned(),
+            size: zip.size(),
+            zip64: zip.is_zip64(),
+            entries: zip
+                .entries()
+                .iter()
+                .map(|e| ArchiveEntry {
+                    name: e.name.clone(),
+                    size: e.size,
+                    compressed_size: e.compressed_size,
+                    method: idma_engine::method_name(e.method),
+                    is_dir: e.is_dir,
+                    encrypted: e.encrypted,
+                    unsupported: e.unsupported(),
+                })
+                .collect(),
+        })
     }
 
     pub fn global_limit(&self) -> Option<u64> {
@@ -1004,6 +1067,100 @@ impl Inner {
         Ok(outcome)
     }
 
+    /// Some files out of a ZIP archive: on the first start a folder named after the archive
+    /// is picked for them, and kept. Files already there with the right size are not fetched
+    /// again, so a stopped download goes on where it was.
+    async fn download_archive(
+        &self,
+        mut task: Task,
+        mut stream: Stream,
+        mut choice: ArchiveChoice,
+        opts: &Options,
+        conflict: Conflict,
+        cancel: &CancellationToken,
+    ) -> Result<Outcome> {
+        let started = std::time::Instant::now();
+        let zip = tokio::select! {
+            z = idma_engine::RemoteZip::open(&task.url, &task.headers, opts) => z?,
+            () = cancel.cancelled() => return Err(idma_engine::Error::Cancelled.into()),
+        };
+        let (chosen, missing) = idma_engine::select_zip_entries(zip.entries(), &choice.entries);
+        if !missing.is_empty() || chosen.is_empty() {
+            return Err(idma_engine::Error::Archive(format!(
+                "not in the archive: {}",
+                missing.join(", ")
+            ))
+            .into());
+        }
+        let size: u64 = chosen.iter().map(|&i| zip.entries()[i].size).sum();
+        let folder = match choice.folder.clone() {
+            Some(f) => f,
+            None => {
+                std::fs::create_dir_all(&task.dir).map_err(idma_engine::Error::from)?;
+                let _one_at_a_time = self.naming.lock().await;
+                let taken: std::collections::HashSet<PathBuf> =
+                    self.db.paths_except(task.id).await?.into_iter().collect();
+                let base =
+                    idma_engine::name::sanitize(idma_engine::name::split_extension(zip.name()).0);
+                let folder =
+                    idma_engine::target_avoiding(&task.dir, &base, &task.url, conflict, |p| {
+                        taken.contains(p)
+                    });
+                let name = folder
+                    .file_name()
+                    .map_or_else(|| base.clone(), |n| n.to_string_lossy().into_owned());
+                let files: Vec<&str> = chosen
+                    .iter()
+                    .map(|&i| zip.entries()[i].name.as_str())
+                    .filter(|n| !n.ends_with('/'))
+                    .collect();
+                let category = match files.as_slice() {
+                    [one] => Category::for_name(one),
+                    _ => Category::for_name(zip.name()),
+                };
+                self.db
+                    .set_target(task.id, &name, &folder, Some(size), category)
+                    .await?;
+                choice.folder = Some(folder.clone());
+                stream.archive = Some(choice.clone());
+                self.db.set_stream(task.id, &stream).await?;
+                task.name = Some(name);
+                task.path = Some(folder.clone());
+                task.size = Some(size);
+                task.category = category;
+                task.stream = Some(stream);
+                self.emit(Event::Updated(task.clone()));
+                folder
+            }
+        };
+        let (tx, rx) = watch::channel(Progress::default());
+        let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
+        let result = zip
+            .extract(&chosen, &folder, false, Some(&tx), cancel)
+            .await;
+        drop(tx);
+        reporter.await.ok();
+        let done = result?;
+        let failed: Vec<String> = done
+            .iter()
+            .filter_map(|d| d.error.as_ref().map(|e| format!("{}: {e}", d.name)))
+            .collect();
+        if !failed.is_empty() {
+            return Err(idma_engine::Error::Archive(format!(
+                "{} of {} files could not be extracted: {}",
+                failed.len(),
+                done.len(),
+                failed.join("; ")
+            ))
+            .into());
+        }
+        Ok(Outcome {
+            size,
+            resumed_from: 0,
+            elapsed: started.elapsed(),
+        })
+    }
+
     /// A torrent: on the first start its files are listed (for a magnet link, asked from
     /// peers) to pick where they go: a single file straight into the download folder, several
     /// into a folder named after the torrent. The choice is kept for later starts.
@@ -1257,10 +1414,42 @@ impl Inner {
             let limit = task.speed_limit;
             return self.download_torrent(task, conflict, limit, cancel).await;
         }
-        if let Some(stream) = task.stream.clone() {
-            return self
-                .download_stream(task, stream, opts, conflict, ffmpeg, cancel)
-                .await;
+        if let Some(mut stream) = task.stream.clone() {
+            match stream.archive.clone() {
+                Some(choice) if !choice.whole => {
+                    match self
+                        .download_archive(
+                            task.clone(),
+                            stream.clone(),
+                            choice,
+                            &opts,
+                            conflict,
+                            cancel,
+                        )
+                        .await
+                    {
+                        // The whole archive instead, from now on.
+                        Err(Error::Engine(idma_engine::Error::NoRanges)) => {
+                            tracing::info!(
+                                id = task.id,
+                                "no range requests: downloading the whole archive"
+                            );
+                            if let Some(a) = stream.archive.as_mut() {
+                                a.whole = true;
+                            }
+                            self.db.set_stream(task.id, &stream).await?;
+                            task.stream = Some(stream);
+                        }
+                        other => return other,
+                    }
+                }
+                Some(_) => {}
+                None => {
+                    return self
+                        .download_stream(task, stream, opts, conflict, ffmpeg, cancel)
+                        .await;
+                }
+            }
         }
 
         let path = match &task.path {

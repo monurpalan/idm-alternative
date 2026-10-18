@@ -61,6 +61,22 @@ pub struct Stream {
     /// where they go.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub torrent: Option<TorrentChoice>,
+    /// Some files out of a ZIP archive (the task's URL is the archive): which, and where.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive: Option<ArchiveChoice>,
+}
+
+/// The files picked out of a ZIP archive on the server.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct ArchiveChoice {
+    /// Entry names (a folder brings what is in it; see [`idma_engine::select_zip_entries`]).
+    pub entries: Vec<String>,
+    /// The folder they go into, chosen on the first start.
+    #[serde(default)]
+    pub folder: Option<std::path::PathBuf>,
+    /// The server turned out not to send parts of files: the whole archive is downloaded.
+    #[serde(default)]
+    pub whole: bool,
 }
 
 /// A torrent download's choices.

@@ -57,6 +57,11 @@ pub enum Request {
     InspectTorrent {
         url: String,
     },
+    /// The files in a ZIP archive on a server, read without downloading it, for choosing
+    /// `archive_entries`.
+    InspectArchive {
+        url: String,
+    },
     /// Answers once none of these downloads is queued or downloading any more, or after
     /// `timeout_secs` (60 by default), with `{finished, downloads}`.
     Wait {
@@ -116,6 +121,9 @@ pub struct AddDownload {
     pub audio_only: Option<bool>,
     /// A torrent: indices of the files to download (see `inspect_torrent`); all when absent.
     pub torrent_files: Option<Vec<usize>>,
+    /// A ZIP archive: names (or globs) of the files inside it to download, extracted into a
+    /// folder named after it (see `inspect_archive`).
+    pub archive_entries: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -308,6 +316,7 @@ mod tests {
         for msg in [
             r#"{"type":"inspect_video","url":"https://x/v"}"#,
             r#"{"type":"inspect_torrent","url":"magnet:?xt=urn:btih:x"}"#,
+            r#"{"type":"inspect_archive","url":"https://x/a.zip"}"#,
             r#"{"type":"wait","ids":[1]}"#,
             r#"{"type":"speed_limit","bytes_per_second":1048576}"#,
             r#"{"type":"move","id":1,"to":"top"}"#,
