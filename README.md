@@ -14,6 +14,11 @@ feature for feature, built by combining the best ideas from existing open-source
   a connection that crawls has its range taken over, so the last percent does not drag. One
   preallocated file (no joining parts at the end), resume after a crash or `kill -9`, checksum
   verification, HTTP/2, browser TLS fingerprints, proxies, global and per-download speed limits.
+- **Mirrors and Metalink.** Other addresses of the same file are used at the same time once
+  each is shown to serve the same bytes; new connections go to the source that gives a
+  connection the most, and a mirror that fails or crawls is dropped. A `.meta4` / `.metalink`
+  link brings its mirrors, name and checksum by itself (`dm get URL -m MIRROR`, or "Add
+  mirrors" in the app).
 - **Browser integration** for Chrome, Edge and Firefox: downloads are taken over with the
   browser's cookies, referrer and user agent, over native messaging (no open localhost port).
   An expired link is refreshed by starting the download again in the browser.

@@ -2850,6 +2850,7 @@ dependencies = [
  "idma-media",
  "idma-testserver",
  "md-5 0.11.0",
+ "quick-xml 0.42.0",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

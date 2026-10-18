@@ -197,8 +197,38 @@ impl Http {
         if_range: Option<&str>,
         slot: u64,
     ) -> Result<(Remote, Response)> {
+        self.probe_range(url, start, None, if_range, slot).await
+    }
+
+    /// Like [`Http::probe`] but asks only for the first `len` bytes and reads them: for
+    /// checking another address of a file without making its server send the rest. A server
+    /// without ranges answers with the whole file, which is then not read.
+    pub(crate) async fn probe_sample(
+        &self,
+        url: &str,
+        len: u64,
+        slot: u64,
+    ) -> Result<(Remote, Option<Vec<u8>>)> {
+        let (remote, resp) = self
+            .probe_range(url, 0, Some(len.max(1)), None, slot)
+            .await?;
+        if !remote.ranges {
+            return Ok((remote, None));
+        }
+        let body = resp.bytes().await?.to_vec();
+        Ok((remote, Some(body)))
+    }
+
+    async fn probe_range(
+        &self,
+        url: &str,
+        start: u64,
+        end: Option<u64>,
+        if_range: Option<&str>,
+        slot: u64,
+    ) -> Result<(Remote, Response)> {
         let mut h = HeaderMap::new();
-        h.insert(header::RANGE, range_value(start, None));
+        h.insert(header::RANGE, range_value(start, end));
         if let Some(v) = if_range.and_then(|v| HeaderValue::from_str(v).ok()) {
             h.insert(header::IF_RANGE, v);
         }

@@ -51,6 +51,7 @@ pub fn request(url: String, output: &Path) -> Request {
         url,
         output: output.to_owned(),
         headers: Vec::new(),
+        mirrors: Vec::new(),
     }
 }
 

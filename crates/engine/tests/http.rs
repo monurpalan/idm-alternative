@@ -39,6 +39,7 @@ async fn get(url: String, out: &Path, opts: &Options) -> idma_engine::Result<Out
         url,
         output: out.to_owned(),
         headers: Vec::new(),
+        mirrors: Vec::new(),
     };
     tokio::time::timeout(LIMIT, download(&req, opts, None, &CancellationToken::new()))
         .await
@@ -266,6 +267,7 @@ async fn login_prompt_is_not_an_expired_link() {
         url: url.clone(),
         output: out.clone(),
         headers: vec![idma_engine::basic_auth(user, pass)],
+        mirrors: Vec::new(),
     };
     let wrong = tokio::time::timeout(
         LIMIT,

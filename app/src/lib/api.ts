@@ -156,6 +156,8 @@ export const addTask = (request: {
 		/** A torrent: indices of the files to download, all when null. */
 		torrent?: { files: number[] | null } | null;
 	} | null;
+	/** Other addresses of the same file. */
+	mirrors?: string[];
 }) => invoke<Task>('add_task', { request });
 
 /** A magnet link, or a `.torrent` file on the web or on disk. */

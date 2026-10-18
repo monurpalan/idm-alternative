@@ -541,3 +541,45 @@ async fn saved_login_is_used_when_the_server_asks() {
     assert!(m.saved_logins().await.expect("list").is_empty());
     m.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn mirrors_are_kept_and_used() {
+    let base = start_server().await;
+    let w = WorkDir::new("mirrors");
+    let m = Manager::open(&w.db(), w.config(1)).await.expect("open");
+    // Each "server" gives 2 MiB/s however many connections ask; together 4 MiB/s.
+    let q = "size=8M&seed=31&total_rate=2M";
+    let t = m
+        .add(NewTask {
+            mirrors: vec![format!("{base}/file/mirror.bin?{q}")],
+            ..new_task(format!("{base}/file/main.bin?{q}"))
+        })
+        .await
+        .expect("add");
+    assert_eq!(t.mirrors, [format!("{base}/file/mirror.bin?{q}")]);
+    let done = wait_done(&m, t.id).await;
+    assert_file(&done, 31, 8 << 20);
+    let stats: Vec<serde_json::Value> = reqwest::get(format!("{base}/_stats"))
+        .await
+        .expect("stats")
+        .json()
+        .await
+        .expect("json");
+    let sent = |name: &str| -> u64 {
+        stats
+            .iter()
+            .filter(|u| u["url"].as_str().is_some_and(|url| url.contains(name)))
+            .filter_map(|u| u["bytes_sent"].as_u64())
+            .sum()
+    };
+    assert!(
+        sent("mirror.bin") > 2 << 20,
+        "the mirror sent {}",
+        sent("mirror.bin")
+    );
+    m.close().await;
+    // Kept across a restart.
+    let m = Manager::open(&w.db(), w.config(1)).await.expect("reopen");
+    assert_eq!(m.get(t.id).await.expect("get").mirrors.len(), 1);
+    m.close().await;
+}

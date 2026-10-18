@@ -81,6 +81,7 @@ pub async fn download_dash(
                         url,
                         output: path.clone(),
                         headers: req.headers.clone(),
+                        mirrors: Vec::new(),
                     },
                     opts,
                     progress,

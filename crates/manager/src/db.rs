@@ -29,6 +29,7 @@ pub(crate) struct Insert<'a> {
     pub checksum: Option<&'a str>,
     pub added_at: i64,
     pub stream: Option<&'a Stream>,
+    pub mirrors: &'a [String],
 }
 
 impl Db {
@@ -78,8 +79,8 @@ impl Db {
         let headers = store_headers(t.headers)?;
         let id = sqlx::query(
             "INSERT INTO tasks (url, headers, dir, name, status, category, connections,
-                                speed_limit, checksum, added_at, stream, queue_pos)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                speed_limit, checksum, added_at, stream, mirrors, queue_pos)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                      (SELECT COALESCE(MAX(queue_pos), 0) + 1 FROM tasks))",
         )
         .bind(t.url)
@@ -93,6 +94,11 @@ impl Db {
         .bind(t.checksum)
         .bind(t.added_at)
         .bind(t.stream.map(serde_json::to_string).transpose()?)
+        .bind(
+            (!t.mirrors.is_empty())
+                .then(|| serde_json::to_string(t.mirrors))
+                .transpose()?,
+        )
         .execute(&self.pool)
         .await?
         .last_insert_rowid();
@@ -406,5 +412,10 @@ fn task(r: &SqliteRow) -> Result<Task> {
             .try_get::<Option<String>, _>("stream")?
             .map(|s| serde_json::from_str(&s))
             .transpose()?,
+        mirrors: r
+            .try_get::<Option<String>, _>("mirrors")?
+            .map(|s| serde_json::from_str(&s))
+            .transpose()?
+            .unwrap_or_default(),
     })
 }

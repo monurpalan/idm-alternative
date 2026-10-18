@@ -64,6 +64,8 @@ pub struct AddDownload {
     pub name: Option<String>,
     /// `false` adds it paused.
     pub start: Option<bool>,
+    /// Other addresses of the same file.
+    pub mirrors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

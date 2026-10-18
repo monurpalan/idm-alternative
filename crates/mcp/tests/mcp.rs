@@ -177,7 +177,7 @@ async fn tools_reach_the_app() {
     assert!(!failed);
     assert_eq!(
         added,
-        json!({ "type": "add", "url": "https://x/b.zip", "dir": null, "name": "b.zip", "start": null })
+        json!({ "type": "add", "url": "https://x/b.zip", "dir": null, "name": "b.zip", "start": null, "mirrors": [] })
     );
 
     let (_, removed) = mcp

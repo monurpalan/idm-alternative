@@ -196,6 +196,9 @@ struct AddRequest {
     headers: Option<Vec<(String, String)>>,
     /// A stream: `url` is then the chosen video playlist.
     stream: Option<idma_manager::Stream>,
+    /// Other addresses of the same file.
+    #[serde(default)]
+    mirrors: Vec<String>,
 }
 
 #[tauri::command]
@@ -209,10 +212,22 @@ async fn add_task(app: State<'_, App>, request: AddRequest) -> CmdResult<Task> {
             dir: request.dir,
             start: request.start,
             stream: request.stream,
+            mirrors: clean_mirrors(request.mirrors),
             ..NewTask::default()
         })
         .await
         .map_err(msg)
+}
+
+/// Mirrors as typed or pasted: trimmed, empty lines and repeats left out.
+fn clean_mirrors(mirrors: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for m in mirrors.iter().map(|m| m.trim()).filter(|m| !m.is_empty()) {
+        if !out.iter().any(|o| o == m) {
+            out.push(m.to_owned());
+        }
+    }
+    out
 }
 
 /// A batch address (`photo[001-100].jpg`): how many downloads it stands for, and the first
@@ -1261,6 +1276,7 @@ async fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma
         Request::Add(add) => {
             let app = handle.state::<App>();
             let new = NewTask {
+                mirrors: clean_mirrors(add.mirrors),
                 url: add.url,
                 name: add.name.filter(|n| !n.trim().is_empty()),
                 dir: add.dir.filter(|d| !d.trim().is_empty()).map(PathBuf::from),

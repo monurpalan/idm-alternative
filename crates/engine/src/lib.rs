@@ -16,6 +16,7 @@ pub mod error;
 mod file;
 mod hls;
 mod limit;
+pub mod metalink;
 pub mod name;
 mod place;
 mod relink;

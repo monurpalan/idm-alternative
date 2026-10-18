@@ -33,6 +33,9 @@ struct AddParams {
     name: Option<String>,
     /// Start now (default) or add it paused.
     start: Option<bool>,
+    /// Other direct links to the same file (mirrors), downloaded from at the same time once
+    /// each is shown to serve the same bytes.
+    mirrors: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -93,6 +96,7 @@ impl Downloads {
             dir: p.dir,
             name: p.name,
             start: p.start,
+            mirrors: p.mirrors.unwrap_or_default(),
         }))
         .await
     }

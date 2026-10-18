@@ -64,6 +64,10 @@ enum Command {
         /// Never use HTTP/2.
         #[arg(long)]
         http1: bool,
+        /// Another address of the same file (repeatable). Used alongside the URL once it
+        /// serves the same bytes; dropped if it fails or crawls.
+        #[arg(short = 'm', long = "mirror")]
+        mirrors: Vec<String>,
         /// No progress line.
         #[arg(short, long)]
         quiet: bool,
@@ -93,6 +97,7 @@ async fn main() -> ExitCode {
         insecure,
         http1,
         checksum,
+        mirrors,
         quiet,
     } = Cli::parse().command;
     let headers = match headers
@@ -122,6 +127,28 @@ async fn main() -> ExitCode {
         checksum,
         ..Options::default()
     };
+    // A metalink: the file it describes, from its addresses, checked against its hash.
+    let (url, mirrors, output, opts) = if idma_engine::metalink::is_metalink(&url) {
+        match idma_engine::metalink::fetch_metalink(&url, &headers, &opts).await {
+            Ok(m) => {
+                let mut urls = m.urls.into_iter().take(idma_engine::metalink::MAX_URLS);
+                let first = urls.next().unwrap_or_default();
+                let checksum = match (&opts.checksum, &m.checksum) {
+                    (None, Some(c)) => c.parse().ok(),
+                    _ => opts.checksum.clone(),
+                };
+                let output = output.or_else(|| Some(m.name.into()));
+                let mirrors = urls.chain(mirrors).collect();
+                (first, mirrors, output, Options { checksum, ..opts })
+            }
+            Err(e) => {
+                eprintln!("dm: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        (url, mirrors, output, opts)
+    };
     let dir = dir.unwrap_or_default();
     let output = match output {
         Some(o) => dir.join(o),
@@ -148,6 +175,7 @@ async fn main() -> ExitCode {
         url,
         output,
         headers,
+        mirrors,
     };
     let cancel = CancellationToken::new();
     let (tx, rx) = tokio::sync::watch::channel(Progress::default());

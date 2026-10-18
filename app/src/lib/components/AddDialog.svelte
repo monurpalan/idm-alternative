@@ -53,6 +53,14 @@
 	let busy = $state(false);
 	/** The URL `info` belongs to; asking again for the same one is pointless. */
 	let asked = '';
+	/** Other addresses of the same file, one per line. */
+	let mirrors = $state('');
+	let showMirrors = $state(false);
+	const mirrorList = () =>
+		mirrors
+			.split(/\r?\n/)
+			.map((m) => m.trim())
+			.filter(Boolean);
 	/** Credentials for a server that asked for them. */
 	let user = $state('');
 	let password = $state('');
@@ -147,7 +155,8 @@
 				dir: dir || null,
 				start,
 				login: login(),
-				headers
+				headers,
+				mirrors: mirrorList()
 			});
 			onclose();
 		} catch (e) {
@@ -268,6 +277,23 @@
 			/>
 		</label>
 
+		{#if !batch && !torrent}
+			{#if showMirrors || mirrors}
+				<label>
+					{t('Other addresses of the same file (one per line)')}
+					<textarea
+						bind:value={mirrors}
+						rows="3"
+						placeholder={t('https://mirror.example.org/file.iso')}
+					></textarea>
+				</label>
+			{:else}
+				<button type="button" class="link more" onclick={() => (showMirrors = true)}
+					>{t('Add mirrors…')}</button
+				>
+			{/if}
+		{/if}
+
 		<label>
 			{t('Folder')}
 			<div class="row">
@@ -327,6 +353,18 @@
 	}
 	input:disabled {
 		opacity: 0.6;
+	}
+	textarea {
+		padding: 6px 8px;
+		border: 1px solid var(--line);
+		border-radius: 5px;
+		background: var(--field);
+		color: var(--fg);
+		font: inherit;
+		resize: vertical;
+	}
+	.more {
+		margin: -4px 0 10px;
 	}
 	.row {
 		display: flex;

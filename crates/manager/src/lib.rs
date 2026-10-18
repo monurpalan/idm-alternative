@@ -351,7 +351,17 @@ impl Manager {
         self.inner.fill().await
     }
 
-    pub async fn add(&self, new: NewTask) -> Result<Task> {
+    pub async fn add(&self, mut new: NewTask) -> Result<Task> {
+        // A metalink: the file it describes, from its addresses, checked against its hash.
+        if idma_engine::metalink::is_metalink(&new.url) {
+            let opts = lock(&self.inner.config).engine.clone();
+            let m = idma_engine::metalink::fetch_metalink(&new.url, &new.headers, &opts).await?;
+            let mut urls = m.urls.into_iter().take(idma_engine::metalink::MAX_URLS);
+            new.url = urls.next().unwrap_or_default();
+            new.mirrors = urls.chain(std::mem::take(&mut new.mirrors)).collect();
+            new.name = new.name.or(Some(m.name));
+            new.checksum = new.checksum.or(m.checksum);
+        }
         if let Some(c) = &new.checksum {
             c.parse::<Checksum>().map_err(Error::BadChecksum)?;
         }
@@ -391,6 +401,7 @@ impl Manager {
                 checksum: new.checksum.as_deref(),
                 added_at: now_ms(),
                 stream: new.stream.as_ref(),
+                mirrors: &new.mirrors,
             })
             .await?;
         let task = self.get(id).await?;
@@ -589,6 +600,7 @@ impl Manager {
                     url: url.to_owned(),
                     output: path.clone(),
                     headers: headers.clone(),
+                    mirrors: Vec::new(),
                 };
                 if let Err(e) = idma_engine::patch_url(&req, &opts).await {
                     if was_running {
@@ -1244,6 +1256,7 @@ impl Inner {
             url: task.url.clone(),
             output: path,
             headers: task.headers.clone(),
+            mirrors: task.mirrors.clone(),
         };
         let (tx, rx) = watch::channel(Progress::default());
         let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));

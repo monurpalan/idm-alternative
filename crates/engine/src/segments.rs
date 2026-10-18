@@ -187,6 +187,11 @@ impl Table {
             .count()
     }
 
+    /// The fastest a single connection has gone in this download.
+    pub fn best_speed(&self) -> f64 {
+        self.best_speed
+    }
+
     pub fn total_speed(&self) -> f64 {
         self.segs.iter().map(|s| s.speed).sum()
     }

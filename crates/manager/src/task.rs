@@ -242,6 +242,8 @@ pub struct Task {
     pub queue_pos: i64,
     /// Set for a stream (HLS) download.
     pub stream: Option<Stream>,
+    /// Other addresses of the same file, used alongside `url`.
+    pub mirrors: Vec<String>,
 }
 
 /// What to download; everything else has defaults from [`crate::Config`].
@@ -261,6 +263,8 @@ pub struct NewTask {
     pub start: bool,
     /// A stream download (`url` is then the video playlist).
     pub stream: Option<Stream>,
+    /// Other addresses of the same file (mirrors).
+    pub mirrors: Vec<String>,
 }
 
 /// Live progress of a running download, sent about four times a second.

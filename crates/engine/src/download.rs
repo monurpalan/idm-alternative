@@ -28,10 +28,25 @@ const TICK: Duration = Duration::from_millis(100);
 /// Under a speed limit, at most one connection per this many bytes/s: connections that
 /// trickle are more likely to be dropped by servers and gain nothing.
 const MIN_LIMITED_CONN_RATE: u64 = 32 << 10;
+/// Failures in a row after which a mirror is dropped.
+const MIRROR_FAILURES: u32 = 3;
+/// Crawling connections of a mirror after which it is dropped: the controller only calls a
+/// connection crawling when it has stayed far behind the others for seconds.
+const MIRROR_SLOW: u32 = 1;
+/// How long a mirror's connections run before their speed is judged, and the share of the
+/// best connection speed below which the mirror is dropped.
+const SETTLED: Duration = Duration::from_secs(2);
+/// How long a mirror may take to send the start of the file before it is left out.
+const MIRROR_CHECK: Duration = Duration::from_secs(3);
+const SLOW_MIRROR: f64 = 0.15;
+/// Bytes from the start of the file compared between the download's URL and each mirror.
+const MIRROR_SAMPLE: u64 = 64 << 10;
+
 /// Bounds of a request's size under a speed limit (see [`Ctx::window_end`]).
 const MIN_WINDOW: u64 = 256 << 10;
 const MAX_WINDOW: u64 = 16 << 20;
 
+#[derive(Debug, Clone)]
 pub struct Request {
     pub url: String,
     /// Final file path. While downloading, data goes to `<output>.idma-part`, resume
@@ -39,6 +54,10 @@ pub struct Request {
     /// download of the same file away. See [`crate::target`] for choosing a free path.
     pub output: PathBuf,
     pub headers: Vec<(String, String)>,
+    /// Other addresses of the same file (mirrors). Each is used alongside `url` once it is
+    /// shown to serve the same bytes; one that refuses, keeps failing or crawls is dropped,
+    /// and the download goes on without it.
+    pub mirrors: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -146,9 +165,12 @@ pub async fn download(
     let part = sibling(&req.output, ".idma-part");
     let state_path = sibling(&req.output, ".idma-state");
     let mut force_single = false;
+    // With mirrors, the URL is just the first address: when it fails, the next one takes
+    // its place (a partial file carries over once the new address serves the same bytes).
+    let mut current = req.clone();
     loop {
         let job = Job {
-            req,
+            req: &current,
             opts,
             http: &http,
             part: &part,
@@ -191,9 +213,31 @@ pub async fn download(
                 discard(&part, &state_path);
                 return Err(Error::FileChanged);
             }
+            Err(e) if !current.mirrors.is_empty() && another_address_may_help(&e) => {
+                let next = current.mirrors.remove(0);
+                tracing::warn!(failed = %current.url, next = %next, "{e}; continuing from a mirror");
+                current.url = next;
+            }
             Err(e) => return Err(e),
         }
     }
+}
+
+/// Whether an error is the address's own, so another address of the file may work: not
+/// one of the disk, the file or the user's.
+fn another_address_may_help(e: &Error) -> bool {
+    matches!(
+        e,
+        Error::Http(_)
+            | Error::Status(_)
+            | Error::LinkExpired(_)
+            | Error::Busy(_)
+            | Error::HtmlResponse
+            | Error::BadRange(_)
+            | Error::Truncated
+            | Error::Stalled(_)
+            | Error::TooManyFailures { .. }
+    )
 }
 
 /// What a server says about a URL before anything is downloaded, for deciding where to save
@@ -316,7 +360,28 @@ struct Ctx {
     /// How many connections should close at the end of their current request, because a
     /// speed limit needs fewer than are open.
     shed: AtomicUsize,
+    /// Source 0 is `remote`; then one per mirror, in use once it is shown to serve the
+    /// same bytes.
+    sources: Mutex<Vec<Source>>,
     cancel: CancellationToken,
+}
+
+/// How one source of the file is doing: the download's own URL (0) or a mirror.
+#[derive(Default)]
+struct Source {
+    /// A mirror's answer once it is checked; `None` while it is being checked (and for
+    /// source 0, whose address is `Ctx::remote`).
+    remote: Option<Remote>,
+    active: usize,
+    /// Failed requests in a row.
+    failures: u32,
+    /// Connections dropped for crawling.
+    slow: u32,
+    dropped: bool,
+    /// A mirror got its first connection, which measures it.
+    tried: bool,
+    /// Bytes per second per connection, as last measured.
+    speed: f64,
 }
 
 impl Ctx {
@@ -346,6 +411,119 @@ impl Ctx {
         self.shed
             .try_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_sub(1))
             .is_ok()
+    }
+
+    fn sources(&self) -> MutexGuard<'_, Vec<Source>> {
+        self.sources.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The source for a new connection. A mirror just shown to serve the file gets one
+    /// connection to measure it; after that each connection goes to the source that gives a
+    /// connection the most, so mirrors only take connections where they add speed (a server
+    /// that limits each client gives each connection less as more of them ask).
+    fn pick_source(&self) -> usize {
+        let mut sources = self.sources();
+        let ready = |(i, s): &(usize, &Source)| !s.dropped && (*i == 0 || s.remote.is_some());
+        let untried = sources
+            .iter()
+            .enumerate()
+            .filter(ready)
+            .find(|(i, s)| *i > 0 && !s.tried)
+            .map(|(i, _)| i);
+        let best = untried.unwrap_or_else(|| {
+            sources
+                .iter()
+                .enumerate()
+                .filter(ready)
+                .max_by(|(i, a), (j, b)| {
+                    a.speed
+                        .total_cmp(&b.speed)
+                        .then(b.active.cmp(&a.active))
+                        .then(j.cmp(i))
+                })
+                .map_or(0, |(i, _)| i)
+        });
+        let s = &mut sources[best];
+        s.active += 1;
+        s.tried = true;
+        best
+    }
+
+    /// Records each source's speed per connection from the connections running now.
+    fn measure_sources(
+        &self,
+        t: &Table,
+        running: &HashMap<usize, (CancellationToken, u64, usize)>,
+    ) {
+        let mut sums: HashMap<usize, (f64, usize)> = HashMap::new();
+        for (&idx, &(_, _, source)) in running {
+            let speed = t.segs[idx].speed;
+            if speed > 0.0 {
+                let e = sums.entry(source).or_default();
+                e.0 += speed;
+                e.1 += 1;
+            }
+        }
+        let mut sources = self.sources();
+        for (source, (sum, n)) in sums {
+            sources[source].speed = sum / n as f64;
+        }
+    }
+
+    /// While mirrors are being checked, the connections the sources in use may open: all
+    /// but a few kept for the mirrors to be measured with (at most a quarter of `limit`).
+    /// No cap once all are checked.
+    fn cap_while_checking(&self, limit: usize) -> usize {
+        let pending = self
+            .sources()
+            .iter()
+            .skip(1)
+            .filter(|s| s.remote.is_none() && !s.dropped)
+            .count();
+        if pending == 0 {
+            return usize::MAX;
+        }
+        limit.saturating_sub(pending.min(limit / 4)).max(1)
+    }
+
+    fn source_done(&self, source: usize, ok: bool) {
+        let mut sources = self.sources();
+        let s = &mut sources[source];
+        s.active = s.active.saturating_sub(1);
+        if ok {
+            s.failures = 0;
+        }
+    }
+
+    /// A request to `source` failed. A mirror is dropped when it refuses outright or keeps
+    /// failing; the download's own URL never is (its errors are handled as before). Whether
+    /// that dropped the source.
+    fn source_failed(&self, source: usize, e: &Error) -> bool {
+        let mut sources = self.sources();
+        let s = &mut sources[source];
+        s.failures += 1;
+        let refused = e.is_fatal()
+            || matches!(e, Error::RangeIgnored | Error::BadRange(_))
+            || matches!(e, Error::Status(code) if (400..500).contains(code));
+        if source > 0 && !s.dropped && (refused || s.failures >= MIRROR_FAILURES) {
+            s.dropped = true;
+            tracing::info!(mirror = %s.remote.as_ref().map_or("?", |r| r.url.as_str()), "dropping a mirror: {e}");
+            return true;
+        }
+        false
+    }
+
+    /// A connection to `source` was dropped for crawling. Whether that dropped the source.
+    fn source_slow(&self, source: usize) -> bool {
+        let mut sources = self.sources();
+        let s = &mut sources[source];
+        s.slow += 1;
+        if source > 0 && !s.dropped && s.slow >= MIRROR_SLOW {
+            s.dropped = true;
+            tracing::info!(mirror = %s.remote.as_ref().map_or("?", |r| r.url.as_str()), "dropping a slow mirror");
+            return true;
+        }
+        false
     }
 
     /// Where requests go now, and the generation of that answer.
@@ -428,7 +606,15 @@ impl Job<'_> {
         if let Some(size) = remote.size {
             check_space(self.part, size.saturating_sub(resumed_from))?;
         }
+        let mirrors = if single {
+            Vec::new()
+        } else {
+            self.req.mirrors.clone()
+        };
+        let sources = Mutex::new((0..=mirrors.len()).map(|_| Source::default()).collect());
+        let primary = remote.clone();
         let ctx = Arc::new(Ctx {
+            sources,
             file: OutputFile::open(self.part, remote.size)?,
             http: self.http.clone(),
             size: remote.size,
@@ -444,23 +630,44 @@ impl Job<'_> {
             cancel: cancel.child_token(),
         });
 
-        let mut workers: JoinSet<(usize, Result<()>)> = JoinSet::new();
+        // Mirrors are checked while the download already runs from its own URL; each joins
+        // as soon as it is shown to serve the same bytes.
+        if !mirrors.is_empty() {
+            let ctx = Arc::clone(&ctx);
+            tokio::spawn(async move {
+                tokio::select! {
+                    () = check_mirrors(&ctx, &primary, &mirrors) => {}
+                    () = ctx.cancel.cancelled() => {}
+                }
+            });
+        }
+        let mut workers: JoinSet<(usize, usize, Result<()>)> = JoinSet::new();
         let mut next_id = 1u64;
         // Per running segment: a stop switch, so a crawling connection can be dropped on its
         // own, and the connection slot it uses. Slots are recycled so a finished segment's
         // connection is reused by the next one; the probe used slot 0.
-        let mut running: HashMap<usize, (CancellationToken, u64)> = HashMap::new();
+        let mut running: HashMap<usize, (CancellationToken, u64, usize)> = HashMap::new();
         let mut free_slots: Vec<u64> = Vec::new();
         let mut next_slot = 1u64;
         let spawn = |workers: &mut JoinSet<_>,
-                     running: &mut HashMap<usize, (CancellationToken, u64)>,
+                     running: &mut HashMap<usize, (CancellationToken, u64, usize)>,
                      idx: usize,
                      slot: u64,
                      resp: Option<Response>| {
             let ctx = Arc::clone(&ctx);
             let stop = ctx.cancel.child_token();
-            running.insert(idx, (stop.clone(), slot));
-            workers.spawn(async move { (idx, connection(&ctx, idx, slot, resp, &stop).await) });
+            // The probe's response came from the download's own URL.
+            let source = if resp.is_some() {
+                ctx.sources()[0].active += 1;
+                0
+            } else {
+                ctx.pick_source()
+            };
+            running.insert(idx, (stop.clone(), slot, source));
+            workers.spawn(async move {
+                let result = connection(&ctx, idx, source, slot, resp, &stop).await;
+                (idx, source, result)
+            });
         };
 
         let (idx, resp) = first_resp;
@@ -482,15 +689,26 @@ impl Job<'_> {
         loop {
             tokio::select! {
                 Some(joined) = workers.join_next(), if !workers.is_empty() => {
-                    let (idx, result) = joined.map_err(|e| Error::State(format!("connection task: {e}")))?;
+                    let (idx, source, result) = joined.map_err(|e| Error::State(format!("connection task: {e}")))?;
                     let now = Instant::now();
-                    if let Some((_, slot)) = running.remove(&idx) {
+                    if let Some((_, slot, _)) = running.remove(&idx) {
                         free_slots.push(slot);
                     }
+                    ctx.source_done(source, result.is_ok());
                     let mut t = ctx.table();
                     match result {
                         Ok(()) => t.release(idx, false, now),
                         Err(Error::Cancelled) => t.release(idx, false, now),
+                        // A mirror's failure never stops the download: the range goes back
+                        // to the table for another source, and the mirror is dropped when it
+                        // refuses or keeps failing. Disk errors are the download's own.
+                        Err(e) if source > 0 && !matches!(e, Error::Io(_) | Error::DiskFull { .. }) => {
+                            tracing::debug!(segment = idx, source, "mirror request failed: {e}");
+                            if ctx.source_failed(source, &e) {
+                                stop_source(&running, source);
+                            }
+                            t.release(idx, false, now);
+                        }
                         // Refused (401/403/410) while other connections are still downloading:
                         // the server limits connections and forbids the extra ones instead of
                         // saying it is busy. An expired link refuses every new request, so it
@@ -534,7 +752,20 @@ impl Job<'_> {
                     let mut to_start = Vec::new();
                     {
                         let mut t = ctx.table();
+                        let saturated_before = ctx.limiters.iter().any(Limiter::is_saturated);
                         t.sample_speeds(now - last_tick);
+                        ctx.measure_sources(&t, &running);
+                        // A mirror whose every connection has crawled for a while next to the
+                        // best this download has seen is dropped as a whole: once the fast
+                        // sources are done, its connections would only be compared with each
+                        // other and keep the end of the file waiting.
+                        if !saturated_before {
+                            for source in slow_mirrors(&t, &running, now) {
+                                if ctx.source_slow(source) {
+                                    stop_source(&running, source);
+                                }
+                            }
+                        }
                         // A saturated limit sets the speed by itself: stealing would only waste
                         // what the victims' abandoned responses buffered. Crawlers are still
                         // replaced: that fixes the server, at the cost of one response.
@@ -543,9 +774,11 @@ impl Job<'_> {
                         // one throttled later fills socket buffers that a steal throws away.
                         let saturated = ctx.limiters.iter().any(Limiter::is_saturated);
                         let limit = ctx.tightest_limit();
-                        let allowed = limit.map_or(conn_limit, |r| {
-                            conn_limit.min(usize::try_from(r / MIN_LIMITED_CONN_RATE).unwrap_or(usize::MAX).max(1))
-                        });
+                        let allowed = limit
+                            .map_or(conn_limit, |r| {
+                                conn_limit.min(usize::try_from(r / MIN_LIMITED_CONN_RATE).unwrap_or(usize::MAX).max(1))
+                            })
+                            .min(ctx.cap_while_checking(conn_limit));
                         // Lowering the limit below that while more run (a limit set during
                         // the download): the surplus closes between two requests, which costs
                         // nothing.
@@ -581,9 +814,12 @@ impl Job<'_> {
                             && !saturated
                             && fatal.is_none()
                             && let Some(idx) = t.laggard(now)
-                            && let Some((stop, _)) = running.get(&idx).filter(|(s, _)| !s.is_cancelled())
+                            && let Some((stop, _, source)) = running.get(&idx).filter(|(s, _, _)| !s.is_cancelled())
                         {
                             t.segs[idx].evictions += 1;
+                            if ctx.source_slow(*source) {
+                                stop_source(&running, *source);
+                            }
                             tracing::debug!(segment = idx, speed = t.segs[idx].speed, "dropping crawling connection");
                             stop.cancel();
                         }
@@ -781,6 +1017,7 @@ fn snapshot(t: &Table, size: Option<u64>) -> Progress {
 async fn connection(
     ctx: &Ctx,
     idx: usize,
+    source: usize,
     slot: u64,
     initial: Option<Response>,
     stop: &CancellationToken,
@@ -808,7 +1045,7 @@ async fn connection(
                     break Ok(());
                 }
                 let asked_end = ctx.window_end(pos, end);
-                match request(ctx, pos, asked_end, slot, stop).await {
+                match request(ctx, source, pos, asked_end, slot, stop).await {
                     Ok(r) => (r, asked_end),
                     Err(e) => break Err(e),
                 }
@@ -823,16 +1060,122 @@ async fn connection(
     result.and(flushed)
 }
 
-/// Asks for `start..end` of the file (`end` = `u64::MAX`: to the end), resolving the
-/// original URL again once if the current one has expired.
+/// Checks each mirror against `primary`: the same size, ranges, and the same first bytes.
+/// One that passes is put in use; the rest are left out (logged), never failing the
+/// download.
+async fn check_mirrors(ctx: &Ctx, primary: &Remote, urls: &[String]) {
+    let size = primary.size.unwrap_or_default();
+    // Slots of their own, apart from the connections'.
+    const SLOT: u64 = 1 << 32;
+    let sample = match ctx
+        .http
+        .fetch(primary, 0, size.min(MIRROR_SAMPLE), SLOT)
+        .await
+    {
+        Ok(data) => data,
+        Err(e) => {
+            tracing::info!("mirrors not used: could not read the start of the file: {e}");
+            for s in ctx.sources().iter_mut().skip(1) {
+                s.dropped = true;
+            }
+            return;
+        }
+    };
+    let checks = urls.iter().enumerate().map(|(i, url)| {
+        let sample = &sample;
+        async move {
+            let slot = SLOT + 1 + i as u64;
+            // Asks for the sample only, so a mirror of another file sends little.
+            let result = tokio::time::timeout(
+                MIRROR_CHECK,
+                ctx.http.probe_sample(url, sample.len() as u64, slot),
+            )
+            .await
+            .unwrap_or_else(|_| Err(Error::Stalled(MIRROR_CHECK)));
+            match result {
+                Ok((remote, head))
+                    if remote.ranges
+                        && remote.size == Some(size)
+                        && head.as_deref() == Some(sample.as_slice()) =>
+                {
+                    tracing::info!(mirror = %url, "mirror in use");
+                    ctx.sources()[i + 1].remote = Some(remote);
+                }
+                Ok(_) => {
+                    tracing::info!(mirror = %url, "mirror left out: it serves another file");
+                    ctx.sources()[i + 1].dropped = true;
+                }
+                Err(e) => {
+                    tracing::info!(mirror = %url, "mirror left out: {e}");
+                    ctx.sources()[i + 1].dropped = true;
+                }
+            }
+        }
+    });
+    futures_util::future::join_all(checks).await;
+}
+
+/// Mirrors whose connections, all at least [`SETTLED`] old, have stayed below
+/// [`SLOW_MIRROR`] of the best connection speed seen.
+fn slow_mirrors(
+    t: &Table,
+    running: &HashMap<usize, (CancellationToken, u64, usize)>,
+    now: Instant,
+) -> Vec<usize> {
+    let best = t.best_speed();
+    if best <= 0.0 {
+        return Vec::new();
+    }
+    // Per mirror: (connections, connections settled and slow).
+    let mut seen: HashMap<usize, (usize, usize)> = HashMap::new();
+    for (&idx, &(_, _, source)) in running {
+        if source == 0 {
+            continue;
+        }
+        let s = &t.segs[idx];
+        let settled = s.owned_since.is_some_and(|at| now - at >= SETTLED);
+        let entry = seen.entry(source).or_default();
+        entry.0 += 1;
+        if settled && s.speed < SLOW_MIRROR * best {
+            entry.1 += 1;
+        }
+    }
+    seen.into_iter()
+        .filter(|(_, (all, slow))| *all > 0 && slow == all)
+        .map(|(source, _)| source)
+        .collect()
+}
+
+/// Stops every connection still using a source that was just dropped; their ranges go back
+/// to the table for the other sources.
+fn stop_source(running: &HashMap<usize, (CancellationToken, u64, usize)>, source: usize) {
+    for (stop, _, s) in running.values() {
+        if *s == source {
+            stop.cancel();
+        }
+    }
+}
+
+/// Asks `source` for `start..end` of the file (`end` = `u64::MAX`: to the end). The
+/// download's own URL is resolved again once if it has expired; a mirror is not.
 async fn request(
     ctx: &Ctx,
+    source: usize,
     start: u64,
     end: u64,
     slot: u64,
     stop: &CancellationToken,
 ) -> Result<Response> {
     let end = (end != u64::MAX).then_some(end);
+    if source > 0 {
+        let Some(mirror) = ctx.sources()[source].remote.clone() else {
+            return Err(Error::State("mirror not checked".into()));
+        };
+        return tokio::select! {
+            r = ctx.http.range(&mirror, start, end, slot) => r,
+            () = stop.cancelled() => Err(Error::Cancelled),
+        };
+    }
     let mut relinked = false;
     loop {
         let (remote, generation) = ctx.remote();

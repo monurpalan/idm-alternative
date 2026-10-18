@@ -10,6 +10,9 @@ export default {
 		'Torrent okunuyor… (magnet linki eşlere sorulur, bir dakika sürebilir)',
 	'Torrent: {n} files, {size}': 'Torrent: {n} dosya, {size}',
 	'Files ({size} chosen)': 'Dosyalar ({size} seçili)',
+	'Add mirrors…': 'Ayna ekle…',
+	'Other addresses of the same file (one per line)': 'Aynı dosyanın diğer adresleri (her satıra bir tane)',
+	'https://mirror.example.org/file.iso': 'https://ayna.example.org/dosya.iso',
 	All: 'Tümü',
 	'Batch: {n} downloads': 'Toplu: {n} indirme',
 	'The server asks for a user name and password ({realm}).':
