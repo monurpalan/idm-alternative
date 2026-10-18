@@ -178,6 +178,62 @@ async fn downloads_through_a_proxy() {
     assert!(s["gets"].as_u64() >= Some(2), "{s}");
 }
 
+/// A finished download carries the Mark of the Web (Windows' `Zone.Identifier` stream)
+/// with its address and the page it came from; one from this machine, or with the mark
+/// turned off, carries none.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn marks_files_from_the_internet() {
+    let zone = |p: &Path| std::fs::read_to_string(format!("{}:Zone.Identifier", p.display()));
+    // Through the test server as a proxy, so the file comes from an Internet host name.
+    let proxy = start_plain().await;
+    let dir = workdir("zone");
+    let url = "http://download.invalid/file/z.exe?size=65536&seed=9".to_owned();
+    let req = |out: &Path, url: String| Request {
+        url,
+        output: out.to_owned(),
+        headers: vec![("Referer".into(), "https://example.com/get".into())],
+        mirrors: Vec::new(),
+    };
+    let o = Options {
+        proxy: Some(proxy.clone()),
+        ..Options::default()
+    };
+    let out = dir.join("z.exe");
+    download(&req(&out, url.clone()), &o, None, &CancellationToken::new())
+        .await
+        .expect("download");
+    assert_eq!(verify_file(&out, 9, 65536).expect("verify"), Verdict::Ok);
+    assert_eq!(
+        zone(&out).expect("mark"),
+        format!(
+            "[ZoneTransfer]\r\nZoneId=3\r\nReferrerUrl=https://example.com/get\r\nHostUrl={url}\r\n"
+        )
+    );
+
+    let off = dir.join("off.exe");
+    let o = Options {
+        mark_of_the_web: false,
+        ..o
+    };
+    download(&req(&off, url), &o, None, &CancellationToken::new())
+        .await
+        .expect("download");
+    assert!(zone(&off).is_err());
+
+    let local = dir.join("local.exe");
+    let direct = format!("{proxy}/file/l.exe?size=1024&seed=1");
+    download(
+        &req(&local, direct),
+        &Options::default(),
+        None,
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("download");
+    assert!(zone(&local).is_err());
+}
+
 /// A minimal SOCKS5 proxy (no authentication, CONNECT only) that resolves every host name
 /// to `target`, and counts the tunnels it opened.
 async fn start_socks5(target: std::net::SocketAddr) -> (String, Arc<AtomicUsize>) {

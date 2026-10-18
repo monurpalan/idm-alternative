@@ -76,6 +76,11 @@ pub async fn download_dash(
             let whole = path.exists() && !sibling(&path, ".idma-part").exists();
             if !whole {
                 let url = t.segments[0].url.clone();
+                // A part of the result: the result is marked once it is put together.
+                let part_opts = Options {
+                    mark_of_the_web: false,
+                    ..opts.clone()
+                };
                 crate::download::download(
                     &Request {
                         url,
@@ -83,7 +88,7 @@ pub async fn download_dash(
                         headers: req.headers.clone(),
                         mirrors: Vec::new(),
                     },
-                    opts,
+                    &part_opts,
                     progress,
                     cancel,
                 )
@@ -100,7 +105,7 @@ pub async fn download_dash(
             ));
         }
     }
-    segmented(
+    let outcome = segmented(
         http,
         &req.output,
         tracks,
@@ -110,5 +115,9 @@ pub async fn download_dash(
         cancel,
         started,
     )
-    .await
+    .await?;
+    if opts.mark_of_the_web {
+        crate::mark_of_the_web(&req.output, &req.manifest, &req.headers);
+    }
+    Ok(outcome)
 }

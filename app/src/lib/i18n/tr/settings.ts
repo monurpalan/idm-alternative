@@ -59,6 +59,8 @@ export default {
 	'This is the latest version.': 'En son sürümü kullanıyorsunuz.',
 	'Could not check: {e}': 'Denetlenemedi: {e}',
 	'Scan finished downloads for viruses': 'Biten indirmeleri virüslere karşı tara',
+	'Mark downloads as from the Internet, as browsers do (SmartScreen then checks them)':
+		'İndirilenleri tarayıcılar gibi İnternet’ten gelmiş diye işaretle (SmartScreen de denetler)',
 	Scanner: 'Tarayıcı',
 	'Microsoft Defender, or: "C:\\…\\scan.exe" {f}':
 		'Microsoft Defender ya da: "C:\\…\\scan.exe" {f}',

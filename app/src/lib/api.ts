@@ -125,6 +125,8 @@ export interface Settings {
 	language: 'system' | 'en' | 'tr';
 	/** Open magnet links and `.torrent` files with the app. */
 	torrent_links: boolean;
+	/** Mark finished downloads as coming from the Internet (Windows' Zone.Identifier). */
+	mark_downloads: boolean;
 }
 
 /** List changes; progress comes separately, batched (see `onManagerEvent`). */

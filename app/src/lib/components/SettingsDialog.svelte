@@ -294,6 +294,9 @@
 				<Checkbox bind:checked={s.torrent_links}
 					>{t('Open magnet links and .torrent files with this app (Windows may ask which app to use)')}</Checkbox
 				>
+				<Checkbox bind:checked={s.mark_downloads}
+					>{t('Mark downloads as from the Internet, as browsers do (SmartScreen then checks them)')}</Checkbox
+				>
 				<Checkbox bind:checked={s.virus_scan}>{t('Scan finished downloads for viruses')}</Checkbox>
 				<div class="indent">
 					<Field label={t('Scanner')}>

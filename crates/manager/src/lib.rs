@@ -1101,13 +1101,15 @@ impl Inner {
     }
 
     /// A page of a site yt-dlp knows: yt-dlp downloads the chosen format; the file's real
-    /// extension is known only at the end.
+    /// extension is known only at the end. `mark` gives the file the Mark of the Web, with
+    /// the page as its address.
     async fn download_page(
         &self,
         mut task: Task,
         format: &str,
         tools: &ytdlp::Tools,
         conflict: Conflict,
+        mark: bool,
         cancel: &CancellationToken,
     ) -> Result<Outcome> {
         let started = std::time::Instant::now();
@@ -1163,6 +1165,9 @@ impl Inner {
         let size = std::fs::metadata(&file)
             .map_err(idma_engine::Error::from)?
             .len();
+        if mark {
+            idma_engine::mark_of_the_web(&file, &task.url, &task.headers);
+        }
         Ok(Outcome {
             size,
             resumed_from: 0,
@@ -1238,7 +1243,14 @@ impl Inner {
                 ffmpeg,
             };
             return self
-                .download_page(task, &format, &tools, conflict, cancel)
+                .download_page(
+                    task,
+                    &format,
+                    &tools,
+                    conflict,
+                    opts.mark_of_the_web,
+                    cancel,
+                )
                 .await;
         }
         if torrent::is_torrent(&task.url) {

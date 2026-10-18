@@ -24,6 +24,7 @@ mod remote;
 pub mod segments;
 mod state;
 mod subtitles;
+mod zone;
 
 pub use checksum::{Algorithm, Checksum};
 pub use dash::{DashRequest, download_dash};
@@ -38,6 +39,7 @@ pub use relink::patch_url;
 pub use remote::{Browser, basic_auth};
 pub use subtitles::{SubtitleSource, download_subtitles};
 pub use tokio_util::sync::CancellationToken;
+pub use zone::{mark_of_the_web, zone_identifier};
 
 /// Engine version, reported by the CLI and the app.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

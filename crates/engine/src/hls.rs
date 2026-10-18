@@ -426,7 +426,7 @@ pub async fn download_hls(
     if let Some(a) = audio {
         tracks.push(("audio", Source::Segments(a)));
     }
-    segmented(
+    let outcome = segmented(
         http,
         &req.output,
         tracks,
@@ -436,7 +436,11 @@ pub async fn download_hls(
         cancel,
         started,
     )
-    .await
+    .await?;
+    if opts.mark_of_the_web {
+        crate::mark_of_the_web(&req.output, &req.video, &req.headers);
+    }
+    Ok(outcome)
 }
 
 /// A track to put into the output: segments still to download (and join), or a file that

@@ -94,6 +94,10 @@ pub struct Options {
     pub limiters: Vec<Limiter>,
     /// Checked once the file is complete; a mismatch fails the download.
     pub checksum: Option<Checksum>,
+    /// On Windows, mark the finished file as downloaded from the Internet (the
+    /// `Zone.Identifier` stream browsers write), so SmartScreen and Office's Protected View
+    /// treat it as they would a browser download. See [`crate::mark_of_the_web`].
+    pub mark_of_the_web: bool,
 }
 
 impl Default for Options {
@@ -111,6 +115,7 @@ impl Default for Options {
             split: SplitPolicy::default(),
             limiters: Vec::new(),
             checksum: None,
+            mark_of_the_web: true,
         }
     }
 }
@@ -196,6 +201,7 @@ pub async fn download(
                         Err(mismatch @ Error::ChecksumMismatch { .. }) => {
                             std::fs::rename(&part, &req.output)?;
                             std::fs::remove_file(&state_path).ok();
+                            mark(&req.output, &current, opts);
                             return Err(mismatch);
                         }
                         other => other?,
@@ -203,6 +209,7 @@ pub async fn download(
                 }
                 std::fs::rename(&part, &req.output)?;
                 std::fs::remove_file(&state_path).ok();
+                mark(&req.output, &current, opts);
                 if let Some(p) = progress {
                     p.send_modify(|p| p.phase = Phase::Done);
                 }
@@ -228,6 +235,14 @@ pub async fn download(
             }
             Err(e) => return Err(e),
         }
+    }
+}
+
+/// The Mark of the Web for a finished file, with the address it came from in the end (a
+/// mirror, when the download's own URL failed).
+fn mark(output: &Path, req: &Request, opts: &Options) {
+    if opts.mark_of_the_web {
+        crate::mark_of_the_web(output, &req.url, &req.headers);
     }
 }
 

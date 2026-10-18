@@ -54,6 +54,9 @@ pub struct Settings {
     /// Open magnet links and `.torrent` files with the app. Off unless the user turns it
     /// on: another torrent client may own them.
     pub torrent_links: bool,
+    /// Mark finished downloads as coming from the Internet, as browsers do, so Windows
+    /// SmartScreen and Office's Protected View check them.
+    pub mark_downloads: bool,
 }
 
 impl Default for Settings {
@@ -80,6 +83,7 @@ impl Default for Settings {
             progress_windows: false,
             language: "system".into(),
             torrent_links: false,
+            mark_downloads: true,
         }
     }
 }
@@ -142,6 +146,7 @@ impl Settings {
             engine: Options {
                 browser: self.browser().unwrap_or(Some(Browser::Chrome)),
                 proxy: (!proxy.is_empty()).then(|| proxy.to_owned()),
+                mark_of_the_web: self.mark_downloads,
                 ..Options::default()
             },
             ..Config::default()
@@ -209,5 +214,11 @@ mod tests {
             serde_json::from_str(r#"{"dir":"C:\\x","max_active":5}"#).expect("json");
         assert_eq!(old.max_active, 5);
         assert!(old.notify);
+        assert!(old.mark_downloads && old.config().engine.mark_of_the_web);
+        let off = Settings {
+            mark_downloads: false,
+            ..Settings::default()
+        };
+        assert!(!off.config().engine.mark_of_the_web);
     }
 }
