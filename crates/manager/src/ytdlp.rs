@@ -101,6 +101,8 @@ fn base_args(
     cookies: Option<&Path>,
 ) -> Vec<String> {
     let mut args = vec![
+        "--encoding".to_owned(),
+        "utf-8".to_owned(),
         "--no-playlist".to_owned(),
         "--no-warnings".to_owned(),
         "--ignore-config".to_owned(),
@@ -151,6 +153,9 @@ fn write_cookies(path: &Path, url: &str, headers: &[(String, String)]) -> Option
 fn command(exe: &Path) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new(exe);
     cmd.stdin(Stdio::null()).kill_on_drop(true);
+    // UTF-8 output whatever the console code page: titles and paths in other scripts otherwise
+    // reach us in the system's legacy encoding (seen with Dailymotion, TikTok, Bilibili).
+    cmd.env("PYTHONIOENCODING", "utf-8").env("PYTHONUTF8", "1");
     #[cfg(windows)]
     {
         // No console window flashing up from a GUI app.
@@ -278,7 +283,8 @@ pub async fn run(
         buf
     });
 
-    let mut lines = BufReader::new(stdout).lines();
+    // Split on bytes and decode leniently: one line in another encoding must not end the read.
+    let mut lines = BufReader::new(stdout).split(b'\n');
     let mut file: Option<PathBuf> = None;
     // Bytes of the files already finished (video before audio), and the last count.
     let mut finished = 0u64;
@@ -286,11 +292,13 @@ pub async fn run(
     progress.send_modify(|p| p.phase = Phase::Downloading);
     let result = loop {
         tokio::select! {
-            line = lines.next_line() => match line {
+            line = lines.next_segment() => match line {
                 Ok(Some(line)) => {
+                    let line = String::from_utf8_lossy(&line);
+                    let line = line.trim_end_matches('\r');
                     if let Some(path) = line.strip_prefix("idma-file ") {
                         file = Some(PathBuf::from(path.trim()));
-                    } else if let Some((got, total, speed)) = parse_progress(&line) {
+                    } else if let Some((got, total, speed)) = parse_progress(line) {
                         if got < last.0 {
                             // A new file started.
                             finished += last.1.unwrap_or(last.0);
@@ -326,7 +334,33 @@ pub async fn run(
         return Err(error_text(&stderr));
     }
     file.filter(|f| f.is_file())
+        .or_else(|| written_file(output_stem))
         .ok_or_else(|| "yt-dlp finished without saying which file it wrote".to_owned())
+}
+
+/// The file yt-dlp wrote for `<stem>.%(ext)s`, found on disk: for when the line naming it got
+/// lost. Its partial and helper files are not it.
+fn written_file(stem: &Path) -> Option<PathBuf> {
+    let dir = stem.parent()?;
+    let prefix = format!("{}.", stem.file_name()?.to_string_lossy());
+    std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.is_file())
+        .filter(|p| {
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let ext = name.strip_prefix(&prefix).unwrap_or_default();
+            name.starts_with(&prefix)
+                && !ext.is_empty()
+                && !ext.contains('.')
+                && !matches!(ext, "part" | "ytdl" | "temp" | "txt")
+        })
+        // Video and audio parts are joined into the largest file.
+        .max_by_key(|p| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0))
 }
 
 #[cfg(test)]
@@ -372,6 +406,24 @@ mod tests {
         assert_eq!(tidy_title("Wait for it...", None), "Wait for it...");
         assert_eq!(tidy_title("Me at the zoo", post), "Me at the zoo");
         assert_eq!(tidy_title("...", post), "...");
+    }
+
+    #[test]
+    fn finds_the_written_file() {
+        let dir = std::env::temp_dir().join(format!("idma-ytdlp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let stem = dir.join("Клип 視頻");
+        for (name, len) in [
+            ("Клип 視頻.f137.mp4.part", 9),
+            ("Клип 視頻.mp4.ytdl", 1),
+            ("Клип 視頻.idma-cookies.txt", 1),
+            ("Клип 視頻.mp4", 5),
+            ("other.mp4", 50),
+        ] {
+            std::fs::write(dir.join(name), vec![0u8; len]).expect("write");
+        }
+        assert_eq!(written_file(&stem), Some(dir.join("Клип 視頻.mp4")));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
