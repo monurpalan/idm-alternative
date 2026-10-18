@@ -963,6 +963,16 @@ async fn end_countdown(handle: AppHandle, now: Option<schedule::WhenDone>) -> Cm
     Ok(())
 }
 
+/// WebView2 switches of every window; they share one browser process, so all must pass the
+/// same ones. The first three features are what wry turns off by default. A list of rows does
+/// not need the GPU: drawing in software drops the GPU process from ~50 MB to ~8 MB at the same
+/// idle CPU, and the rest (network in the browser process, one renderer for all windows, no
+/// background updates) take the app from ~116 MB to ~70 MB.
+const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+    --enable-features=NetworkServiceInProcess2 --disable-gpu --disable-gpu-compositing \
+    --enable-low-end-device-mode --renderer-process-limit=1 --disable-background-networking \
+    --disable-component-update";
+
 /// Brings the window back, also from the tray.
 ///
 /// In the tray the window does not exist (its WebView would keep 160 MB for nothing), so it
@@ -991,7 +1001,9 @@ fn show_main(app: &AppHandle) {
         if app.get_webview_window("main").is_some() {
             return;
         }
-        match tauri::WebviewWindowBuilder::from_config(&app, &config).and_then(|b| b.build()) {
+        let built = tauri::WebviewWindowBuilder::from_config(&app, &config)
+            .and_then(|b| b.additional_browser_args(BROWSER_ARGS).build());
+        match built {
             Ok(w) => {
                 w.set_focus().ok();
             }
@@ -1033,6 +1045,7 @@ fn open_progress(handle: &AppHandle, id: TaskId, asked: bool) {
         .inner_size(440.0, 288.0)
         .resizable(false)
         .maximizable(false)
+        .additional_browser_args(BROWSER_ARGS)
         .build();
         if let Err(e) = built {
             tracing::warn!("could not open the progress window: {e}");
