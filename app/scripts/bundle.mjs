@@ -20,10 +20,11 @@ const run = (cmd, args) =>
 const triple = run('rustc', ['--print', 'host-tuple']).trim();
 run('cargo', ['build', '--release', '-p', 'idma-native-host', '-p', 'idma-mcp']);
 const targetDir = process.env.CARGO_TARGET_DIR ?? join(root, 'target');
+const exe = process.platform === 'win32' ? '.exe' : '';
 for (const bin of ['idma-host', 'idma-mcp']) {
-	const sidecar = join(app, 'src-tauri', 'binaries', `${bin}-${triple}.exe`);
+	const sidecar = join(app, 'src-tauri', 'binaries', `${bin}-${triple}${exe}`);
 	mkdirSync(dirname(sidecar), { recursive: true });
-	copyFileSync(join(targetDir, 'release', `${bin}.exe`), sidecar);
+	copyFileSync(join(targetDir, 'release', `${bin}${exe}`), sidecar);
 }
 
 const config = JSON.parse(readFileSync(join(app, 'src-tauri', 'tauri.bundle.json'), 'utf8'));
@@ -59,7 +60,7 @@ try {
 	rmSync(merged, { force: true });
 }
 
-if (signing) {
+if (signing && process.platform === 'win32') {
 	const { version } = JSON.parse(readFileSync(join(app, 'src-tauri', 'tauri.conf.json'), 'utf8'));
 	const nsis = join(targetDir, 'release', 'bundle', 'nsis');
 	const setup = readdirSync(nsis).find((f) => f.endsWith(`_${version}_x64-setup.exe`));
