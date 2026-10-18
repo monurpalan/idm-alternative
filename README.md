@@ -141,8 +141,8 @@ Measured on the development machine (release build, Windows 11):
 
 | | |
 |---|---|
-| Installer | 6.1 MiB |
-| Installed | 24.2 MB (app 23.4 MB, browser host 0.7 MB) |
+| Installer | 9.6 MiB |
+| Installed | 39.5 MB (app 35.9 MB, of which ~7 MB is the torrent client; MCP server 2.7 MB; browser host 0.8 MB) |
 | Idle memory, app process | 32 MB working set (8 MB private) |
 | Idle memory, WebView2 (6 processes) | 367 MB working set (160 MB private) |
 | Idle in the tray (window closed) | 5 MB private, no WebView2 processes |
