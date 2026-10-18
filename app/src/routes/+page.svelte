@@ -45,16 +45,16 @@
 	import SettingsDialog from '#lib/components/SettingsDialog.svelte';
 	import Sidebar from '#lib/components/Sidebar.svelte';
 	import TaskList from '#lib/components/TaskList.svelte';
-	import { Button, Input, Select } from '#lib/components/ui/index.ts';
+	import { Button, Input, Text } from '#lib/components/ui/index.ts';
 	import {
 		compare,
 		downloads,
 		inView,
 		row,
+		VIEWS,
 		type SortKey,
 		type View
 	} from '#lib/downloads.svelte.ts';
-	import { speed } from '#lib/format.ts';
 	import { msg, t } from '#lib/i18n.svelte.ts';
 
 	let view = $state<View>('all');
@@ -75,7 +75,6 @@
 	let notice = $state<string | null>(null);
 	/** A passing message that is not an error. */
 	let info = $state<string | null>(null);
-	let showDetails = $state(true);
 	let settingsOpen = $state(false);
 	let globalLimit = $state<number | null>(null);
 	/** A newer version of the app, found by the daily check. */
@@ -160,9 +159,12 @@
 	const selectedTasks = $derived(
 		downloads.tasks.filter((t) => downloads.selected.has(t.id))
 	);
-	const detailed = $derived(showDetails && selectedTasks.length === 1 ? selectedTasks[0] : null);
+	const detailed = $derived(selectedTasks.length === 1 ? selectedTasks[0] : null);
 	const canStart = (t: Task) => t.status === 'paused' || t.status === 'error';
 	const canPause = (t: Task) => t.status === 'downloading' || t.status === 'queued';
+	const title = $derived(VIEWS.find((v) => v.id === view)?.label ?? '');
+	const anyToStart = $derived(downloads.tasks.some(canStart));
+	const anyToPause = $derived(downloads.tasks.some(canPause));
 
 	function ids(pred: (t: Task) => boolean): TaskId[] {
 		return selectedTasks.filter(pred).map((t) => t.id);
@@ -200,7 +202,7 @@
 					disabled: !one || !one.path
 				},
 				{
-					label: msg('Progress window'),
+					label: msg('Show progress window'),
 					action: () => run(showProgress(task.id)),
 					disabled: !one
 				},
@@ -222,22 +224,12 @@
 					separated: true
 				},
 				{
-					label: msg('Move up'),
-					action: () => run(moveTask(task.id, 'up')),
-					disabled: !one || one.status === 'done'
-				},
-				{
-					label: msg('Move down'),
-					action: () => run(moveTask(task.id, 'down')),
-					disabled: !one || one.status === 'done'
-				},
-				{
 					label: msg('Move to bottom'),
 					action: () => run(moveTask(task.id, 'bottom')),
 					disabled: !one || one.status === 'done'
 				},
 				{
-					label: msg('Copy address'),
+					label: msg('Copy link'),
 					action: () => run(navigator.clipboard.writeText(sel.map((t) => t.url).join('\n'))),
 					separated: true
 				},
@@ -306,92 +298,85 @@
 <svelte:window onkeydown={keydown} onpaste={paste} ondragover={(e) => e.preventDefault()} ondrop={drop} />
 
 <div class="app">
-	<header>
-		<Button variant="primary" onclick={() => (adding = { url: '' })} title="Ctrl+N">{t('Add URL')}</Button>
-		<Button onclick={() => (grabbing = true)} title={t('Find the files a site links to')}
-			>{t('Site grabber')}</Button
-		>
-		<Button onclick={() => run(startTasks(ids(canStart)))} disabled={!selectedTasks.some(canStart)}
-			>{t('Resume')}</Button
-		>
-		<Button onclick={() => run(pauseTasks(ids(canPause)))} disabled={!selectedTasks.some(canPause)}
-			>{t('Pause')}</Button
-		>
-		<Button
-			onclick={() => (removing = selectedTasks.map((t) => t.id))}
-			disabled={!selectedTasks.length}
-			title="Delete">{t('Remove')}</Button
-		>
-		<span class="sep"></span>
-		<Button onclick={() => run(startAll())} title={t('Queue every paused or failed download')}
-			>{t('Start all')}</Button
-		>
-		<Button onclick={() => run(pauseAll())} title={t('Pause every running and queued download')}
-			>{t('Pause all')}</Button
-		>
-		<label class="when" title={t('One time: when nothing is downloading or waiting any more')}>
-			{t('When done')}
-			<Select
-				variant="inline"
-				value={whenDone}
-				onchange={(e) => run(setWhenDone(e.currentTarget.value as WhenDone))}
-			>
-				<option value="nothing">{t('do nothing')}</option>
-				<option value="exit">{t('close the app')}</option>
-				<option value="sleep">{t('sleep')}</option>
-				<option value="hibernate">{t('hibernate')}</option>
-				<option value="shutdown">{t('shut down')}</option>
-			</Select>
-		</label>
-		<span class="sep"></span>
-		<Button
-			pressed={showDetails}
-			onclick={() => (showDetails = !showDetails)}
-			title={t('Details of the selected download')}>{t('Details')}</Button
-		>
-		<span class="push"></span>
-		<Button icon="settings" onclick={() => (settingsOpen = true)} title={t('Settings')} label={t('Settings')} />
-		<Input variant="search" type="search" bind:value={search} placeholder={t('Search')} label={t('Search')} />
-	</header>
+	<Sidebar
+		bind:view
+		limit={globalLimit}
+		{whenDone}
+		onadd={() => (adding = { url: '' })}
+		ongrab={() => (grabbing = true)}
+		onsettings={() => (settingsOpen = true)}
+		onwhendone={(a) => run(setWhenDone(a))}
+	/>
 
-	<Sidebar bind:view />
-
-	<main class:split={detailed}>
-		<TaskList tasks={visible} bind:sortKey bind:sortDesc oncontext={contextMenu} onopen={openRow} />
-		{#if detailed}
-			<DetailPane task={detailed} onerror={(m) => (notice = m)} />
-		{/if}
-	</main>
-
-	<footer>
-		{#if notice || downloads.error}
-			<span class="notice">{notice ?? downloads.error}</span>
-		{:else if update}
-			<span class="info"
-				>{t('idm-alternative {version} is available.', { version: update.version })}</span
-			>
-			<Button onclick={applyUpdate} disabled={updating}
-				>{updating ? t('Downloading…') : t('Install and restart')}</Button
-			>
-			<span>{t('Running downloads pause and continue after the restart.')}</span>
-			<Button variant="ghost" icon="close" onclick={() => (update = null)} label={t('Later')} />
-		{:else if info}
-			<span class="info">{info}</span>
-			<Button variant="ghost" icon="close" onclick={() => (info = null)} label={t('Dismiss')} />
-		{:else}
-			<span>{t('{n} downloading', { n: downloads.active })}</span>
-			{#if downloads.speed > 0}<span>{speed(downloads.speed)}</span>{/if}
-			{#if globalLimit}<span title={t('Speed limit for all downloads')}
-					>{t('limit {speed}', { speed: speed(globalLimit) })}</span
-				>{/if}
-			<span class="right">
-				{visible.length === 1 ? t('1 item') : t('{n} items', { n: visible.length })}{downloads
-					.selected.size
-					? ' · ' + t('{n} selected', { n: downloads.selected.size })
-					: ''}
+	<div class="main">
+		<header>
+			{#if selectedTasks.length}
+				<Text variant="label">{t('{n} selected', { n: selectedTasks.length })}</Text>
+				<div class="actions">
+					<Button icon="play" onclick={() => run(startTasks(ids(canStart)))} disabled={!selectedTasks.some(canStart)}
+						>{t('Resume')}</Button
+					>
+					<Button icon="pause" onclick={() => run(pauseTasks(ids(canPause)))} disabled={!selectedTasks.some(canPause)}
+						>{t('Pause')}</Button
+					>
+					<Button icon="trash" onclick={() => (removing = selectedTasks.map((t) => t.id))} title="Delete"
+						>{t('Remove')}</Button
+					>
+					<Button
+						variant="ghost"
+						icon="close"
+						onclick={() => downloads.selected.clear()}
+						label={t('Clear the selection')}
+						title="Esc"
+					/>
+				</div>
+			{:else}
+				<h1>{t(title)}</h1>
+				<Text variant="caption" mono inline>{visible.length}</Text>
+				<div class="actions">
+					{#if anyToStart}
+						<Button variant="ghost" icon="play" onclick={() => run(startAll())}>{t('Resume all')}</Button>
+					{/if}
+					{#if anyToPause}
+						<Button variant="ghost" icon="pause" onclick={() => run(pauseAll())}>{t('Pause all')}</Button>
+					{/if}
+				</div>
+			{/if}
+			<span class="search">
+				<Input variant="search" type="search" bind:value={search} placeholder={t('Search')} label={t('Search')} />
 			</span>
+		</header>
+
+		<main class:split={detailed}>
+			<TaskList tasks={visible} bind:sortKey bind:sortDesc oncontext={contextMenu} onopen={openRow} />
+			{#if detailed}
+				<DetailPane task={detailed} onerror={(m) => (notice = m)} onclose={() => downloads.selected.clear()} />
+			{/if}
+		</main>
+
+		{#if notice || downloads.error}
+			<div class="message error" role="alert">
+				<span>{notice ?? downloads.error}</span>
+				<Button variant="ghost" icon="close" onclick={() => (notice = null)} label={t('Dismiss')} />
+			</div>
+		{:else if update}
+			<div class="message">
+				<span
+					>{t('Version {version} is ready.', { version: update.version })}
+					<Text variant="muted" inline>{t('Running downloads continue after the restart.')}</Text></span
+				>
+				<Button variant="primary" onclick={applyUpdate} disabled={updating}
+					>{updating ? t('Downloading…') : t('Restart and update')}</Button
+				>
+				<Button variant="ghost" icon="close" onclick={() => (update = null)} label={t('Later')} />
+			</div>
+		{:else if info}
+			<div class="message">
+				<span>{info}</span>
+				<Button variant="ghost" icon="close" onclick={() => (info = null)} label={t('Dismiss')} />
+			</div>
 		{/if}
-	</footer>
+	</div>
 </div>
 
 {#if countdown}
@@ -460,75 +445,63 @@
 <style>
 	.app {
 		display: grid;
-		grid-template-columns: 192px 1fr;
-		grid-template-rows: auto 1fr auto;
-		grid-template-areas:
-			'head head'
-			'side main'
-			'foot foot';
+		grid-template-columns: 224px 1fr;
 		height: 100vh;
 	}
+	.main {
+		display: grid;
+		grid-template-rows: auto 1fr auto;
+		min-width: 0;
+		min-height: 0;
+	}
 	header {
-		grid-area: head;
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		height: var(--space-14);
+		padding: 0 var(--space-4);
+		border-bottom: 1px solid var(--line-strong);
+		white-space: nowrap;
+	}
+	h1 {
+		font-size: var(--text-h1);
+		font-weight: 600;
+		letter-spacing: -0.01em;
+	}
+	.actions {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
-		border-bottom: 1px solid var(--line);
-		background: var(--panel);
-		white-space: nowrap;
 	}
-	.push {
+	.search {
+		display: flex;
+		width: 224px;
 		margin-left: auto;
 	}
-	header :global(input) {
-		max-width: 224px;
-	}
-	:global(nav) {
-		grid-area: side;
-	}
 	main {
-		grid-area: main;
 		display: grid;
 		grid-template-rows: 1fr;
 		min-height: 0;
 		min-width: 0;
 	}
 	main.split {
-		grid-template-rows: 1fr 232px;
+		grid-template-rows: 1fr 248px;
 	}
-	.when {
+	.message {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2);
-		color: var(--muted);
-	}
-	.sep {
-		align-self: stretch;
-		width: 1px;
-		margin: var(--space-1) 0;
-		background: var(--line);
-	}
-	footer {
-		grid-area: foot;
-		display: flex;
-		align-items: center;
-		gap: var(--space-4);
-		min-height: var(--space-8);
-		padding: 0 var(--space-3);
-		border-top: 1px solid var(--line);
+		gap: var(--space-3);
+		min-height: var(--space-10);
+		padding: 0 var(--space-2) 0 var(--space-4);
+		border-top: 1px solid var(--line-strong);
 		background: var(--panel);
-		color: var(--muted);
-		font-size: var(--text-caption);
-		font-variant-numeric: tabular-nums;
 	}
-	.right {
-		margin-left: auto;
+	.message > span {
+		flex: 1;
+		min-width: 0;
 	}
-	.notice {
+	.message.error {
+		box-shadow: inset var(--space-1) 0 0 var(--accent);
 		color: var(--accent);
-	}
-	.info {
-		color: var(--fg);
 	}
 </style>

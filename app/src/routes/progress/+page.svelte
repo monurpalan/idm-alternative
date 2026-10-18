@@ -37,7 +37,7 @@
 	const STATUS = {
 		queued: msg('Waiting in the queue'),
 		paused: msg('Paused'),
-		done: msg('Complete')
+		done: msg('Done')
 	} as const;
 
 	const BAR = { downloading: 'running', queued: 'running', paused: 'stopped', done: 'done', error: 'error' } as const;
@@ -55,15 +55,17 @@
 			<Text variant="caption" truncate title={r.task.url}>{r.task.url}</Text>
 		</div>
 
+		<div class="readout">
+			<span class="big">{r.fraction !== null ? percent(r.fraction) : bytes(r.received)}</span>
+			{#if r.task.status === 'downloading'}<span class="rate">{speed(r.speed)}</span>{/if}
+		</div>
 		<Progress value={r.fraction} state={BAR[r.task.status]} label={t('Status')} />
 
 		<dl>
 			<dt>{t('Status')}</dt>
 			<dd>
 				{#if r.task.status === 'downloading'}
-					{r.fraction === null
-						? t('Downloading')
-						: percent(r.fraction)}
+					{t('Downloading')}
 					{#if r.live?.connections}· {t('{n} connections', { n: r.live.connections })}{/if}
 				{:else if r.task.status === 'error'}
 					<span class="error">{r.task.error ?? t('Failed')}</span>
@@ -106,6 +108,7 @@
 
 <style>
 	main {
+		border-top: var(--space-1) solid var(--accent);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
@@ -137,12 +140,32 @@
 	}
 	dt {
 		color: var(--muted);
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		letter-spacing: 0.06em;
+		line-height: 19px;
+		text-transform: uppercase;
 	}
 	dd {
+		font-family: var(--font-mono);
 		min-width: 0;
 		margin: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.readout {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
+	}
+	.big {
+		font-size: var(--text-h1);
+		font-weight: 500;
+	}
+	.rate {
+		color: var(--muted);
 	}
 	.buttons {
 		display: flex;

@@ -1,27 +1,23 @@
 // Turkish texts for the add part of the interface, keyed by the English text.
 export default {
 	// Add download
-	'Add download': 'İndirme ekle',
 	'From the browser, with its cookies and referrer.': 'Tarayıcıdan, çerezleri ve yönlendireniyle.',
-	Address: 'Adres',
-	'https://   (photo[001-100].jpg adds a batch)': 'https://   (foto[001-100].jpg toplu ekler)',
 	'Asking the server…': 'Sunucuya soruluyor…',
 	'Reading the torrent… (a magnet link asks peers, which can take a minute)':
 		'Torrent okunuyor… (magnet linki eşlere sorulur, bir dakika sürebilir)',
 	'Torrent: {n} files, {size}': 'Torrent: {n} dosya, {size}',
 	'Files ({size} chosen)': 'Dosyalar ({size} seçili)',
-	'Add mirrors…': 'Ayna ekle…',
 	'Start page': 'Başlangıç sayfası',
 	Depth: 'Derinlik',
 	'This page only': 'Yalnızca bu sayfa',
 	'And the pages it links to': 'Ve bağlantı verdiği sayfalar',
 	'Two levels of pages below': 'Altındaki iki sayfa katmanı',
 	'Stay on this site': 'Bu sitede kal',
-	'Reading pages: {pages} read, {files} files found': 'Sayfalar okunuyor: {pages} okundu, {files} dosya bulundu',
+	'Reading pages: {pages} read, {files} files found':
+		'Sayfalar okunuyor: {pages} okundu, {files} dosya bulundu',
 	'No files found on these pages.': 'Bu sayfalarda dosya bulunamadı.',
 	'Find files': 'Dosyaları bul',
 	Stop: 'Durdur',
-	'Other addresses of the same file (one per line)': 'Aynı dosyanın diğer adresleri (her satıra bir tane)',
 	'https://mirror.example.org/file.iso': 'https://ayna.example.org/dosya.iso',
 	All: 'Tümü',
 	'Batch: {n} downloads': 'Toplu: {n} indirme',
@@ -30,7 +26,8 @@ export default {
 	'The server asks for a user name and password.': 'Sunucu kullanıcı adı ve parola istiyor.',
 	'Logs in as {user} (saved for this site)': '{user} olarak giriş yapılır (bu site için kayıtlı)',
 	'Size unknown': 'Boyut bilinmiyor',
-	'Can resume and use several connections': 'Devam ettirilebilir, birden çok bağlantı kullanılabilir',
+	'Can resume and use several connections':
+		'Devam ettirilebilir, birden çok bağlantı kullanılabilir',
 	'Cannot resume (one connection)': 'Devam ettirilemez (tek bağlantı)',
 	'User name': 'Kullanıcı adı',
 	Password: 'Parola',
@@ -86,5 +83,10 @@ export default {
 	'Subtitles (saved next to the video)': 'Altyazılar (videonun yanına kaydedilir)',
 	'Name from the address': 'Adresteki ad',
 	'ffmpeg was not found: the video is saved as joined .ts segments.':
-		'ffmpeg bulunamadı: video birleştirilmiş .ts parçaları olarak kaydedilir.'
+		'ffmpeg bulunamadı: video birleştirilmiş .ts parçaları olarak kaydedilir.',
+	'https://…   (photo[001-100].jpg adds a numbered batch)':
+		'https://…   (foto[001-100].jpg numaralı toplu ekler)',
+	'Mirrors: other links to the same file, one per line':
+		'Aynalar: aynı dosyanın diğer bağlantıları, her satıra bir tane',
+	'Add mirror links…': 'Ayna bağlantısı ekle…'
 } satisfies Record<string, string>;

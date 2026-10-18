@@ -17,14 +17,17 @@
 		gap: var(--space-2);
 		min-width: 0;
 		margin: 0;
-		padding: var(--space-2) var(--space-3) var(--space-3);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-2);
+		padding: var(--space-3) 0 0;
+		border: 0;
+		border-top: 1px solid var(--line);
 	}
 	legend {
-		padding: 0 var(--space-1);
+		padding: 0 var(--space-2) 0 0;
 		color: var(--muted);
-		font-size: var(--text-h2);
-		font-weight: 600;
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		font-weight: 500;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
 	}
 </style>

@@ -1,52 +1,45 @@
-// Turkish texts for the main part of the interface, keyed by the English text.
+// Turkish texts for the main window, keyed by the English text.
 export default {
-	'Site grabber': 'Site tarayıcı',
-	'Find the files a site links to': 'Bir sitenin bağlantı verdiği dosyaları bul',
-	// Toolbar
-	'Add URL': 'URL ekle',
-	Resume: 'Devam',
-	Pause: 'Duraklat',
-	'Start all': 'Tümünü başlat',
-	'Queue every paused or failed download': 'Duraklatılan ve hata veren tüm indirmeleri sıraya al',
-	'Pause all': 'Tümünü duraklat',
-	'Pause every running and queued download': 'Süren ve sıradaki tüm indirmeleri duraklat',
-	'When done': 'Bitince',
-	'One time: when nothing is downloading or waiting any more':
-		'Tek seferlik: indirilen ya da bekleyen bir şey kalmadığında',
-	'do nothing': 'hiçbir şey yapma',
-	'close the app': 'uygulamayı kapat',
-	sleep: 'uyku',
-	hibernate: 'hazırda beklet',
-	'shut down': 'kapat',
-	Details: 'Ayrıntılar',
-	'Details of the selected download': 'Seçili indirmenin ayrıntıları',
+	// Side column
+	'Grab files from a site': 'Siteden dosya topla',
+	Lists: 'Listeler',
+	Status: 'Durum',
+	Type: 'Tür',
+	'{n} running': '{n} çalışıyor',
+	'limit {speed}': 'sınır {speed}',
+	'When all finish': 'Hepsi bitince',
+	'Do nothing': 'Hiçbir şey yapma',
+	'Close the app': 'Uygulamayı kapat',
+	Sleep: 'Uyku',
+	Hibernate: 'Hazırda beklet',
+	'Shut down': 'Bilgisayarı kapat',
 	Settings: 'Ayarlar',
+
+	// Top bar
+	'{n} selected': '{n} seçili',
+	Resume: 'Sürdür',
+	Pause: 'Duraklat',
+	'Clear the selection': 'Seçimi kaldır',
+	'Resume all': 'Tümünü sürdür',
+	'Pause all': 'Tümünü duraklat',
 	Search: 'Ara',
 
-	// Status bar
-	'idm-alternative {version} is available.': 'idm-alternative {version} sürümü çıktı.',
+	// Messages under the list
+	'Version {version} is ready.': 'Sürüm {version} hazır.',
+	'Running downloads continue after the restart.':
+		'Süren indirmeler yeniden başlayınca kaldığı yerden sürer.',
+	'Restart and update': 'Yeniden başlat ve güncelle',
 	'Downloading…': 'İndiriliyor…',
-	'Install and restart': 'Yükle ve yeniden başlat',
-	'Running downloads pause and continue after the restart.':
-		'Süren indirmeler duraklar, yeniden başlatmadan sonra devam eder.',
 	Later: 'Sonra',
 	Dismiss: 'Kapat',
-	'{n} downloading': '{n} indiriliyor',
-	'Speed limit for all downloads': 'Tüm indirmeler için hız sınırı',
-	'limit {speed}': 'sınır {speed}',
-	'1 item': '1 öğe',
-	'{n} items': '{n} öğe',
-	'{n} selected': '{n} seçili',
 
 	// Right-click menu
 	Open: 'Aç',
 	'Show in folder': 'Klasörde göster',
-	'Progress window': 'İlerleme penceresi',
+	'Show progress window': 'İlerleme penceresini göster',
 	'Move to top': 'En üste taşı',
-	'Move up': 'Yukarı taşı',
-	'Move down': 'Aşağı taşı',
 	'Move to bottom': 'En alta taşı',
-	'Copy address': 'Adresi kopyala',
+	'Copy link': 'Bağlantıyı kopyala',
 	'Download again': 'Yeniden indir',
 	'Remove…': 'Kaldır…',
 
@@ -55,19 +48,17 @@ export default {
 	Size: 'Boyut',
 	Progress: 'İlerleme',
 	Speed: 'Hız',
-	'Time left': 'Kalan süre',
-	Status: 'Durum',
-	Added: 'Eklenme',
+	'Time left': 'Kalan',
+	Added: 'Eklendi',
 	'Verifying {v}%': 'Doğrulanıyor %{v}',
 	Downloading: 'İndiriliyor',
 	Connecting: 'Bağlanıyor',
 	Retrying: 'Yeniden deneniyor',
-	Queued: 'Sırada',
+	Waiting: 'Bekliyor',
 	Paused: 'Duraklatıldı',
-	Complete: 'Tamamlandı',
 	'Login needed': 'Giriş gerekli',
-	'Link expired': 'Süresi doldu',
-	Error: 'Hata',
-	'Nothing here. Paste a link (Ctrl+V) or drop one on the window.':
-		'Burada bir şey yok. Bir bağlantı yapıştırın (Ctrl+V) ya da pencereye bırakın.'
+	'Link expired': 'Bağlantı eskidi',
+	'No downloads here': 'Burada indirme yok',
+	'Paste a link with Ctrl+V, drop one on the window, or choose New download.':
+		'Ctrl+V ile bir bağlantı yapıştırın, pencereye bırakın ya da Yeni indirme’yi seçin.'
 } satisfies Record<string, string>;

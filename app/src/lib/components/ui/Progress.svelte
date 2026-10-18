@@ -1,7 +1,7 @@
 <script lang="ts">
-	// A progress bar with its text on top. `value` 0–1, or null when the size is unknown.
-	// Variants by state: `running` and `error` (accent), `done` (the text color), `stopped`
-	// (faint). Fills are soft so the text on top stays readable.
+	// A progress bar cut into small segments, after the engine that splits a download into
+	// ranges, with its figure beside it. `value` 0–1, or null when the size is unknown.
+	// States: `running` (accent), `done` and `stopped` (faint), `error` (faint accent).
 	let {
 		value,
 		state = 'running',
@@ -17,60 +17,65 @@
 
 <span class="bar {state}">
 	<progress max="1" value={value ?? 0} aria-label={label}></progress>
-	{#if text}<span class="text">{text}</span>{/if}
+	<span class="text">{text}</span>
 </span>
 
 <style>
 	.bar {
-		position: relative;
-		display: block;
-		height: var(--space-4);
+		display: grid;
+		grid-template-columns: 1fr var(--space-14);
+		align-items: center;
+		gap: var(--space-2);
+		min-width: 0;
 	}
 	progress {
 		display: block;
 		width: 100%;
-		height: 100%;
+		height: var(--space-2);
 		border: 0;
-		border-radius: var(--radius-1);
+		border-radius: 0;
 		appearance: none;
-		overflow: hidden;
 		background: var(--track);
+		/* 6px segments with 2px gaps. */
+		mask-image: repeating-linear-gradient(90deg, var(--ink) 0 6px, transparent 6px 8px);
 	}
 	progress::-webkit-progress-bar {
 		background: var(--track);
 	}
 	progress::-webkit-progress-value {
-		background: color-mix(in srgb, var(--accent) 50%, transparent);
+		background: var(--accent);
 	}
 	progress::-moz-progress-bar {
-		background: color-mix(in srgb, var(--accent) 50%, transparent);
+		background: var(--accent);
 	}
 	.done progress::-webkit-progress-value {
-		background: color-mix(in srgb, var(--fg) 26%, transparent);
+		background: var(--faint);
 	}
 	.done progress::-moz-progress-bar {
-		background: color-mix(in srgb, var(--fg) 26%, transparent);
+		background: var(--faint);
 	}
 	.stopped progress::-webkit-progress-value {
-		background: color-mix(in srgb, var(--fg) 14%, transparent);
+		background: var(--faint);
 	}
 	.stopped progress::-moz-progress-bar {
-		background: color-mix(in srgb, var(--fg) 14%, transparent);
+		background: var(--faint);
 	}
 	.error progress::-webkit-progress-value {
-		background: color-mix(in srgb, var(--accent) 30%, transparent);
+		background: color-mix(in srgb, var(--accent) 45%, transparent);
 	}
 	.error progress::-moz-progress-bar {
-		background: color-mix(in srgb, var(--accent) 30%, transparent);
+		background: color-mix(in srgb, var(--accent) 45%, transparent);
 	}
 	.text {
-		position: absolute;
-		inset: 0;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		color: var(--fg);
+		overflow: hidden;
+		color: var(--muted);
+		font-family: var(--font-mono);
 		font-size: var(--text-caption);
 		font-variant-numeric: tabular-nums;
+		text-align: right;
+		white-space: nowrap;
+	}
+	.running .text {
+		color: var(--fg);
 	}
 </style>

@@ -166,12 +166,12 @@
 	}
 </script>
 
-<Dialog bind:this={dialog} title={t('Add download')} {onclose} onsubmit={() => add(true)}>
+<Dialog bind:this={dialog} title={t('New download')} {onclose} onsubmit={() => add(true)}>
 	{#if headers?.length}
 		<p class="muted">{t('From the browser, with its cookies and referrer.')}</p>
 	{/if}
 
-	<Field label={t('Address')}>
+	<Field label={t('Link')}>
 		<Input
 			inputmode="url"
 			bind:value={url}
@@ -182,7 +182,7 @@
 					check();
 				}
 			}}
-			placeholder={t('https://   (photo[001-100].jpg adds a batch)')}
+			placeholder={t('https://…   (photo[001-100].jpg adds a numbered batch)')}
 			required
 		/>
 	</Field>
@@ -263,12 +263,12 @@
 
 	{#if !batch && !torrent}
 		{#if showMirrors || mirrors}
-			<Field label={t('Other addresses of the same file (one per line)')}>
+			<Field label={t('Mirrors: other links to the same file, one per line')}>
 				<Textarea bind:value={mirrors} rows={3} placeholder={t('https://mirror.example.org/file.iso')} />
 			</Field>
 		{:else}
 			<div>
-				<Button variant="link" onclick={() => (showMirrors = true)}>{t('Add mirrors…')}</Button>
+				<Button variant="link" onclick={() => (showMirrors = true)}>{t('Add mirror links…')}</Button>
 			</div>
 		{/if}
 	{/if}

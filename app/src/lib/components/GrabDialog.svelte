@@ -59,7 +59,7 @@
 	}
 </script>
 
-<Dialog bind:this={dialog} title={t('Site grabber')} {onclose} onsubmit={start}>
+<Dialog bind:this={dialog} title={t('Grab files from a site')} {onclose} onsubmit={start}>
 	<Field label={t('Start page')}>
 		<Input inputmode="url" bind:value={url} placeholder="https://" required disabled={running} />
 	</Field>

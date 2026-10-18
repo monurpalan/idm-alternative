@@ -7,7 +7,6 @@ export default {
 	'{m} min {s} s': '{m} dk {s} sn',
 	'{h} h {m} min': '{h} sa {m} dk',
 	'{d} days': '{d} gün',
-	Categories: 'Kategoriler',
 	'All downloads': 'Tüm indirmeler',
 	Compressed: 'Arşivler',
 	Documents: 'Belgeler',
@@ -28,5 +27,8 @@ export default {
 	'Remove this download from the list?': 'Bu indirme listeden kaldırılsın mı?',
 	'Remove {n} downloads from the list?': '{n} indirme listeden kaldırılsın mı?',
 	'Also delete the file from disk': 'Dosyayı diskten de sil',
-	'Also delete the files from disk': 'Dosyaları diskten de sil'
+	'Also delete the files from disk': 'Dosyaları diskten de sil',
+	'New download': 'Yeni indirme',
+	Link: 'Bağlantı',
+	Done: 'Bitti'
 } satisfies Record<string, string>;

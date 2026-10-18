@@ -21,7 +21,7 @@
 		disabled = false,
 		active = false,
 		pressed,
-		align = 'start',
+		align,
 		danger = false,
 		role,
 		onclick,
@@ -39,7 +39,7 @@
 		active?: boolean;
 		/** A toggle's state (`aria-pressed`). */
 		pressed?: boolean;
-		/** `column`: which side the heading sits on. */
+		/** Which side the content sits on (centered by default). */
 		align?: 'start' | 'end';
 		/** `menu`: an action that deletes, in the accent. */
 		danger?: boolean;
@@ -54,6 +54,7 @@
 	class={variant}
 	class:active
 	class:icon-only={!children}
+	class:start={align === 'start'}
 	class:end={align === 'end'}
 	class:danger
 	{role}
@@ -77,22 +78,25 @@
 		padding: 0 var(--space-3);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-1);
-		background: var(--field);
+		background: transparent;
 		color: var(--fg);
 		font: inherit;
 		font-size: var(--text-body);
+		font-weight: 500;
 		white-space: nowrap;
 		cursor: pointer;
 	}
 	button:hover:not(:disabled) {
+		border-color: var(--line-strong);
 		background: var(--hover);
 	}
 	button:disabled {
-		opacity: 0.45;
+		opacity: 0.4;
 		cursor: default;
 	}
 	.icon-only {
-		padding: 0 var(--space-2);
+		width: var(--space-8);
+		padding: 0;
 	}
 
 	.primary {
@@ -102,8 +106,8 @@
 		font-weight: 600;
 	}
 	.primary:hover:not(:disabled) {
-		background: var(--accent);
-		filter: brightness(1.08);
+		border-color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 88%, var(--paper));
 	}
 
 	.secondary[aria-pressed='true'] {
@@ -113,61 +117,79 @@
 
 	.ghost {
 		border-color: transparent;
-		background: transparent;
+	}
+	.ghost:hover:not(:disabled) {
+		border-color: transparent;
 	}
 
 	.link {
 		min-height: 0;
 		padding: 0;
 		border: 0;
-		background: transparent;
 		color: var(--accent);
 		text-decoration: underline;
+		text-underline-offset: 3px;
 	}
 	.link:hover:not(:disabled) {
 		background: transparent;
 	}
 
+	/* A side-list entry: a bar of the accent marks the chosen one. */
 	.nav {
 		justify-content: space-between;
 		width: 100%;
-		border-color: transparent;
-		background: transparent;
+		padding: 0 var(--space-4);
+		border: 0;
+		border-radius: 0;
+		color: var(--muted);
+		font-weight: 400;
 		text-align: left;
 	}
+	.nav:hover:not(:disabled) {
+		color: var(--fg);
+	}
 	.nav.active {
-		background: var(--selected);
+		background: var(--hover);
+		box-shadow: inset 2px 0 0 var(--accent);
+		color: var(--fg);
+		font-weight: 500;
 	}
 
 	.column {
 		justify-content: flex-start;
 		gap: var(--space-1);
 		width: 100%;
-		min-height: var(--space-8);
 		padding: 0 var(--space-2);
 		border: 0;
 		border-radius: 0;
-		background: transparent;
 		color: var(--muted);
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
 		font-weight: 500;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
 	}
 	.column:hover:not(:disabled) {
 		background: transparent;
 		color: var(--fg);
 	}
-	.column.end {
+	.start {
+		justify-content: flex-start;
+	}
+	.end {
 		justify-content: flex-end;
 	}
 
 	.menu {
 		justify-content: flex-start;
 		width: 100%;
-		border-color: transparent;
-		background: transparent;
+		border: 0;
+		border-radius: 0;
+		font-weight: 400;
 		text-align: left;
 	}
 	.menu:disabled {
-		color: var(--muted);
+		color: var(--faint);
 		opacity: 1;
 	}
 	.danger {

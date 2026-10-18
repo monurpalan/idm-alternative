@@ -2,7 +2,7 @@
 	import { Button, Icon, Progress } from './ui/index.ts';
 	import type { Task, TaskId } from '../api.ts';
 	import { downloads, row, type Row, type SortKey } from '../downloads.svelte.ts';
-	import { bytes, date, duration, percent, speed } from '../format.ts';
+	import { bytes, duration, percent, speed } from '../format.ts';
 	import { msg, t } from '../i18n.svelte.ts';
 
 	// Gets the tasks already filtered and in order; each row reads its own live progress, so a
@@ -28,8 +28,7 @@
 		{ key: 'progress', label: msg('Progress') },
 		{ key: 'speed', label: msg('Speed'), numeric: true },
 		{ key: 'eta', label: msg('Time left'), numeric: true },
-		{ key: 'status', label: msg('Status') },
-		{ key: 'added', label: msg('Added'), numeric: true }
+		{ key: 'status', label: msg('Status') }
 	];
 
 	/** 1-based place of each unfinished download in the queue. */
@@ -86,6 +85,13 @@
 		oncontext(e, t);
 	}
 
+	/** The file's extension, as a short tag before its name. */
+	function kind(name: string): string {
+		const dot = name.lastIndexOf('.');
+		const ext = dot > 0 ? name.slice(dot + 1) : '';
+		return ext.length && ext.length <= 4 ? ext.toUpperCase() : '';
+	}
+
 	function statusText(r: Row): string {
 		const task = r.task;
 		switch (task.status) {
@@ -97,17 +103,17 @@
 				return r.task.path ? t('Downloading') : t('Connecting');
 			case 'queued':
 				// Waiting for an automatic retry after a failure that may pass.
-				return task.error ? t('Retrying') : t('Queued');
+				return task.error ? t('Retrying') : t('Waiting');
 			case 'paused':
 				return t('Paused');
 			case 'done':
-				return t('Complete');
+				return t('Done');
 			case 'error':
 				return task.error_kind === 'auth'
 					? t('Login needed')
 					: task.error_kind === 'expired'
 						? t('Link expired')
-						: t('Error');
+						: t('Failed');
 		}
 	}
 </script>
@@ -117,7 +123,7 @@
 		<colgroup>
 			<col class="c-queue" /><col class="c-name" /><col class="c-size" /><col class="c-progress" /><col
 				class="c-speed"
-			/><col class="c-eta" /><col class="c-status" /><col class="c-added" />
+			/><col class="c-eta" /><col class="c-status" />
 		</colgroup>
 		<thead>
 			<tr>
@@ -145,7 +151,10 @@
 					oncontextmenu={(e) => context(e, t)}
 				>
 					<td class="numeric muted">{queuePos.get(t.id) ?? ''}</td>
-					<td class="name" title={r.task.url}>{r.name}</td>
+					<td class="name" title={r.task.url}>
+						<span class="kind">{kind(r.name)}</span>
+						{r.name}
+					</td>
 					<td class="numeric">{bytes(r.size)}</td>
 					<td>
 						<Progress
@@ -162,14 +171,18 @@
 					</td>
 					<td class="numeric">{speed(r.speed)}</td>
 					<td class="numeric">{duration(r.eta)}</td>
-					<td class="status" title={r.task.error ?? ''}>{statusText(r)}</td>
-					<td class="numeric">{date(r.task.added_at)}</td>
+					<td class="status" title={r.task.error ?? ''}>
+						<span class="marker"></span>{statusText(r)}
+					</td>
 				</tr>
 			{/each}
 		</tbody>
 	</table>
 	{#if downloads.loaded && tasks.length === 0}
-		<p class="empty">{t('Nothing here. Paste a link (Ctrl+V) or drop one on the window.')}</p>
+		<div class="empty">
+			<h2>{t('No downloads here')}</h2>
+			<p>{t('Paste a link with Ctrl+V, drop one on the window, or choose New download.')}</p>
+		</div>
 	{/if}
 </div>
 
@@ -182,7 +195,6 @@
 		width: 100%;
 		border-collapse: collapse;
 		table-layout: fixed;
-		font-variant-numeric: tabular-nums;
 	}
 	.c-queue {
 		width: 40px;
@@ -192,45 +204,45 @@
 	}
 	.c-size,
 	.c-speed {
-		width: 92px;
-	}
-	.c-progress {
-		width: 152px;
-	}
-	.c-eta {
-		width: 100px;
-	}
-	.c-status {
-		width: 112px;
-	}
-	.c-added {
 		width: 88px;
 	}
-	.muted {
-		color: var(--muted);
+	.c-progress {
+		width: 160px;
+	}
+	.c-eta {
+		width: 88px;
+	}
+	.c-status {
+		width: 144px;
 	}
 	thead th {
 		position: sticky;
 		top: 0;
 		z-index: 1;
+		height: var(--space-8);
 		padding: 0;
 		border-bottom: 1px solid var(--line);
 		background: var(--bg);
 		text-align: left;
-		font-weight: 500;
 	}
 	td {
-		padding: var(--space-1) var(--space-2);
+		padding: 0 var(--space-2);
 		border-bottom: 1px solid var(--line-soft);
-		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	td.numeric {
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		font-variant-numeric: tabular-nums;
 		text-align: right;
 	}
+	.muted {
+		color: var(--faint);
+	}
 	tbody tr {
-		height: var(--space-8);
+		height: var(--space-10);
 		cursor: default;
 		user-select: none;
 	}
@@ -239,13 +251,74 @@
 	}
 	tbody tr.selected {
 		background: var(--selected);
+		box-shadow: inset 2px 0 0 var(--accent);
 	}
-	tr.s-error .status {
+	.name {
+		font-weight: 500;
+	}
+	.kind {
+		display: inline-block;
+		min-width: var(--space-8);
+		margin-right: var(--space-2);
+		padding: 0 var(--space-1);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-1);
+		color: var(--muted);
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		font-weight: 500;
+		text-align: center;
+		vertical-align: 1px;
+	}
+	.kind:empty {
+		visibility: hidden;
+	}
+	.status {
+		color: var(--muted);
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+	}
+	.marker {
+		display: inline-block;
+		width: var(--space-2);
+		height: var(--space-2);
+		margin-right: var(--space-2);
+		border: 1px solid var(--faint);
+		vertical-align: 0;
+	}
+	.s-downloading .status {
+		color: var(--fg);
+	}
+	.s-downloading .marker {
+		border-color: var(--accent);
+		background: var(--accent);
+	}
+	.s-done .marker {
+		border-color: var(--faint);
+		background: var(--faint);
+	}
+	.s-error .status {
 		color: var(--accent);
 	}
+	.s-error .marker {
+		border-color: var(--accent);
+	}
 	.empty {
-		margin-top: var(--space-8);
-		color: var(--muted);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-2);
+		margin-top: var(--space-14);
 		text-align: center;
+	}
+	.empty h2 {
+		font-size: var(--text-h2);
+		font-weight: 600;
+	}
+	.empty p {
+		max-width: 360px;
+		color: var(--muted);
 	}
 </style>

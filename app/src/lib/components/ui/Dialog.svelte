@@ -4,6 +4,9 @@
 	// `onsubmit` the body is a form, so Enter submits it. `tall` gives it a fixed height
 	// whose body grows, for a long list.
 	import { onMount, type Snippet } from 'svelte';
+	import { t } from '../../i18n.svelte.ts';
+	import Button from './Button.svelte';
+
 
 	let {
 		title,
@@ -37,7 +40,10 @@
 </script>
 
 {#snippet content()}
-	<h1 id={titleId}>{title}</h1>
+	<header>
+		<h1 id={titleId}>{title}</h1>
+		<Button variant="ghost" icon="close" label={t('Close')} onclick={close} />
+	</header>
 	<div class="body">{@render children()}</div>
 	{#if actions}<div class="actions">{@render actions()}</div>{/if}
 {/snippet}
@@ -73,8 +79,9 @@
 	dialog {
 		box-sizing: border-box;
 		max-height: calc(100vh - var(--space-8));
-		padding: var(--space-4) var(--space-6);
+		padding: var(--space-4) var(--space-6) var(--space-6);
 		border: 1px solid var(--line);
+		border-top: var(--space-1) solid var(--accent);
 		border-radius: var(--radius-2);
 		background: var(--bg);
 		color: var(--fg);
@@ -101,7 +108,15 @@
 		gap: var(--space-4);
 		height: 100%;
 	}
+	header {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		margin-right: calc(-1 * var(--space-3));
+	}
 	h1 {
+		flex: 1;
+		min-width: 0;
 		overflow: hidden;
 		font-size: var(--text-h1);
 		font-weight: 600;

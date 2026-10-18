@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { open as pickFile, open as pickFolder, save as pickSaveFile } from '@tauri-apps/plugin-dialog';
-	import { Button, Checkbox, Dialog, Field, Input, Section, Select } from './ui/index.ts';
+	import { Button, Checkbox, Dialog, Field, Input, Select, Text } from './ui/index.ts';
 	import {
 		getSettings,
 		checkUpdate,
@@ -21,6 +21,17 @@
 	import { msg, t } from '../i18n.svelte.ts';
 
 	let { onclose }: { onclose: () => void } = $props();
+
+	const TABS = [
+		{ id: 'downloads', label: msg('Downloads') },
+		{ id: 'connection', label: msg('Connection') },
+		{ id: 'schedule', label: msg('Schedule') },
+		{ id: 'logins', label: msg('Sign-ins') },
+		{ id: 'tools', label: msg('Video tools') },
+		{ id: 'system', label: msg('Browser and system') },
+		{ id: 'app', label: msg('App') }
+	] as const;
+	let tab = $state<(typeof TABS)[number]['id']>('downloads');
 
 	const DAYS = [msg('Mon'), msg('Tue'), msg('Wed'), msg('Thu'), msg('Fri'), msg('Sat'), msg('Sun')];
 
@@ -53,7 +64,7 @@
 		try {
 			const u = await checkUpdate();
 			updateStatus = u
-				? t('Version {v} is available: install it from the bar at the bottom of the window.', {
+				? t('Version {v} is ready: install it from the bar at the bottom of the window.', {
 						v: u.version
 					})
 				: t('This is the latest version.');
@@ -158,173 +169,173 @@
 	}
 </script>
 
-<Dialog bind:this={dialog} title={t('Settings')} size="wide" {onclose} onsubmit={save}>
-	{#if s}
-		<Section title={t('Downloads')}>
-			<Field label={t('Save to')} layout="row">
-				<Input bind:value={s.dir} />
-				<Button onclick={browse}>{t('Browse…')}</Button>
-			</Field>
-			<Checkbox bind:checked={s.per_category}>{t('Sort into folders by type (Video, Music, Programs…)')}</Checkbox>
-			<Checkbox bind:checked={s.overwrite}
-				>{t('Replace files with the same name (otherwise save as “name (1)”)')}</Checkbox
-			>
-			<div class="grid">
-				<Field label={t('Downloads at once')}>
-					<Input type="number" min={1} max={50} bind:value={s.max_active} />
-				</Field>
-				<Field label={t('Connections per download')}>
-					<Input type="number" min={1} max={64} bind:value={s.connections} />
-				</Field>
-				<Field label={t('Speed limit, all downloads (KB/s)')}>
-					<Input inputmode="numeric" bind:value={limitKb} placeholder={t('none')} />
-				</Field>
-			</div>
-		</Section>
+<Dialog bind:this={dialog} title={t('Settings')} size="wide" tall {onclose} onsubmit={save}>
+	<div class="layout">
+		<nav aria-label={t('Settings')}>
+			{#each TABS as x (x.id)}
+				<Button variant="nav" active={tab === x.id} onclick={() => (tab = x.id)}>{t(x.label)}</Button>
+			{/each}
+		</nav>
 
-		<Section title={t('Connection')}>
-			<div class="grid">
-				<Field label={t('Look like')}>
-					<Select bind:value={s.browser}>
-						<option value="chrome">Chrome</option>
-						<option value="edge">Edge</option>
-						<option value="firefox">Firefox</option>
-						<option value="safari">Safari</option>
-						<option value="none">{t('Plain client')}</option>
-					</Select>
+		<div class="page">
+			{#if !s}
+				{#if !error}<Text variant="muted">{t('Loading…')}</Text>{/if}
+			{:else if tab === 'downloads'}
+				<Field label={t('Save to')} layout="row">
+					<Input bind:value={s.dir} />
+					<Button onclick={browse}>{t('Browse…')}</Button>
 				</Field>
-				<div class="span2">
-					<Field label={t('Proxy')}>
-						<Input bind:value={s.proxy} placeholder={t('none, or socks5://host:port')} />
+				<Checkbox bind:checked={s.per_category}>{t('Sort into folders by type (Video, Music, Programs…)')}</Checkbox>
+				<Checkbox bind:checked={s.overwrite}
+					>{t('Replace files with the same name (otherwise save as “name (1)”)')}</Checkbox
+				>
+				<div class="grid">
+					<Field label={t('Downloads at once')}>
+						<Input type="number" min={1} max={50} bind:value={s.max_active} />
+					</Field>
+					<Field label={t('Connections per download')}>
+						<Input type="number" min={1} max={64} bind:value={s.connections} />
+					</Field>
+					<Field label={t('Speed limit for all (KB/s)')}>
+						<Input inputmode="numeric" bind:value={limitKb} placeholder={t('none')} />
 					</Field>
 				</div>
-			</div>
-		</Section>
-
-		<Section title={t('Scheduler')}>
-			<Checkbox bind:checked={s.schedule.enabled}>{t('Start and stop the queue at set times')}</Checkbox>
-			<div class="grid">
-				<Field label={t('Start at')}>
-					<Input type="time" bind:value={s.schedule.start} disabled={!s.schedule.enabled} />
-				</Field>
-				<Field label={t('Stop at')}>
-					<Input type="time" bind:value={s.schedule.stop} disabled={!s.schedule.enabled} />
-				</Field>
-			</div>
-			<div class="days" role="group" aria-label={t('Days')}>
-				{#each DAYS as day, i (day)}
-					<Checkbox bind:checked={s.schedule.days[i]} disabled={!s.schedule.enabled}>{t(day)}</Checkbox>
-				{/each}
-			</div>
-			<p class="small">
-				{t(
-					'Leave a time empty to only start or only stop. "When done" in the toolbar can shut the computer down after the queue finishes.'
-				)}
-			</p>
-		</Section>
-
-		<Section title={t('Saved logins')}>
-			{#each logins as l (l.site)}
-				<div class="row3">
-					<span>{l.site}</span>
-					<span class="muted">{l.user}</span>
-					<Button onclick={() => forget(l.site)}>{t('Forget')}</Button>
-				</div>
-			{:else}
-				<p class="muted">
-					{t('None yet. Tick “Remember for this site” when a server asks for a password.')}
-				</p>
-			{/each}
-		</Section>
-
-		<Section title={t('Video tools')}>
-			{#if toolStatus}
-				<div class="tool">
-					<span>ffmpeg</span>
-					<span class="muted">
-						{toolStatus.ffmpeg
-							? t('Found')
-							: t('Not found: install it (e.g. winget install ffmpeg) to join video and audio')}
-					</span>
-				</div>
-				{#each TOOLS as tool (tool.id)}
-					{@const version = toolStatus[tool.id]}
-					<div class="tool">
-						<span>{tool.name}</span>
-						<span class="muted">{version ? t('Version {v}', { v: version }) : t(tool.why)}</span>
-						<Button disabled={installing !== null} onclick={() => setUp(tool.id)}>
-							{installing === tool.id ? t('Downloading…') : version ? t('Update') : t('Set up')}
-						</Button>
+			{:else if tab === 'connection'}
+				<div class="grid">
+					<Field label={t('Introduce itself as')}>
+						<Select bind:value={s.browser}>
+							<option value="chrome">Chrome</option>
+							<option value="edge">Edge</option>
+							<option value="firefox">Firefox</option>
+							<option value="safari">Safari</option>
+							<option value="none">{t('Plain client')}</option>
+						</Select>
+					</Field>
+					<div class="span2">
+						<Field label={t('Proxy')}>
+							<Input bind:value={s.proxy} placeholder={t('none, or socks5://host:port')} />
+						</Field>
 					</div>
-				{/each}
-				<Checkbox bind:checked={s.update_tools}
-					>{t('Update yt-dlp and deno when a new version is out (checked once a day)')}</Checkbox
-				>
-				<p class="small">
+				</div>
+				<Text variant="caption">
+					{t('Some servers only serve browsers: the app then sends the same headers as the one chosen.')}
+				</Text>
+			{:else if tab === 'schedule'}
+				<Checkbox bind:checked={s.schedule.enabled}>{t('Start and stop the queue at set times')}</Checkbox>
+				<div class="grid">
+					<Field label={t('Start at')}>
+						<Input type="time" bind:value={s.schedule.start} disabled={!s.schedule.enabled} />
+					</Field>
+					<Field label={t('Stop at')}>
+						<Input type="time" bind:value={s.schedule.stop} disabled={!s.schedule.enabled} />
+					</Field>
+				</div>
+				<div class="days" role="group" aria-label={t('Days')}>
+					{#each DAYS as day, i (day)}
+						<Checkbox bind:checked={s.schedule.days[i]} disabled={!s.schedule.enabled}>{t(day)}</Checkbox>
+					{/each}
+				</div>
+				<Text variant="caption">
 					{t(
-						"Downloaded from the projects' official GitHub releases and checked against their published SHA-256."
+						'Leave a time empty to only start or only stop. To shut the computer down after the queue, use “When all finish” in the side column.'
 					)}
-				</p>
-				{#if toolError}<p class="error">{toolError}</p>{/if}
-			{:else}
-				<p class="muted">{t('Checking…')}</p>
-			{/if}
-		</Section>
-
-		<Section title={t('App')}>
-			<div class="grid">
-				<Field label={t('Language')}>
-					<Select bind:value={s.language}>
-						<option value="system">{t('Same as Windows')}</option>
-						<option value="en">English</option>
-						<option value="tr">Türkçe</option>
-					</Select>
-				</Field>
-			</div>
-			<Checkbox bind:checked={s.close_to_tray}>{t('Keep running in the tray when the window is closed')}</Checkbox>
-			<Checkbox bind:checked={s.start_with_windows}>{t('Start with Windows (in the tray)')}</Checkbox>
-			<Checkbox bind:checked={s.progress_windows}>{t('Show a small progress window for each download')}</Checkbox>
-			<Checkbox bind:checked={s.notify}>{t('Notify me when a download finishes')}</Checkbox>
-			<div class="spread">
-				<Checkbox bind:checked={s.check_updates}>{t('Look for a new version of the app once a day')}</Checkbox>
-				<Button onclick={checkNow}>{t('Check now')}</Button>
-			</div>
-			{#if updateStatus}<p class="small">{updateStatus}</p>{/if}
-			<Checkbox bind:checked={s.virus_scan}>{t('Scan finished downloads for viruses')}</Checkbox>
-			<div class="indent">
-				<Field label={t('Scanner')}>
-					<Input
-						bind:value={s.scanner}
-						disabled={!s.virus_scan}
-						placeholder={t('Microsoft Defender, or: "C:\\…\\scan.exe" {f}', { f: '{file}' })}
-					/>
-				</Field>
-			</div>
-			<Checkbox bind:checked={s.watch_clipboard}
-				>{t('Offer download links I copy (archives, programs, video, music, documents)')}</Checkbox
-			>
-			<Checkbox bind:checked={s.torrent_links}
-				>{t('Open magnet links and .torrent files with this app (Windows may ask which app to use)')}</Checkbox
-			>
-			<Checkbox bind:checked={s.browser_integration}
-				>{t(
-					'Take downloads from the browser extension (registers with Chrome, Edge, Brave, Vivaldi, Opera and Firefox)'
-				)}</Checkbox
-			>
-			<div class="buttons">
-				<Button onclick={exportFile}>{t('Export settings…')}</Button>
-				<Button onclick={importFile}>{t('Import settings…')}</Button>
-				<Button onclick={() => openLogs().catch((e) => (fileStatus = String(e)))}
-					>{t('Open the log folder')}</Button
+				</Text>
+			{:else if tab === 'logins'}
+				{#each logins as l (l.site)}
+					<div class="row3">
+						<span>{l.site}</span>
+						<Text variant="muted" mono inline>{l.user}</Text>
+						<Button onclick={() => forget(l.site)}>{t('Forget')}</Button>
+					</div>
+				{:else}
+					<Text variant="muted">
+						{t('None yet. Tick “Remember” when a server asks for a password.')}
+					</Text>
+				{/each}
+			{:else if tab === 'tools'}
+				{#if toolStatus}
+					<div class="tool">
+						<Text mono inline>ffmpeg</Text>
+						<Text variant="muted" inline>
+							{toolStatus.ffmpeg
+								? t('Found')
+								: t('Not found: install it (e.g. winget install ffmpeg) to join video and audio')}
+						</Text>
+					</div>
+					{#each TOOLS as tool (tool.id)}
+						{@const version = toolStatus[tool.id]}
+						<div class="tool">
+							<Text mono inline>{tool.name}</Text>
+							<Text variant="muted" inline>{version ? t('Version {v}', { v: version }) : t(tool.why)}</Text>
+							<Button disabled={installing !== null} onclick={() => setUp(tool.id)}>
+								{installing === tool.id ? t('Downloading…') : version ? t('Update') : t('Set up')}
+							</Button>
+						</div>
+					{/each}
+					<Checkbox bind:checked={s.update_tools}
+						>{t('Update yt-dlp and deno when a new version is out (checked once a day)')}</Checkbox
+					>
+					<Text variant="caption">
+						{t(
+							"Downloaded from the projects' official GitHub releases and checked against their published SHA-256."
+						)}
+					</Text>
+					{#if toolError}<Text variant="error">{toolError}</Text>{/if}
+				{:else}
+					<Text variant="muted">{t('Checking…')}</Text>
+				{/if}
+			{:else if tab === 'system'}
+				<Checkbox bind:checked={s.browser_integration}
+					>{t('Take downloads from the browser extension (Chrome, Edge, Brave, Vivaldi, Opera and Firefox)')}</Checkbox
 				>
-			</div>
-			{#if fileStatus}<p class="small">{fileStatus}</p>{/if}
-		</Section>
-	{:else if !error}
-		<p class="muted">{t('Loading…')}</p>
-	{/if}
+				<Checkbox bind:checked={s.watch_clipboard}
+					>{t('Offer download links I copy (archives, programs, video, music, documents)')}</Checkbox
+				>
+				<Checkbox bind:checked={s.torrent_links}
+					>{t('Open magnet links and .torrent files with this app (Windows may ask which app to use)')}</Checkbox
+				>
+				<Checkbox bind:checked={s.virus_scan}>{t('Scan finished downloads for viruses')}</Checkbox>
+				<div class="indent">
+					<Field label={t('Scanner')}>
+						<Input
+							bind:value={s.scanner}
+							disabled={!s.virus_scan}
+							placeholder={t('Microsoft Defender, or: "C:\\…\\scan.exe" {f}', { f: '{file}' })}
+						/>
+					</Field>
+				</div>
+			{:else if tab === 'app'}
+				<div class="grid">
+					<Field label={t('Language')}>
+						<Select bind:value={s.language}>
+							<option value="system">{t('Same as Windows')}</option>
+							<option value="en">English</option>
+							<option value="tr">Türkçe</option>
+						</Select>
+					</Field>
+				</div>
+				<Checkbox bind:checked={s.close_to_tray}>{t('Keep running in the tray when the window is closed')}</Checkbox>
+				<Checkbox bind:checked={s.start_with_windows}>{t('Start with Windows (in the tray)')}</Checkbox>
+				<Checkbox bind:checked={s.progress_windows}>{t('Show a small progress window for each download')}</Checkbox>
+				<Checkbox bind:checked={s.notify}>{t('Notify me when a download finishes')}</Checkbox>
+				<div class="spread">
+					<Checkbox bind:checked={s.check_updates}>{t('Look for a new version once a day')}</Checkbox>
+					<Button onclick={checkNow}>{t('Check now')}</Button>
+				</div>
+				{#if updateStatus}<Text variant="caption">{updateStatus}</Text>{/if}
+				<div class="buttons">
+					<Button onclick={exportFile}>{t('Export settings…')}</Button>
+					<Button onclick={importFile}>{t('Import settings…')}</Button>
+					<Button onclick={() => openLogs().catch((e) => (fileStatus = String(e)))}
+						>{t('Open the log folder')}</Button
+					>
+				</div>
+				{#if fileStatus}<Text variant="caption">{fileStatus}</Text>{/if}
+			{/if}
 
-	{#if error}<p class="error">{error}</p>{/if}
+			{#if error}<Text variant="error">{error}</Text>{/if}
+		</div>
+	</div>
 
 	{#snippet actions()}
 		<Button onclick={() => dialog?.close()}>{t('Cancel')}</Button>
@@ -333,9 +344,31 @@
 </Dialog>
 
 <style>
+	.layout {
+		display: grid;
+		grid-template-columns: 176px 1fr;
+		gap: var(--space-6);
+		height: 100%;
+		min-height: 0;
+	}
+	nav {
+		display: flex;
+		flex-direction: column;
+		margin-left: calc(-1 * var(--space-6));
+		border-right: 1px solid var(--line);
+	}
+	.page {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		min-height: 0;
+		padding-right: var(--space-1);
+		overflow-y: auto;
+	}
 	.grid {
 		display: grid;
 		grid-template-columns: repeat(3, 1fr);
+		align-items: end;
 		gap: var(--space-3);
 	}
 	.span2 {
@@ -372,15 +405,6 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-2);
-	}
-	.muted,
-	.small {
-		color: var(--muted);
-	}
-	.small {
-		font-size: var(--text-caption);
-	}
-	.error {
-		color: var(--accent);
+		margin-top: var(--space-2);
 	}
 </style>

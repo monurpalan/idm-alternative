@@ -1,12 +1,19 @@
 /* Design tokens and base styles shared by every component.
  *
- * Colors: three, and only three: ink, paper and an accent. Light and dark themes swap ink
+ * The look: a measuring instrument on paper. Warm paper, black ink and one signal orange;
+ * names in IBM Plex Sans, every number in IBM Plex Mono so columns of figures line up and
+ * read like a readout; labels small, mono and in capitals; square corners.
+ *
+ * Colors: three, and only three: ink, paper and the accent. Light and dark themes swap ink
  * and paper; every other shade (lines, muted text, hover, selection) is one of the three at
- * a lower opacity, never a new color.
+ * a lower opacity or two of them mixed, never a new color.
  * Spacing: multiples of 4px only (--space-*).
  * Type: four sizes (--text-h1, --text-h2, --text-body, --text-caption).
  * Components take these through the UI kit in `lib/components/ui`; nothing sets its own
  * color, size or spacing outside the tokens.
+ *
+ * `.invert` swaps ink and paper for one region (the side column), so the kit's components
+ * inside it follow without variants of their own.
  */
 
 :root {
@@ -16,19 +23,6 @@
 
 	--bg: var(--paper);
 	--fg: var(--ink);
-	/* Text on the accent. */
-	--on-accent: var(--ink);
-
-	--muted: color-mix(in srgb, var(--fg) 58%, transparent);
-	--line: color-mix(in srgb, var(--fg) 18%, transparent);
-	--line-soft: color-mix(in srgb, var(--fg) 9%, transparent);
-	--panel: color-mix(in srgb, var(--fg) 4%, transparent);
-	--field: color-mix(in srgb, var(--fg) 3%, transparent);
-	--hover: color-mix(in srgb, var(--fg) 8%, transparent);
-	--track: color-mix(in srgb, var(--fg) 10%, transparent);
-	--selected: color-mix(in srgb, var(--accent) 20%, transparent);
-	--backdrop: color-mix(in srgb, var(--ink) 40%, transparent);
-	--shadow: 0 var(--space-3) var(--space-8) color-mix(in srgb, var(--ink) 28%, transparent);
 
 	--space-1: 4px;
 	--space-2: 8px;
@@ -36,19 +30,27 @@
 	--space-4: 16px;
 	--space-6: 24px;
 	--space-8: 32px;
+	--space-10: 40px;
+	--space-14: 56px;
 
-	--radius-1: 4px;
-	--radius-2: 8px;
+	--radius-1: 2px;
+	--radius-2: 4px;
 
 	--text-h1: 18px;
 	--text-h2: 15px;
 	--text-body: 13px;
 	--text-caption: 11px;
 
+	--font-sans: 'IBM Plex Sans', system-ui, 'Segoe UI', sans-serif;
+	--font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+
+	--backdrop: color-mix(in srgb, var(--ink) 45%, transparent);
+	--shadow: 0 var(--space-4) var(--space-10) color-mix(in srgb, var(--ink) 30%, transparent);
+
 	color-scheme: light;
-	font-family: system-ui, 'Segoe UI', sans-serif;
+	font-family: var(--font-sans);
 	font-size: var(--text-body);
-	line-height: 1.4;
+	line-height: 1.45;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -57,6 +59,36 @@
 		--fg: var(--paper);
 		color-scheme: dark;
 	}
+}
+
+.invert {
+	--bg: var(--ink);
+	--fg: var(--paper);
+	color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+	.invert {
+		--bg: color-mix(in srgb, var(--paper) 5%, var(--ink));
+	}
+}
+
+/* Derived from --fg and --bg where they are set, so an `.invert` region gets its own. */
+:root,
+.invert {
+	/* Text on the accent. */
+	--on-accent: var(--ink);
+	--muted: color-mix(in srgb, var(--fg) 58%, transparent);
+	--faint: color-mix(in srgb, var(--fg) 34%, transparent);
+	--line-strong: color-mix(in srgb, var(--fg) 72%, transparent);
+	--line: color-mix(in srgb, var(--fg) 16%, transparent);
+	--line-soft: color-mix(in srgb, var(--fg) 8%, transparent);
+	--panel: color-mix(in srgb, var(--fg) 4%, transparent);
+	--field: color-mix(in srgb, var(--fg) 3%, transparent);
+	--hover: color-mix(in srgb, var(--fg) 7%, transparent);
+	--track: color-mix(in srgb, var(--fg) 10%, transparent);
+	--selected: color-mix(in srgb, var(--fg) 11%, transparent);
+	background: var(--bg);
+	color: var(--fg);
 }
 
 html,
@@ -76,6 +108,10 @@ p {
 :focus-visible {
 	outline: 2px solid var(--accent);
 	outline-offset: 2px;
+}
+
+::selection {
+	background: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 /* SvelteKit's root element. */

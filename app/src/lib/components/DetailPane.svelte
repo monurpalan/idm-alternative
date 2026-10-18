@@ -1,15 +1,19 @@
 <script lang="ts">
-	import { Button, Checkbox, Input } from './ui/index.ts';
+	import { Button, Checkbox, Input, Text } from './ui/index.ts';
 	// Details of one download: where it goes, live numbers, a speed graph, the segment map
 	// (the engine's live splitting, one bar per connection's range), its own speed limit and
 	// "refresh link" for links that expired.
 
 	import { refreshInBrowser, refreshLink, setLogin, setSpeedLimit, type Task } from '../api.ts';
 	import { downloads, HISTORY, row } from '../downloads.svelte.ts';
-	import { bytes, duration, percent, speed } from '../format.ts';
+	import { bytes, date, duration, percent, speed } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
 
-	let { task, onerror }: { task: Task; onerror: (message: string | null) => void } = $props();
+	let {
+		task,
+		onerror,
+		onclose
+	}: { task: Task; onerror: (message: string | null) => void; onclose: () => void } = $props();
 
 	const r = $derived(row(task, downloads.live[task.id]));
 
@@ -121,7 +125,7 @@
 		ctx.lineWidth = 1.5;
 		ctx.stroke();
 		paint(ctx, '--fg', 0.62);
-		ctx.font = `${token('--text-caption')} system-ui, sans-serif`;
+		ctx.font = `${token('--text-caption')} ${token('--font-mono')}`;
 		ctx.fillText(speed(max), 4, 12);
 		ctx.globalAlpha = 1;
 	});
@@ -167,38 +171,41 @@
 </script>
 
 <section class="pane" aria-label={t('Download details')}>
-	<div class="facts">
+	<header>
 		<h2 title={r.name}>{r.name}</h2>
+		<Button variant="ghost" icon="close" onclick={onclose} label={t('Close the details')} title="Esc" />
+	</header>
+	<div class="facts">
 		<dl>
-			<dt>{t('Address')}</dt>
+			<dt>{t('Link')}</dt>
 			<dd title={task.url}>{task.url}</dd>
 			<dt>{t('Saved to')}</dt>
 			<dd title={task.path ?? task.dir}>{task.path ?? task.dir}</dd>
+			<dt>{t('Added')}</dt>
+			<dd class="num">{date(task.added_at)}</dd>
 			<dt>{t('Downloaded')}</dt>
-			<dd>
+			<dd class="num">
 				{r.size ? t('{a} of {b}', { a: bytes(r.received), b: bytes(r.size) }) : bytes(r.received)}{r.fraction !==
 				null
-					? ` (${percent(r.fraction)})`
+					? ` · ${percent(r.fraction)}`
 					: ''}
 			</dd>
 			<dt>{t('Speed')}</dt>
-			<dd>{speed(r.speed) || '–'}{r.eta !== null ? ` · ${t('{time} left', { time: duration(r.eta) })}` : ''}</dd>
-			<dt>{t('Connections')}</dt>
-			<dd>{t('{a} of {b}', { a: r.live?.connections ?? 0, b: task.connections })}</dd>
+			<dd class="num">{speed(r.speed) || '–'}{r.eta !== null ? ` · ${t('{time} left', { time: duration(r.eta) })}` : ''}</dd>
 			{#if task.error}
-				<dt>{t('Error')}</dt>
+				<dt>{t('Problem')}</dt>
 				<dd class="error" title={task.error}>{task.error}</dd>
 			{/if}
 		</dl>
 		<form class="inline" onsubmit={applyLimit}>
 			<label for="limit">{t('Speed limit')}</label>
 			<Input id="limit" inputmode="numeric" bind:value={limitKb} placeholder={t('none')} />
-			<span class="unit">KB/s</span>
-			<Button type="submit">{t('Set')}</Button>
+			<Text variant="caption" mono inline>KB/s</Text>
+			<Button type="submit">{t('Apply')}</Button>
 		</form>
 		{#if task.error_kind === 'auth'}
 			<form class="inline login" onsubmit={signIn}>
-				<label for="user">{t('Login')}</label>
+				<label for="user">{t('Sign in')}</label>
 				<Input id="user" bind:value={user} placeholder={t('user name')} autocomplete="username" />
 				<Input
 					type="password"
@@ -207,33 +214,39 @@
 					autocomplete="current-password"
 					label={t('Password')}
 				/>
-				<span title={t('Downloads from this site log in by themselves')}>
+				<span title={t('Downloads from this site sign in by themselves')}>
 					<Checkbox bind:checked={remember}>{t('Remember')}</Checkbox>
 				</span>
-				<Button type="submit" disabled={!user}>{t('Continue')}</Button>
+				<Button type="submit" variant="primary" disabled={!user}>{t('Sign in')}</Button>
 			</form>
 		{/if}
 		{#if task.status !== 'done'}
 			<form class="inline two" class:attention={task.error_kind === 'expired'} onsubmit={refresh}>
 				<label for="newurl">{t('New link')}</label>
-				<Input id="newurl" type="url" bind:value={newUrl} placeholder={t('Paste a fresh link to the same file')} />
-				<Button type="submit" disabled={refreshing || !newUrl.trim()}>{t('Refresh')}</Button>
+				<Input id="newurl" type="url" bind:value={newUrl} placeholder={t('A fresh link to the same file')} />
+				<Button type="submit" disabled={refreshing || !newUrl.trim()}>{t('Use it')}</Button>
 			</form>
 			<div class="inline two">
 				<span></span>
-				<span class="hint">{t('or open its page and start the download again there:')}</span>
-				<Button
-					onclick={() =>
-						refreshInBrowser(task.id)
-							.then(() => onerror(t('Waiting for the browser: start the download again on the page')))
-							.catch((e) => onerror(String(e)))}>{t('In browser')}</Button
-				>
+				<span>
+					<Button
+						variant="link"
+						onclick={() =>
+							refreshInBrowser(task.id)
+								.then(() => onerror(t('Waiting for the browser: start the download again on the page')))
+								.catch((e) => onerror(String(e)))}>{t('Get a fresh link from the browser')}</Button
+					>
+				</span>
 			</div>
 		{/if}
 	</div>
 	<div class="charts">
-		<canvas bind:this={graph} class="graph" aria-label={t('Speed over the last minute')}></canvas>
-		<canvas bind:this={map} class="map" aria-label={t('Segment map')}></canvas>
+		<Text variant="label">{t('Speed, last minute')}</Text>
+		<canvas bind:this={graph} class="graph" aria-label={t('Speed, last minute')}></canvas>
+		<Text variant="label">
+			{t('Segments')} · {t('{a} of {b} connections', { a: r.live?.connections ?? 0, b: task.connections })}
+		</Text>
+		<canvas bind:this={map} class="map" aria-label={t('Segments')}></canvas>
 	</div>
 </section>
 
@@ -241,15 +254,33 @@
 	.pane {
 		box-sizing: border-box;
 		display: grid;
-		grid-template-columns: minmax(320px, 1fr) minmax(256px, 1.1fr);
-		gap: var(--space-4);
+		grid-template-columns: minmax(320px, 1fr) minmax(256px, 1fr);
+		grid-template-rows: auto 1fr;
+		column-gap: var(--space-6);
+		row-gap: var(--space-3);
 		height: 100%;
-		padding: var(--space-3);
-		border-top: 1px solid var(--line);
+		padding: var(--space-3) var(--space-2) var(--space-4) var(--space-4);
+		border-top: 1px solid var(--line-strong);
 		background: var(--panel);
 		overflow: hidden;
 	}
-	/* Error, login and new-link rows can outgrow the pane: scroll rather than cut off. */
+	header {
+		grid-column: 1 / -1;
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		min-width: 0;
+	}
+	h2 {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		font-size: var(--text-h2);
+		font-weight: 600;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	/* Problem, sign-in and new-link rows can outgrow the pane: scroll rather than cut off. */
 	.facts {
 		display: flex;
 		flex-direction: column;
@@ -260,27 +291,29 @@
 	.facts > * {
 		flex: none;
 	}
-	h2 {
-		font-size: var(--text-h2);
-		font-weight: 600;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
 	dl {
 		display: grid;
-		grid-template-columns: 92px 1fr;
+		grid-template-columns: 96px 1fr;
 		gap: var(--space-1) var(--space-2);
 		margin: 0;
 	}
-	dt {
+	dt,
+	.inline label {
 		color: var(--muted);
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		letter-spacing: 0.06em;
+		line-height: 19px;
+		text-transform: uppercase;
 	}
 	dd {
 		margin: 0;
-		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.num {
+		font-family: var(--font-mono);
 		font-variant-numeric: tabular-nums;
 	}
 	.error {
@@ -288,30 +321,26 @@
 	}
 	.inline {
 		display: grid;
-		grid-template-columns: 92px 1fr auto auto;
+		grid-template-columns: 96px 1fr auto auto;
 		align-items: center;
 		gap: var(--space-2);
 	}
 	.inline.two {
-		grid-template-columns: 92px 1fr auto;
+		grid-template-columns: 96px 1fr auto;
 	}
 	.inline.login {
-		grid-template-columns: 92px 1fr 1fr auto auto;
-	}
-	.inline label,
-	.unit,
-	.hint {
-		color: var(--muted);
+		grid-template-columns: 96px 1fr 1fr auto auto;
 	}
 	.attention label {
 		color: var(--accent);
 	}
 	.charts {
 		display: grid;
-		grid-template-rows: 1fr var(--space-6);
-		gap: var(--space-2);
+		grid-template-rows: auto 1fr auto var(--space-6);
+		gap: var(--space-1);
 		min-width: 0;
 		min-height: 0;
+		padding-right: var(--space-2);
 	}
 	canvas {
 		box-sizing: border-box;
@@ -319,7 +348,6 @@
 		height: 100%;
 		min-height: 0;
 		border: 1px solid var(--line);
-		border-radius: var(--radius-1);
 		background: var(--bg);
 	}
 </style>
