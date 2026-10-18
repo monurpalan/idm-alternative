@@ -3,9 +3,8 @@
 An open-source download manager for Windows that aims to match Internet Download Manager
 feature for feature, built by combining the best ideas from existing open-source projects.
 
-> **Status:** usable day to day on Windows. The engine, the desktop app, browser integration
-> and video downloads work and are installed from a per-user installer; polishing
-> is nearly done.
+> **Status:** usable day to day on Windows. The engine, the desktop app, browser integration,
+> video, torrents and an MCP server work and are installed from a per-user installer.
 
 ![The download list with the details of a running download: speed graph and segment map](docs/screenshots/main.png)
 
