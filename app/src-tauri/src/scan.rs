@@ -55,7 +55,11 @@ pub fn words(command: &str) -> Vec<String> {
 /// Scans `file` with `scanner` (empty: Defender).
 pub async fn scan(file: &Path, scanner: &str) -> Result<Verdict, String> {
     let path = file.to_string_lossy();
-    let (program, args, is_defender) = if scanner.trim().is_empty() {
+    let (program, args, is_defender) = if scanner.trim().is_empty() && !cfg!(windows) {
+        // ClamAV: 1 = a threat found, like Defender's 2.
+        let args = ["--no-summary", &*path].map(str::to_owned).to_vec();
+        return run_scanner(PathBuf::from("clamscan"), args, Some(1)).await;
+    } else if scanner.trim().is_empty() {
         let exe = defender().ok_or("Microsoft Defender's scanner (MpCmdRun.exe) was not found")?;
         let args = ["-Scan", "-ScanType", "3", "-File", &path]
             .map(str::to_owned)
@@ -73,6 +77,15 @@ pub async fn scan(file: &Path, scanner: &str) -> Result<Verdict, String> {
         }
         (program, args, false)
     };
+    run_scanner(program, args, is_defender.then_some(2)).await
+}
+
+/// Runs a scanner; `threat` is its exit code for "found something".
+async fn run_scanner(
+    program: PathBuf,
+    args: Vec<String>,
+    threat: Option<i32>,
+) -> Result<Verdict, String> {
     let mut cmd = tokio::process::Command::new(&program);
     cmd.args(&args)
         .stdin(std::process::Stdio::null())
@@ -86,8 +99,7 @@ pub async fn scan(file: &Path, scanner: &str) -> Result<Verdict, String> {
         .map_err(|e| format!("could not run {}: {e}", program.display()))?;
     Ok(match status.code() {
         Some(0) => Verdict::Clean,
-        // MpCmdRun: 2 = threats found.
-        Some(2) if is_defender => Verdict::Threat,
+        Some(code) if Some(code) == threat => Verdict::Threat,
         Some(code) => Verdict::Other(code),
         None => Verdict::Other(-1),
     })

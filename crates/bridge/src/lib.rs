@@ -10,26 +10,26 @@
 //! app wrote into its data folder, which only the same Windows user can read. Nothing
 //! listens on a network port.
 
-#[cfg(windows)]
 mod client;
 mod frame;
 mod message;
-#[cfg(windows)]
 mod pipe;
 #[cfg(windows)]
 mod register;
+#[cfg(unix)]
+#[path = "register_unix.rs"]
+mod register;
 #[cfg(windows)]
 mod torrent_links;
+#[cfg(unix)]
+#[path = "torrent_links_unix.rs"]
+mod torrent_links;
 
-#[cfg(windows)]
 pub use client::Client;
 pub use frame::{MAX_FRAME, read_frame, read_json, write_frame, write_json};
 pub use message::{AddDownload, Capture, Link, MediaCapture, MediaItem, Reply, Request};
-#[cfg(windows)]
-pub use pipe::{connect, serve};
-#[cfg(windows)]
+pub use pipe::{Conn, connect, serve};
 pub use register::{manifest_dir, register, registered_manifest, unregister};
-#[cfg(windows)]
 pub use torrent_links::{
     CLASSES, register_torrent_links, torrent_links_registered, unregister_torrent_links,
 };
@@ -65,17 +65,30 @@ pub enum Error {
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// The app's data folder: `IDMA_HOME` when set (a separate profile for trying things out),
-/// otherwise `%APPDATA%\<app id>`, where Tauri keeps it.
+/// otherwise where Tauri keeps it: `%APPDATA%\<app id>` on Windows,
+/// `$XDG_DATA_HOME/<app id>` (`~/.local/share/<app id>`) elsewhere.
 pub fn data_dir() -> Option<PathBuf> {
     if let Some(home) = std::env::var_os("IDMA_HOME") {
         return Some(PathBuf::from(home));
     }
-    std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join(APP_ID))
+    if cfg!(windows) {
+        return std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join(APP_ID));
+    }
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))?;
+    Some(data.join(APP_ID))
 }
 
-/// The pipe for this Windows user and data folder: `\\.\pipe\idm-alternative-<user>-<hash>`.
-/// Different users, and different `IDMA_HOME` profiles, get different pipes.
+/// The channel for this user and data folder. On Windows a named pipe,
+/// `\\.\pipe\idm-alternative-<user>-<hash>`; elsewhere a socket in the data folder, which only
+/// this user can open. Different users, and different `IDMA_HOME` profiles, get different
+/// ones.
 pub fn pipe_name(data_dir: &Path) -> String {
+    if !cfg!(windows) {
+        return data_dir.join("bridge.sock").to_string_lossy().into_owned();
+    }
     let user = std::env::var("USERNAME").unwrap_or_default();
     // FNV-1a: stable across runs and builds, unlike the standard hasher.
     let hash = data_dir
@@ -99,7 +112,14 @@ pub fn new_token(data_dir: &Path) -> Result<String> {
     getrandom::fill(&mut bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
     let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     std::fs::create_dir_all(data_dir)?;
-    std::fs::write(data_dir.join(TOKEN_FILE), &token)?;
+    let path = data_dir.join(TOKEN_FILE);
+    std::fs::write(&path, &token)?;
+    // Windows keeps the data folder to its user; elsewhere the file itself has to be.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    }
     Ok(token)
 }
 

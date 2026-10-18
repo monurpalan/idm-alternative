@@ -18,7 +18,7 @@ struct Source {
     exe: &'static str,
     /// GitHub's API answer for the latest release, which names its tag.
     latest: &'static str,
-    /// What the release offers for Windows x64.
+    /// What the release offers for this system (Windows or Linux, x64).
     url: &'static str,
     /// The release's checksum file.
     sums: &'static str,
@@ -28,6 +28,7 @@ struct Source {
     zip_member: Option<&'static str>,
 }
 
+#[cfg(windows)]
 fn source(tool: Tool) -> Source {
     match tool {
         Tool::Ytdlp => Source {
@@ -45,6 +46,28 @@ fn source(tool: Tool) -> Source {
             sums: "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip.sha256sum",
             file: "deno-x86_64-pc-windows-msvc.zip",
             zip_member: Some("deno.exe"),
+        },
+    }
+}
+
+#[cfg(not(windows))]
+fn source(tool: Tool) -> Source {
+    match tool {
+        Tool::Ytdlp => Source {
+            exe: "yt-dlp",
+            latest: "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
+            url: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux",
+            sums: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS",
+            file: "yt-dlp_linux",
+            zip_member: None,
+        },
+        Tool::Deno => Source {
+            exe: "deno",
+            latest: "https://api.github.com/repos/denoland/deno/releases/latest",
+            url: "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip",
+            sums: "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip.sha256sum",
+            file: "deno-x86_64-unknown-linux-gnu.zip",
+            zip_member: Some("deno"),
         },
     }
 }
@@ -143,7 +166,7 @@ pub async fn install(data: &Path, tool: Tool, opts: &Options) -> Result<PathBuf,
         .await
         .map_err(|e| format!("could not read the release's checksums: {e}"))?;
     let hash = checksum_for(&sums, src.file)
-        .ok_or_else(|| "the release lists no checksum for Windows".to_owned())?;
+        .ok_or_else(|| "the release lists no checksum for this system".to_owned())?;
 
     let download = tools.join(format!("{}.download", src.file));
     std::fs::remove_file(&download).ok();
@@ -183,6 +206,12 @@ pub async fn install(data: &Path, tool: Tool, opts: &Options) -> Result<PathBuf,
             std::fs::remove_file(&download).ok();
             unzipped?;
         }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fresh, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| e.to_string())?;
     }
     if version(&fresh).await.is_none() {
         std::fs::remove_file(&fresh).ok();

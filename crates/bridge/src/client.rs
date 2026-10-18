@@ -5,9 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use tokio::net::windows::named_pipe::NamedPipeClient;
-
-use crate::{Reply, Request, connect, read_frame, write_frame};
+use crate::{Conn, Reply, Request, connect, read_frame, write_frame};
 
 /// How long to wait for a freshly started app to open its pipe.
 const STARTUP_WAIT: Duration = Duration::from_secs(15);
@@ -17,7 +15,7 @@ type Result<T> = std::result::Result<T, String>;
 pub struct Client {
     data: PathBuf,
     pipe: String,
-    conn: Option<NamedPipeClient>,
+    conn: Option<Conn>,
 }
 
 impl Client {
@@ -64,7 +62,7 @@ impl Client {
 }
 
 /// Connects to the running app, or starts it and waits until it listens.
-async fn open(data: &Path, pipe: &str) -> Result<NamedPipeClient> {
+async fn open(data: &Path, pipe: &str) -> Result<Conn> {
     if let Ok(c) = try_connect(data, pipe).await {
         return Ok(c);
     }
@@ -82,7 +80,7 @@ async fn open(data: &Path, pipe: &str) -> Result<NamedPipeClient> {
     }
 }
 
-async fn try_connect(data: &Path, pipe: &str) -> Result<NamedPipeClient> {
+async fn try_connect(data: &Path, pipe: &str) -> Result<Conn> {
     // Read on every attempt: a freshly started app writes a new token.
     let token = crate::read_token(data).map_err(|e| e.to_string())?;
     connect(pipe, &token).await.map_err(|e| e.to_string())
@@ -95,12 +93,17 @@ fn app_path() -> Result<PathBuf> {
         return Ok(PathBuf::from(p));
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    Ok(exe.with_file_name("idm-alternative.exe"))
+    Ok(exe.with_file_name(if cfg!(windows) {
+        "idm-alternative.exe"
+    } else {
+        "idm-alternative"
+    }))
 }
 
 /// Makes our stdin, stdout and stderr non-inheritable. Windows hands every inheritable
 /// handle to a child process; the app would keep the caller's end of our stdout open long
 /// after we exit, and the caller (a browser, an MCP client) would never see it close.
+#[cfg(windows)]
 #[allow(unsafe_code)]
 fn keep_std_handles() {
     use windows_sys::Win32::Foundation::{
@@ -121,6 +124,24 @@ fn keep_std_handles() {
     }
 }
 
+#[cfg(unix)]
+fn launch_app() -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    let path = app_path()?;
+    // Its own process group, and not our stdin/stdout: the caller waits for those to close,
+    // and the app outlives us.
+    std::process::Command::new(&path)
+        .arg("--hidden")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .process_group(0)
+        .spawn()
+        .map(drop)
+        .map_err(|e| format!("could not start the app ({}): {e}", path.display()))
+}
+
+#[cfg(windows)]
 fn launch_app() -> Result<()> {
     use std::os::windows::process::CommandExt;
     const DETACHED_PROCESS: u32 = 0x0000_0008;

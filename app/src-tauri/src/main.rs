@@ -535,7 +535,6 @@ async fn apply_settings(handle: &AppHandle, new: Settings) -> CmdResult<Settings
     if new.watch_clipboard != old.watch_clipboard {
         watch_clipboard(handle, new.watch_clipboard);
     }
-    #[cfg(windows)]
     if new.torrent_links != old.torrent_links {
         let exe = std::env::current_exe().map_err(msg)?;
         if new.torrent_links {
@@ -627,7 +626,11 @@ fn set_browser_integration(data: &Path, on: bool) -> CmdResult<()> {
         return idma_bridge::unregister(data).map_err(msg);
     }
     let exe = std::env::current_exe().map_err(msg)?;
-    let host = exe.with_file_name("idma-host.exe");
+    let host = exe.with_file_name(if cfg!(windows) {
+        "idma-host.exe"
+    } else {
+        "idma-host"
+    });
     if !host.exists() {
         return Err(format!(
             "the browser host is missing next to the app ({})",
@@ -635,21 +638,34 @@ fn set_browser_integration(data: &Path, on: bool) -> CmdResult<()> {
         ));
     }
     let target = if std::env::var_os("IDMA_HOME").is_some() {
-        let script = data.join("idma-host.cmd");
-        std::fs::write(
-            &script,
-            format!(
-                "@echo off
-set \"IDMA_HOME={}\"
-set \"IDMA_APP={}\"
-\"{}\" %*
-",
-                data.display(),
-                exe.display(),
-                host.display()
-            ),
-        )
-        .map_err(msg)?;
+        let (script, text) = if cfg!(windows) {
+            (
+                data.join("idma-host.cmd"),
+                format!(
+                    "@echo off\nset \"IDMA_HOME={}\"\nset \"IDMA_APP={}\"\n\"{}\" %*\n",
+                    data.display(),
+                    exe.display(),
+                    host.display()
+                ),
+            )
+        } else {
+            (
+                data.join("idma-host.sh"),
+                format!(
+                    "#!/bin/sh\nexport IDMA_HOME='{}'\nexport IDMA_APP='{}'\nexec '{}' \"$@\"\n",
+                    data.display(),
+                    exe.display(),
+                    host.display()
+                ),
+            )
+        };
+        std::fs::write(&script, text).map_err(msg)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+                .map_err(msg)?;
+        }
         script
     } else {
         host

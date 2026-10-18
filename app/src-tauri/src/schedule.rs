@@ -226,11 +226,11 @@ pub async fn perform(handle: &AppHandle, action: WhenDone) {
             Ok(())
         }
         WhenDone::Sleep => suspend(),
-        WhenDone::Hibernate => shutdown(&["/h"]),
+        WhenDone::Hibernate => power(Power::Hibernate),
         WhenDone::Shutdown => {
-            // Closed first, so the list is saved before Windows ends the app.
+            // Closed first, so the list is saved before the system ends the app.
             handle.state::<App>().manager.close().await;
-            shutdown(&["/s", "/t", "0"])
+            power(Power::Off)
         }
     };
     if let Err(e) = result {
@@ -243,15 +243,28 @@ pub async fn perform(handle: &AppHandle, action: WhenDone) {
     }
 }
 
-fn shutdown(args: &[&str]) -> Result<(), String> {
-    std::process::Command::new("shutdown.exe")
+enum Power {
+    Hibernate,
+    Off,
+}
+
+/// Windows: `shutdown.exe`; elsewhere systemd's `systemctl`, which lets the user at the
+/// seat do this without a password.
+fn power(what: Power) -> Result<(), String> {
+    let (program, args): (&str, &[&str]) = match (cfg!(windows), what) {
+        (true, Power::Hibernate) => ("shutdown.exe", &["/h"]),
+        (true, Power::Off) => ("shutdown.exe", &["/s", "/t", "0"]),
+        (false, Power::Hibernate) => ("systemctl", &["hibernate"]),
+        (false, Power::Off) => ("systemctl", &["poweroff"]),
+    };
+    std::process::Command::new(program)
         .args(args)
         .status()
         .map_err(|e| e.to_string())
         .and_then(|s| {
             s.success()
                 .then_some(())
-                .ok_or_else(|| format!("shutdown.exe {}", s))
+                .ok_or_else(|| format!("{program} {s}"))
         })
 }
 
@@ -271,7 +284,15 @@ fn suspend() -> Result<(), String> {
 
 #[cfg(not(windows))]
 fn suspend() -> Result<(), String> {
-    Err("not supported here".into())
+    std::process::Command::new("systemctl")
+        .arg("suspend")
+        .status()
+        .map_err(|e| e.to_string())
+        .and_then(|s| {
+            s.success()
+                .then_some(())
+                .ok_or_else(|| format!("systemctl {s}"))
+        })
 }
 
 #[cfg(test)]
