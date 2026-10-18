@@ -902,6 +902,11 @@ async fn receive(
         // now: it is closed and asked again in windows.
         let rewindow =
             !finished && asked_end.saturating_sub(ctx.window_end(*pos, u64::MAX)) > MIN_WINDOW;
+        if finished && *pos == asked_end {
+            // Everything asked for arrived: reading the end of the body lets the connection
+            // be reused for the next request.
+            let _ = tokio::time::timeout(Duration::from_millis(100), body.next()).await;
+        }
         if finished || rewindow {
             // Closed before waiting for the limit, so the buffers stop filling: whatever
             // the server sent past this point is lost.
