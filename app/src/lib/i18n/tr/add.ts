@@ -6,6 +6,11 @@ export default {
 	Address: 'Adres',
 	'https://   (photo[001-100].jpg adds a batch)': 'https://   (foto[001-100].jpg toplu ekler)',
 	'Asking the server…': 'Sunucuya soruluyor…',
+	'Reading the torrent… (a magnet link asks peers, which can take a minute)':
+		'Torrent okunuyor… (magnet linki eşlere sorulur, bir dakika sürebilir)',
+	'Torrent: {n} files, {size}': 'Torrent: {n} dosya, {size}',
+	'Files ({size} chosen)': 'Dosyalar ({size} seçili)',
+	All: 'Tümü',
 	'Batch: {n} downloads': 'Toplu: {n} indirme',
 	'The server asks for a user name and password ({realm}).':
 		'Sunucu kullanıcı adı ve parola istiyor ({realm}).',

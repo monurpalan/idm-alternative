@@ -1,5 +1,7 @@
 // Turkish texts for the settings part of the interface, keyed by the English text.
 export default {
+	'Open magnet links and .torrent files with this app (Windows may ask which app to use)':
+		'Magnet linklerini ve .torrent dosyalarını bu uygulamayla aç (Windows hangi uygulamanın kullanılacağını sorabilir)',
 	Save: 'Kaydet',
 	'Loading…': 'Yükleniyor…',
 	Downloads: 'İndirmeler',

@@ -24,6 +24,9 @@ feature for feature, built by combining the best ideas from existing open-source
   2026-10-18 with public pages: YouTube, X, TikTok, Instagram, Facebook, Twitch, Dailymotion,
   Bilibili, VK, Bluesky, SoundCloud, Bandcamp, Internet Archive, PeerTube, Streamable and Odysee
   worked without a login; Vimeo and Reddit asked for one.
+- **Torrents:** magnet links and `.torrent` files (librqbit) in the same list and queue, with
+  a choice of files; nothing seeds after a download is done. Opening magnet links and
+  `.torrent` files from Windows is a setting, off by default.
 - **Like IDM:** categories, a queue with automatic retries, a scheduler, "when done" sleep or
   shut down, batch downloads (`photo[001-100].jpg`), clipboard monitoring, saved logins per
   site, a virus scan when a download finishes, a small progress window per download, and a

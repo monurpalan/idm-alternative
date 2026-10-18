@@ -18,6 +18,8 @@ mod message;
 mod pipe;
 #[cfg(windows)]
 mod register;
+#[cfg(windows)]
+mod torrent_links;
 
 #[cfg(windows)]
 pub use client::Client;
@@ -27,6 +29,10 @@ pub use message::{AddDownload, Capture, Link, MediaCapture, MediaItem, Reply, Re
 pub use pipe::{connect, serve};
 #[cfg(windows)]
 pub use register::{manifest_dir, register, registered_manifest, unregister};
+#[cfg(windows)]
+pub use torrent_links::{
+    CLASSES, register_torrent_links, torrent_links_registered, unregister_torrent_links,
+};
 
 use std::path::{Path, PathBuf};
 

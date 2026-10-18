@@ -14,6 +14,7 @@ pub mod batch;
 mod db;
 mod secret;
 mod task;
+pub mod torrent;
 pub mod ytdlp;
 
 use std::collections::HashMap;
@@ -31,7 +32,9 @@ use tokio::task::JoinHandle;
 use db::{Db, Insert};
 pub use task::{
     Category, ErrorKind, NewTask, Status, Stream, Subtitle, Task, TaskId, TaskProgress,
+    TorrentChoice,
 };
+pub use torrent::{TorrentConfig, TorrentFile, TorrentInfo};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -77,6 +80,8 @@ pub struct Config {
     /// yt-dlp, for pages of sites such as YouTube; and deno, which it needs there.
     pub ytdlp: Option<PathBuf>,
     pub deno: Option<PathBuf>,
+    /// Torrents and magnet links; read when the first one starts.
+    pub torrent: TorrentConfig,
 }
 
 impl Default for Config {
@@ -93,6 +98,7 @@ impl Default for Config {
             ffmpeg: None,
             ytdlp: None,
             deno: None,
+            torrent: TorrentConfig::default(),
         }
     }
 }
@@ -145,6 +151,7 @@ struct Inner {
     naming: tokio::sync::Mutex<()>,
     /// Downloads waiting to be retried after a failure that may pass.
     retries: Mutex<HashMap<TaskId, Retry>>,
+    torrents: torrent::Torrents,
     closed: AtomicBool,
 }
 
@@ -274,7 +281,9 @@ impl Manager {
         if requeued > 0 {
             tracing::info!(requeued, "resuming downloads interrupted by the last close");
         }
+        let torrents = torrent::Torrents::new(config.torrent.clone(), config.dir.clone());
         let inner = Arc::new(Inner {
+            torrents,
             db,
             events: broadcast::channel(1024).0,
             global: Limiter::new(None),
@@ -423,6 +432,10 @@ impl Manager {
         self.inner.db.delete(id).await?;
         if delete_files && let Some(path) = &task.path {
             delete_files_of(path);
+            // A torrent with several files: the folder chosen for it on the first start.
+            if torrent::is_torrent(&task.url) && path.is_dir() {
+                std::fs::remove_dir_all(path).ok();
+            }
         }
         self.inner.emit(Event::Removed(id));
         self.inner.fill().await
@@ -519,6 +532,17 @@ impl Manager {
     /// Limit for all downloads together, bytes per second; takes effect at once.
     pub fn set_global_limit(&self, rate: Option<u64>) {
         self.inner.global.set_rate(rate);
+        self.inner.torrents.set_limit(rate);
+    }
+
+    /// The name and files of a torrent (a magnet link, or a `.torrent` file on the web or on
+    /// disk), without adding it: for choosing files before the download starts.
+    pub async fn inspect_torrent(&self, url: &str) -> Result<TorrentInfo> {
+        self.inner
+            .torrents
+            .inspect(url)
+            .await
+            .map_err(|e| idma_engine::Error::State(e).into())
     }
 
     pub fn global_limit(&self) -> Option<u64> {
@@ -638,6 +662,7 @@ impl Manager {
         for id in ids {
             self.inner.stop(id, Stop::Shutdown).await;
         }
+        self.inner.torrents.close().await;
         self.inner.db.close().await;
     }
 }
@@ -935,6 +960,102 @@ impl Inner {
         Ok(outcome)
     }
 
+    /// A torrent: on the first start its files are listed (for a magnet link, asked from
+    /// peers) to pick where they go: a single file straight into the download folder, several
+    /// into a folder named after the torrent. The choice is kept for later starts.
+    async fn download_torrent(
+        &self,
+        mut task: Task,
+        conflict: Conflict,
+        limit: Option<u64>,
+        cancel: &CancellationToken,
+    ) -> Result<Outcome> {
+        let started = std::time::Instant::now();
+        let state = |e: String| -> Error { idma_engine::Error::State(e).into() };
+        let mut stream = task.stream.clone().unwrap_or_default();
+        let mut choice = stream.torrent.clone().unwrap_or_default();
+        let folder = match choice.folder.clone() {
+            Some(f) => f,
+            None => {
+                let info = tokio::select! {
+                    i = self.torrents.inspect(&task.url) => i.map_err(state)?,
+                    () = cancel.cancelled() => return Err(idma_engine::Error::Cancelled.into()),
+                };
+                let chosen: Vec<&TorrentFile> = match &choice.files {
+                    Some(ids) => ids.iter().filter_map(|&i| info.files.get(i)).collect(),
+                    None => info.files.iter().collect(),
+                };
+                let size: u64 = chosen.iter().map(|f| f.size).sum();
+                std::fs::create_dir_all(&task.dir).map_err(idma_engine::Error::from)?;
+                let _one_at_a_time = self.naming.lock().await;
+                let taken: std::collections::HashSet<PathBuf> =
+                    self.db.paths_except(task.id).await?.into_iter().collect();
+                let free = |p: &Path| !p.exists() && !taken.contains(p);
+                let base = idma_engine::name::sanitize(&info.name);
+                let (folder, path, name) = match info.files.as_slice() {
+                    // One file: straight into the folder unless the name is taken there.
+                    [only] if free(&task.dir.join(&only.name)) => (
+                        task.dir.clone(),
+                        task.dir.join(&only.name),
+                        only.name.clone(),
+                    ),
+                    _ => {
+                        let folder = idma_engine::target_avoiding(
+                            &task.dir,
+                            &base,
+                            &task.url,
+                            conflict,
+                            |p| taken.contains(p),
+                        );
+                        let name = folder
+                            .file_name()
+                            .map_or_else(|| base.clone(), |n| n.to_string_lossy().into_owned());
+                        let path = match info.files.as_slice() {
+                            [only] => folder.join(&only.name),
+                            _ => folder.clone(),
+                        };
+                        (folder, path, name)
+                    }
+                };
+                let category = match chosen.as_slice() {
+                    [one] => Category::for_name(&one.name),
+                    _ => Category::for_name(&name),
+                };
+                self.db
+                    .set_target(task.id, &name, &path, Some(size), category)
+                    .await?;
+                choice.folder = Some(folder.clone());
+                stream.torrent = Some(choice.clone());
+                self.db.set_stream(task.id, &stream).await?;
+                task.name = Some(name);
+                task.path = Some(path);
+                task.size = Some(size);
+                task.category = category;
+                task.stream = Some(stream);
+                self.emit(Event::Updated(task.clone()));
+                folder
+            }
+        };
+        self.torrents.set_limit(self.global.rate());
+        let (tx, rx) = watch::channel(Progress::default());
+        let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
+        let result = self
+            .torrents
+            .download(&task.url, &folder, choice.files, limit, &tx, cancel)
+            .await;
+        drop(tx);
+        reporter.await.ok();
+        match result {
+            Ok(done) => Ok(Outcome {
+                size: done.size,
+                resumed_from: 0,
+                elapsed: started.elapsed(),
+            }),
+            Err(_) if cancel.is_cancelled() => Err(idma_engine::Error::Cancelled.into()),
+            Err(e) => Err(state(e)),
+        }
+    }
+
     /// A page of a site yt-dlp knows: yt-dlp downloads the chosen format; the file's real
     /// extension is known only at the end.
     async fn download_page(
@@ -1075,6 +1196,10 @@ impl Inner {
             return self
                 .download_page(task, &format, &tools, conflict, cancel)
                 .await;
+        }
+        if torrent::is_torrent(&task.url) {
+            let limit = task.speed_limit;
+            return self.download_torrent(task, conflict, limit, cancel).await;
         }
         if let Some(stream) = task.stream.clone() {
             return self

@@ -19,6 +19,13 @@ fn main() -> ExitCode {
             eprintln!("idma-host: APPDATA is not set");
             return ExitCode::FAILURE;
         };
+        // Opening magnet links and .torrent files, when the user had turned it on.
+        if let Ok(exe) = std::env::current_exe() {
+            let app = exe.with_file_name("idm-alternative.exe");
+            if let Err(e) = idma_bridge::unregister_torrent_links(&app, idma_bridge::CLASSES) {
+                eprintln!("idma-host: {e}");
+            }
+        }
         return match idma_bridge::unregister(&data) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {

@@ -51,6 +51,9 @@ pub struct Settings {
     pub progress_windows: bool,
     /// "system" (Windows' display language), "en" or "tr".
     pub language: String,
+    /// Open magnet links and `.torrent` files with the app. Off unless the user turns it
+    /// on: another torrent client may own them.
+    pub torrent_links: bool,
 }
 
 impl Default for Settings {
@@ -76,6 +79,7 @@ impl Default for Settings {
             scanner: String::new(),
             progress_windows: false,
             language: "system".into(),
+            torrent_links: false,
         }
     }
 }

@@ -8,11 +8,14 @@
 		addTask,
 		batchPreview,
 		getSettings,
+		inspectTorrent,
+		isTorrent,
 		probe,
 		type Batch,
 		type Headers,
 		type Login,
-		type Probe
+		type Probe,
+		type TorrentInfo
 	} from '../api.ts';
 	import { bytes } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
@@ -39,6 +42,12 @@
 	let info = $state<Probe | null>(null);
 	/** The address has ranges (`photo[001-100].jpg`): it stands for this many downloads. */
 	let batch = $state<Batch | null>(null);
+	/** A magnet link or `.torrent` file: its files, and which of them to download. */
+	let torrent = $state<TorrentInfo | null>(null);
+	let chosen = $state<boolean[]>([]);
+	const chosenSize = $derived(
+		torrent ? torrent.files.reduce((sum, f, i) => (chosen[i] ? sum + f.size : sum), 0) : 0
+	);
 	let checking = $state(false);
 	let error = $state<string | null>(null);
 	let busy = $state(false);
@@ -69,7 +78,16 @@
 		error = null;
 		info = null;
 		batch = null;
+		torrent = null;
 		try {
+			if (isTorrent(u)) {
+				const tor = await inspectTorrent(u);
+				if (asked !== u) return;
+				torrent = tor;
+				chosen = tor.files.map(() => true);
+				name = tor.name;
+				return;
+			}
 			const b = await batchPreview(u);
 			if (asked !== u) return;
 			if (b) {
@@ -100,6 +118,24 @@
 		try {
 			if (batch) {
 				await addBatch({ url: u, dir: dir || null, start, login: login(), headers });
+				onclose();
+				return;
+			}
+			if (torrent || isTorrent(u)) {
+				const all = !torrent || chosen.every((c) => c);
+				await addTask({
+					url: u,
+					name: null,
+					dir: dir || null,
+					start,
+					login: null,
+					stream: {
+						audio: null,
+						torrent: {
+							files: all ? null : chosen.flatMap((c, i) => (c ? [i] : []))
+						}
+					}
+				});
 				onclose();
 				return;
 			}
@@ -136,7 +172,8 @@
 		<label>
 			{t('Address')}
 			<input
-				type="url"
+				type="text"
+				inputmode="url"
 				bind:value={url}
 				onblur={() => check()}
 				onkeydown={(e) => {
@@ -151,10 +188,14 @@
 		</label>
 
 		<div class="info" aria-live="polite">
-			{#if checking}
+			{#if checking && isTorrent(url)}
+				{t('Reading the torrent… (a magnet link asks peers, which can take a minute)')}
+			{:else if checking}
 				{t('Asking the server…')}
 			{:else if error}
 				<span class="error">{error}</span>
+			{:else if torrent}
+				{t('Torrent: {n} files, {size}', { n: torrent.files.length, size: bytes(torrent.size) })}
 			{:else if batch}
 				{t('Batch: {n} downloads', { n: batch.count })} ·
 				<span class="ends" title={batch.first}>{batch.first.split('/').pop()}</span>
@@ -174,6 +215,31 @@
 				&nbsp;
 			{/if}
 		</div>
+
+		{#if torrent && torrent.files.length > 1}
+			<fieldset class="files">
+				<legend>
+					{t('Files ({size} chosen)', { size: bytes(chosenSize) })}
+					<button type="button" class="link" onclick={() => (chosen = chosen.map(() => true))}
+						>{t('All')}</button
+					>
+					<button type="button" class="link" onclick={() => (chosen = chosen.map(() => false))}
+						>{t('None')}</button
+					>
+				</legend>
+				<ul>
+					{#each torrent.files as f, i (i)}
+						<li>
+							<label>
+								<input type="checkbox" bind:checked={chosen[i]} />
+								<span class="fname" title={f.name}>{f.name}</span>
+								<span class="fsize">{bytes(f.size)}</span>
+							</label>
+						</li>
+					{/each}
+				</ul>
+			</fieldset>
+		{/if}
 
 		{#if info?.needs_login || user}
 			<div class="login">
@@ -198,7 +264,7 @@
 			<input
 				bind:value={name}
 				placeholder={batch ? t('Each from its server') : t('Name from the server')}
-				disabled={!info || info.needs_login}
+				disabled={!info || info.needs_login || !!torrent}
 			/>
 		</label>
 
@@ -215,7 +281,11 @@
 			<button type="button" onclick={() => add(false)} disabled={busy || !url.trim()}>
 				{t('Download later')}
 			</button>
-			<button type="submit" class="primary" disabled={busy || !url.trim()}>
+			<button
+				type="submit"
+				class="primary"
+				disabled={busy || !url.trim() || (!!torrent && !chosen.some((c) => c))}
+			>
 				{batch ? t('Start {n} downloads', { n: batch.count }) : t('Start download')}
 			</button>
 		</div>
@@ -297,6 +367,50 @@
 	}
 	.login label {
 		margin-bottom: 0;
+	}
+	.files {
+		border: 1px solid var(--line);
+		border-radius: 5px;
+		margin: 0 0 10px;
+		padding: 4px 8px 6px;
+	}
+	.files legend {
+		color: var(--muted);
+		padding: 0 4px;
+	}
+	.files ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		max-height: 180px;
+		overflow-y: auto;
+	}
+	.files label {
+		flex-direction: row;
+		align-items: center;
+		gap: 6px;
+		margin: 0;
+		color: var(--fg);
+	}
+	.fname {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.fsize {
+		color: var(--muted);
+		font-variant-numeric: tabular-nums;
+	}
+	.link {
+		border: none;
+		background: none;
+		color: var(--accent, inherit);
+		padding: 0 2px;
+		cursor: pointer;
+		font: inherit;
+		text-decoration: underline;
 	}
 	.buttons {
 		display: flex;

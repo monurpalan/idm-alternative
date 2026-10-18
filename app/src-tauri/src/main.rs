@@ -354,6 +354,35 @@ async fn refresh_in_browser(handle: AppHandle, app: State<'_, App>, id: TaskId) 
     opened.map_err(msg)
 }
 
+/// A magnet link or `.torrent` file the app was started with (Windows passes it when the
+/// user opens one and the app handles them); a relative path is taken from `cwd`.
+fn torrent_arg(args: &[String], cwd: &Path) -> Option<String> {
+    args.iter().skip(1).find_map(|a| {
+        if a.to_ascii_lowercase().starts_with("magnet:") {
+            return Some(a.clone());
+        }
+        let path = cwd.join(a);
+        (idma_manager::torrent::is_torrent(a) && path.is_file())
+            .then(|| path.to_string_lossy().into_owned())
+    })
+}
+
+/// Opens "Add download" with the torrent, as for a download from the browser.
+fn offer_torrent(handle: &AppHandle, url: &str) {
+    to_page(
+        handle,
+        "capture",
+        serde_json::json!({ "url": url, "filename": null, "size": null, "headers": null }),
+        true,
+    );
+}
+
+/// A torrent's name and files (a magnet link asks peers for them), for picking files.
+#[tauri::command]
+async fn inspect_torrent(app: State<'_, App>, url: String) -> CmdResult<idma_manager::TorrentInfo> {
+    app.manager.inspect_torrent(&url).await.map_err(msg)
+}
+
 /// What an HLS or DASH stream offers (qualities, audio, subtitles), read with the page's
 /// headers.
 #[tauri::command]
@@ -454,6 +483,16 @@ async fn apply_settings(handle: &AppHandle, new: Settings) -> CmdResult<Settings
     }
     if new.watch_clipboard != old.watch_clipboard {
         watch_clipboard(handle, new.watch_clipboard);
+    }
+    #[cfg(windows)]
+    if new.torrent_links != old.torrent_links {
+        let exe = std::env::current_exe().map_err(msg)?;
+        if new.torrent_links {
+            idma_bridge::register_torrent_links(&exe, idma_bridge::CLASSES)
+        } else {
+            idma_bridge::unregister_torrent_links(&exe, idma_bridge::CLASSES)
+        }
+        .map_err(|e| format!("could not change what opens magnet links: {e}"))?;
     }
     if new.start_with_windows != old.start_with_windows {
         let autostart = handle.autolaunch();
@@ -1406,10 +1445,14 @@ fn main() {
     let _log = init_logging();
 
     let app = tauri::Builder::default()
-        // A second launch (e.g. from the browser integration) shows the running window.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            show_main(app);
-        }))
+        // A second launch (e.g. from the browser integration) shows the running window; one
+        // with a magnet link or `.torrent` file (opened from Windows) offers to add it.
+        .plugin(tauri_plugin_single_instance::init(
+            |app, args, cwd| match torrent_arg(&args, Path::new(&cwd)) {
+                Some(url) => offer_torrent(app, &url),
+                None => show_main(app),
+            },
+        ))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -1494,7 +1537,11 @@ fn main() {
             tauri::async_runtime::spawn(schedule::run_when_done(app.handle().clone()));
             // The window is not in the config's start-up list (`create: false`): started for
             // the tray, the app opens none.
-            if !std::env::args().any(|a| a == HIDDEN_ARG) {
+            let args: Vec<String> = std::env::args().collect();
+            let cwd = std::env::current_dir().unwrap_or_default();
+            if let Some(url) = torrent_arg(&args, &cwd) {
+                offer_torrent(app.handle(), &url);
+            } else if !args.iter().any(|a| a == HIDDEN_ARG) {
                 show_main(app.handle());
             }
             Ok(())
@@ -1523,6 +1570,7 @@ fn main() {
             refresh_link,
             refresh_in_browser,
             inspect_media,
+            inspect_torrent,
             tools,
             install_tool,
             check_update,

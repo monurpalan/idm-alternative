@@ -57,6 +57,22 @@ pub struct Stream {
     /// Subtitle tracks saved next to the video when it is done.
     #[serde(default)]
     pub subtitles: Vec<Subtitle>,
+    /// A torrent (the task's URL is a magnet link or a `.torrent` file): which files and
+    /// where they go.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub torrent: Option<TorrentChoice>,
+}
+
+/// A torrent download's choices.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct TorrentChoice {
+    /// Indices of the files to download (see [`crate::torrent::TorrentInfo::files`]); all
+    /// when absent.
+    #[serde(default)]
+    pub files: Option<Vec<usize>>,
+    /// The folder the torrent's files go into, chosen on the first start.
+    #[serde(default)]
+    pub folder: Option<std::path::PathBuf>,
 }
 
 /// A subtitle track of a stream.

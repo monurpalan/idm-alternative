@@ -193,6 +193,15 @@ impl Db {
         Ok(())
     }
 
+    pub(crate) async fn set_stream(&self, id: TaskId, stream: &Stream) -> Result<()> {
+        sqlx::query("UPDATE tasks SET stream = ? WHERE id = ?")
+            .bind(serde_json::to_string(stream)?)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Output paths given to tasks other than `except`.
     pub(crate) async fn paths_except(&self, except: TaskId) -> Result<Vec<PathBuf>> {
         let rows: Vec<String> =

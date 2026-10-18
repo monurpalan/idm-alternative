@@ -123,6 +123,8 @@ export interface Settings {
 	progress_windows: boolean;
 	/** 'system' follows Windows' display language. */
 	language: 'system' | 'en' | 'tr';
+	/** Open magnet links and `.torrent` files with the app. */
+	torrent_links: boolean;
 }
 
 /** List changes; progress comes separately, batched (see `onManagerEvent`). */
@@ -151,8 +153,26 @@ export const addTask = (request: {
 		dash?: string | null;
 		/** Saved next to the video as `<name>.<language>.vtt`. */
 		subtitles?: { id: string; language: string | null }[];
+		/** A torrent: indices of the files to download, all when null. */
+		torrent?: { files: number[] | null } | null;
 	} | null;
 }) => invoke<Task>('add_task', { request });
+
+/** A magnet link, or a `.torrent` file on the web or on disk. */
+export const isTorrent = (url: string) => {
+	const u = url.trim().toLowerCase();
+	return u.startsWith('magnet:') || /\.torrent$/.test(u.split(/[?#]/)[0]);
+};
+
+/** What a torrent holds; a magnet link asks peers, which can take a while. */
+export interface TorrentInfo {
+	name: string;
+	size: number;
+	/** Paths inside the torrent, `/`-separated. */
+	files: { name: string; size: number }[];
+}
+
+export const inspectTorrent = (url: string) => invoke<TorrentInfo>('inspect_torrent', { url });
 
 /** What a page of a site like YouTube offers (read by yt-dlp). */
 export interface PageInfo {

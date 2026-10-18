@@ -353,6 +353,10 @@
 					{t('Offer download links I copy (archives, programs, video, music, documents)')}
 				</label>
 				<label class="check">
+					<input type="checkbox" bind:checked={s.torrent_links} />
+					{t('Open magnet links and .torrent files with this app (Windows may ask which app to use)')}
+				</label>
+				<label class="check">
 					<input type="checkbox" bind:checked={s.browser_integration} />
 					{t(
 						'Take downloads from the browser extension (registers with Chrome, Edge, Brave, Vivaldi, Opera and Firefox)'
