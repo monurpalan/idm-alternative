@@ -36,7 +36,7 @@ feature for feature, built by combining the best ideas from existing open-source
 - **Files out of a ZIP archive** without downloading the rest: when the server supports range
   requests, the archive's list of files is read from its end, and only the chosen files are
   fetched and unpacked (stored or deflate, ZIP64 too, each checked against its CRC-32) into a
-  folder named after the archive. "Choose files in the archive…" in the app, `dm zip list
+  folder named after the archive. "Pick files from the archive…" in the app, `dm zip list
   URL` / `dm zip get URL 'docs/**/*.pdf' -d out`, and the MCP tool `inspect_archive`. Without
   range support the whole archive is downloaded.
 - **Torrents:** magnet links and `.torrent` files (librqbit) in the same list and queue, with
