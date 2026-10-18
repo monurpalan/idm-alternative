@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use idma_engine::Error as E;
+use shardload_engine::Error as E;
 
 /// Longest wait between automatic retries.
 pub(crate) const MAX_DELAY: Duration = Duration::from_secs(300);

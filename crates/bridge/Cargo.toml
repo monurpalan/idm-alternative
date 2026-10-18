@@ -1,5 +1,5 @@
 [package]
-name = "idma-bridge"
+name = "shardload-bridge"
 description = "What the browser extension, the native messaging host and the app say to each other, and the named pipe between host and app"
 version.workspace = true
 edition.workspace = true

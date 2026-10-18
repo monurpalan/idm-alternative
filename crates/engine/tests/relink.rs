@@ -6,8 +6,8 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use idma_engine::{CancellationToken, Error, Options, Outcome, Request, download, patch_url};
-use idma_testserver::{Verdict, router, serve_plain, verify_file};
+use shardload_engine::{CancellationToken, Error, Options, Outcome, Request, download, patch_url};
+use shardload_testserver::{Verdict, router, serve_plain, verify_file};
 
 use common::workdir;
 
@@ -42,7 +42,7 @@ fn opts() -> Options {
     }
 }
 
-async fn get(url: String, out: &Path) -> idma_engine::Result<Outcome> {
+async fn get(url: String, out: &Path) -> shardload_engine::Result<Outcome> {
     tokio::time::timeout(
         LIMIT,
         download(&request(url, out), &opts(), None, &CancellationToken::new()),
@@ -52,7 +52,7 @@ async fn get(url: String, out: &Path) -> idma_engine::Result<Outcome> {
 }
 
 fn state_file(out: &Path) -> PathBuf {
-    PathBuf::from(format!("{}.idma-state", out.display()))
+    PathBuf::from(format!("{}.shardload-state", out.display()))
 }
 
 /// Starts a download whose link dies after a second: responses are cut every MiB, so new

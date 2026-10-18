@@ -4,14 +4,14 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
-use idma_engine::{
+use shardload_engine::{
     Browser, CancellationToken, Checksum, Conflict, Error, Limiter, Options, Phase, Progress,
     RemoteZip, Request,
 };
 
 /// Command-line front end for the Shardload download engine.
 #[derive(Parser)]
-#[command(name = "shard", version = idma_engine::VERSION)]
+#[command(name = "shard", version = shardload_engine::VERSION)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -157,7 +157,8 @@ impl Net {
 async fn main() -> ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_env("DM_LOG").unwrap_or_else(|_| "warn".into()),
+            tracing_subscriber::EnvFilter::try_from_env("SHARDLOAD_LOG")
+                .unwrap_or_else(|_| "warn".into()),
         )
         .with_writer(std::io::stderr)
         .init();
@@ -255,7 +256,7 @@ async fn zip_list(url: &str, headers: &[(String, String)], opts: &Options) -> Ex
         } else {
             files += 1;
             total += e.size;
-            idma_engine::method_name(e.method)
+            shardload_engine::method_name(e.method)
         };
         println!(
             "{:>10}  {:>10}  {method:<8}  {}{note}",
@@ -310,7 +311,7 @@ async fn zip_get(
             return ExitCode::FAILURE;
         }
     };
-    let (chosen, unmatched) = idma_engine::select_zip_entries(zip.entries(), patterns);
+    let (chosen, unmatched) = shardload_engine::select_zip_entries(zip.entries(), patterns);
     if !unmatched.is_empty() {
         eprintln!(
             "shard: not in the archive: {} (see `shard zip list`)",
@@ -393,10 +394,13 @@ async fn get(
         overwrite,
     } = target;
     // A metalink: the file it describes, from its addresses, checked against its hash.
-    let (url, mirrors, output, opts) = if idma_engine::metalink::is_metalink(&url) {
-        match idma_engine::metalink::fetch_metalink(&url, &headers, &opts).await {
+    let (url, mirrors, output, opts) = if shardload_engine::metalink::is_metalink(&url) {
+        match shardload_engine::metalink::fetch_metalink(&url, &headers, &opts).await {
             Ok(m) => {
-                let mut urls = m.urls.into_iter().take(idma_engine::metalink::MAX_URLS);
+                let mut urls = m
+                    .urls
+                    .into_iter()
+                    .take(shardload_engine::metalink::MAX_URLS);
                 let first = urls.next().unwrap_or_default();
                 let (checksum, checksum_from) = match (&opts.checksum, &m.checksum) {
                     (None, Some(c)) => (c.parse().ok(), Some("metalink".to_owned())),
@@ -422,14 +426,14 @@ async fn get(
     let dir = dir.unwrap_or_default();
     let output = match output {
         Some(o) => dir.join(o),
-        None => match idma_engine::probe(&url, &headers, &opts).await {
+        None => match shardload_engine::probe(&url, &headers, &opts).await {
             Ok(p) => {
                 let conflict = if overwrite {
                     Conflict::Overwrite
                 } else {
                     Conflict::Rename
                 };
-                let path = idma_engine::target(&dir, &p.name, &url, conflict);
+                let path = shardload_engine::target(&dir, &p.name, &url, conflict);
                 if !quiet {
                     eprintln!("saving as {}", path.display());
                 }
@@ -458,7 +462,7 @@ async fn get(
     });
     let printer = (!quiet).then(|| tokio::spawn(print_progress(rx)));
 
-    let result = idma_engine::download(&req, &opts, Some(&tx), &cancel).await;
+    let result = shardload_engine::download(&req, &opts, Some(&tx), &cancel).await;
     if let Some(p) = printer {
         p.abort();
         eprintln!();

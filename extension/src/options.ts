@@ -13,7 +13,7 @@ async function load() {
 	$<HTMLTextAreaElement>('extensions').value = s.extensions.join(' ');
 	$<HTMLTextAreaElement>('excluded').value = s.excludedSites.join('\n');
 	const reply = await api.runtime
-		.sendNativeMessage('io.github.monurpalan.idma', { type: 'ping' })
+		.sendNativeMessage('io.github.monurpalan.shardload', { type: 'ping' })
 		.catch((e: unknown) => ({ ok: false, error: String(e) }));
 	$('status').textContent = reply?.ok
 		? `Connected to Shardload ${reply.version ?? ''}`

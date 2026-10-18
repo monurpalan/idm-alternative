@@ -46,7 +46,7 @@ pub async fn download_subtitles(
             representation,
         } => {
             let (mpd, url) = http.text(manifest, MAX_TEXT).await?;
-            let track = idma_media::dash_track(&url, &mpd, representation)
+            let track = shardload_media::dash_track(&url, &mpd, representation)
                 .map_err(|e| Error::State(e.0))?;
             if track.single {
                 // A whole WebVTT or TTML file: kept as it is.

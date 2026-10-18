@@ -1,5 +1,5 @@
 [package]
-name = "idma-bench"
+name = "shardload-bench"
 description = "Benchmark runner comparing download managers on test-server scenarios"
 version.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
-idma-testserver = { path = "../testserver" }
+shardload-testserver = { path = "../testserver" }
 anyhow.workspace = true
 axum = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

@@ -74,12 +74,12 @@ async fn main() -> anyhow::Result<()> {
 
     let out_dir = cli
         .out_dir
-        .unwrap_or_else(|| std::env::temp_dir().join("idma-bench"));
+        .unwrap_or_else(|| std::env::temp_dir().join("shardload-bench"));
     std::fs::create_dir_all(&out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let base = format!("http://{}", listener.local_addr()?);
-    tokio::spawn(async move { axum::serve(listener, idma_testserver::router()).await });
+    tokio::spawn(async move { axum::serve(listener, shardload_testserver::router()).await });
 
     let mut results = Vec::new();
     let total = scenarios.len() * clients.len() * repeat as usize;

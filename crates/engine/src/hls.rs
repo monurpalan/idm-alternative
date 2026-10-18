@@ -1,7 +1,7 @@
 //! HLS: downloads the segments of a stream's playlists in parallel, decrypts AES-128, joins
 //! them, and (with ffmpeg) puts video and audio into one file without re-encoding.
 //!
-//! Segments are written to `<output>.idma-hls/` as they complete (`.part` first, renamed when
+//! Segments are written to `<output>.shardload-hls/` as they complete (`.part` first, renamed when
 //! whole), so a stopped download continues with the segments that are missing.
 
 use std::collections::HashMap;
@@ -450,7 +450,7 @@ pub(crate) enum Source {
     Joined(PathBuf),
 }
 
-/// Downloads the segments of `tracks` into `<output>.idma-hls/`, joins each track, and puts
+/// Downloads the segments of `tracks` into `<output>.shardload-hls/`, joins each track, and puts
 /// the first (video) and the second (audio, if any) into `output`, with ffmpeg when given.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn segmented(
@@ -463,7 +463,7 @@ pub(crate) async fn segmented(
     cancel: &CancellationToken,
     started: Instant,
 ) -> Result<Outcome> {
-    let dir = sibling(output, ".idma-hls");
+    let dir = sibling(output, ".shardload-hls");
     tokio::fs::create_dir_all(&dir).await?;
     let mut files = Vec::new();
     for (name, source) in &tracks {

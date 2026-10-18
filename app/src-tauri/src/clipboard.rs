@@ -2,7 +2,7 @@
 //! window about every change (`AddClipboardFormatListener`), so nothing is polled; the
 //! listener only exists while the setting is on.
 
-use idma_manager::Category;
+use shardload_manager::Category;
 
 /// The link in copied text worth offering: one http(s) URL whose file name has a type IDM
 /// would take (archives, documents, music, programs, video), so copying an ordinary page
@@ -79,7 +79,7 @@ mod windows {
                     // SAFETY: plain Win32 calls on this thread's own window; the class name
                     // and window name are NUL-terminated and outlive the calls.
                     unsafe {
-                        let class: Vec<u16> = "idma-clipboard\0".encode_utf16().collect();
+                        let class: Vec<u16> = "shardload-clipboard\0".encode_utf16().collect();
                         let instance = GetModuleHandleW(std::ptr::null());
                         let wc = WNDCLASSW {
                             lpfnWndProc: Some(window_proc),

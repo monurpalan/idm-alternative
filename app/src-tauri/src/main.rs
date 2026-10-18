@@ -1,4 +1,4 @@
-//! Desktop app: a thin Tauri shell over `idma-manager`. Commands forward to the manager, and
+//! Desktop app: a thin Tauri shell over `shardload-manager`. Commands forward to the manager, and
 //! its events go to the web UI as `manager` events (`manager-lagged` when some were dropped
 //! and the UI should reload the list).
 
@@ -17,9 +17,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use idma_manager::{Config, Event, Manager, Move, NewTask, Status, Task, TaskId, TaskProgress};
 use serde::{Deserialize, Serialize};
 use settings::Settings;
+use shardload_manager::{
+    Config, Event, Manager, Move, NewTask, Status, Task, TaskId, TaskProgress,
+};
 use tauri::{AppHandle, Emitter, Manager as _, RunEvent, State, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_notification::NotificationExt;
@@ -38,7 +40,7 @@ struct App {
     /// and since when.
     awaiting_link: Mutex<Option<(TaskId, std::time::Instant)>>,
     /// Stops the site grab that is running, if any.
-    grabbing: Mutex<Option<idma_engine::CancellationToken>>,
+    grabbing: Mutex<Option<shardload_engine::CancellationToken>>,
     /// What to do when all downloads finish (one shot).
     when_done: Mutex<schedule::Armed>,
     /// Events waiting for the page, which is closed while the app sits in the tray.
@@ -110,7 +112,7 @@ async fn remember_login(app: &App, url: &str, login: Option<&Login>) -> CmdResul
     let Some(login) = login.filter(|l| l.remember) else {
         return Ok(());
     };
-    let site = idma_manager::site_of(url).ok_or("this address has no site to remember")?;
+    let site = shardload_manager::site_of(url).ok_or("this address has no site to remember")?;
     app.manager
         .save_login(&site, &login.user, &login.password)
         .await
@@ -119,7 +121,7 @@ async fn remember_login(app: &App, url: &str, login: Option<&Login>) -> CmdResul
 
 fn login_headers(login: Option<&Login>) -> Vec<(String, String)> {
     login
-        .map(|l| idma_engine::basic_auth(&l.user, &l.password))
+        .map(|l| shardload_engine::basic_auth(&l.user, &l.password))
         .into_iter()
         .collect()
 }
@@ -144,7 +146,7 @@ async fn probe(
     login: Option<Login>,
     headers: Option<Vec<(String, String)>>,
 ) -> CmdResult<ProbeView> {
-    let view = |p: idma_engine::Probe, saved_login| ProbeView {
+    let view = |p: shardload_engine::Probe, saved_login| ProbeView {
         url: p.url,
         name: p.name,
         size: p.size,
@@ -158,7 +160,7 @@ async fn probe(
         .await
     {
         Ok(p) => Ok(view(p, None)),
-        Err(idma_manager::Error::Engine(idma_engine::Error::AuthRequired { realm })) => {
+        Err(shardload_manager::Error::Engine(shardload_engine::Error::AuthRequired { realm })) => {
             // A saved login for the site: the download will use it, so ask with it too.
             if login.is_none()
                 && let Ok(Some((user, password))) = app.manager.saved_login(&url).await
@@ -197,7 +199,7 @@ struct AddRequest {
     /// From the browser: cookies, referrer, user agent.
     headers: Option<Vec<(String, String)>>,
     /// A stream: `url` is then the chosen video playlist.
-    stream: Option<idma_manager::Stream>,
+    stream: Option<shardload_manager::Stream>,
     /// Other addresses of the same file.
     #[serde(default)]
     mirrors: Vec<String>,
@@ -243,10 +245,10 @@ struct BatchView {
 
 #[tauri::command]
 fn batch_preview(url: String) -> CmdResult<Option<BatchView>> {
-    if !idma_manager::batch::is_pattern(&url) {
+    if !shardload_manager::batch::is_pattern(&url) {
         return Ok(None);
     }
-    let urls = idma_manager::batch::expand(&url)?;
+    let urls = shardload_manager::batch::expand(&url)?;
     Ok(Some(BatchView {
         count: urls.len(),
         first: urls.first().cloned().unwrap_or_default(),
@@ -257,7 +259,7 @@ fn batch_preview(url: String) -> CmdResult<Option<BatchView>> {
 /// Adds every download a batch address stands for, each named by its server.
 #[tauri::command]
 async fn add_batch(app: State<'_, App>, request: AddRequest) -> CmdResult<usize> {
-    let urls = idma_manager::batch::expand(&request.url)?;
+    let urls = shardload_manager::batch::expand(&request.url)?;
     remember_login(&app, &request.url, request.login.as_ref()).await?;
     let headers = request_headers(request.headers, request.login.as_ref());
     for url in &urls {
@@ -288,7 +290,7 @@ async fn set_login(app: State<'_, App>, id: TaskId, login: Login) -> CmdResult<(
 
 /// Sites with a remembered login, for the settings.
 #[tauri::command]
-async fn saved_logins(app: State<'_, App>) -> CmdResult<Vec<idma_manager::SavedLogin>> {
+async fn saved_logins(app: State<'_, App>) -> CmdResult<Vec<shardload_manager::SavedLogin>> {
     app.manager.saved_logins().await.map_err(msg)
 }
 
@@ -379,7 +381,7 @@ fn torrent_arg(args: &[String], cwd: &Path) -> Option<String> {
             return Some(a.clone());
         }
         let path = cwd.join(a);
-        (idma_manager::torrent::is_torrent(a) && path.is_file())
+        (shardload_manager::torrent::is_torrent(a) && path.is_file())
             .then(|| path.to_string_lossy().into_owned())
     })
 }
@@ -403,17 +405,17 @@ async fn grab_site(
     url: String,
     depth: u32,
     same_site: bool,
-) -> CmdResult<Vec<idma_manager::grabber::Found>> {
-    let cancel = idma_engine::CancellationToken::new();
+) -> CmdResult<Vec<shardload_manager::grabber::Found>> {
+    let cancel = shardload_engine::CancellationToken::new();
     if let Some(old) = lock(&app.grabbing).replace(cancel.clone()) {
         old.cancel();
     }
-    let opts = idma_manager::grabber::GrabOptions {
+    let opts = shardload_manager::grabber::GrabOptions {
         depth: depth.clamp(1, 5),
         same_site,
         ..Default::default()
     };
-    let progress = |p: idma_manager::grabber::GrabProgress| {
+    let progress = |p: shardload_manager::grabber::GrabProgress| {
         handle.emit("grab-progress", p).ok();
     };
     let result = app.manager.grab_site(&url, &opts, progress, &cancel).await;
@@ -430,7 +432,10 @@ fn cancel_grab(app: State<'_, App>) {
 
 /// A torrent's name and files (a magnet link asks peers for them), for picking files.
 #[tauri::command]
-async fn inspect_torrent(app: State<'_, App>, url: String) -> CmdResult<idma_manager::TorrentInfo> {
+async fn inspect_torrent(
+    app: State<'_, App>,
+    url: String,
+) -> CmdResult<shardload_manager::TorrentInfo> {
     app.manager.inspect_torrent(&url).await.map_err(msg)
 }
 
@@ -441,7 +446,7 @@ async fn inspect_archive(
     url: String,
     login: Option<Login>,
     headers: Option<Vec<(String, String)>>,
-) -> CmdResult<idma_manager::ArchiveInfo> {
+) -> CmdResult<shardload_manager::ArchiveInfo> {
     // The site's saved login, which the download would use too.
     let saved = match &login {
         Some(_) => None,
@@ -471,13 +476,13 @@ async fn inspect_media(
     app: State<'_, App>,
     url: String,
     headers: Option<Vec<(String, String)>>,
-) -> CmdResult<idma_media::Streams> {
+) -> CmdResult<shardload_media::Streams> {
     let opts = app.manager.config().engine;
     let (text, final_url) =
-        idma_engine::fetch_text(&url, &headers.unwrap_or_default(), &opts, 8 << 20)
+        shardload_engine::fetch_text(&url, &headers.unwrap_or_default(), &opts, 8 << 20)
             .await
             .map_err(msg)?;
-    idma_media::parse(&final_url, &text).map_err(msg)
+    shardload_media::parse(&final_url, &text).map_err(msg)
 }
 
 /// Continues a download from a fresh link to the same file.
@@ -487,7 +492,7 @@ async fn refresh_link(app: State<'_, App>, id: TaskId, url: String) -> CmdResult
         .refresh_link(id, url.trim(), None)
         .await
         .map_err(|e| match e {
-            idma_manager::Error::Engine(idma_engine::Error::FileChanged) => {
+            shardload_manager::Error::Engine(shardload_engine::Error::FileChanged) => {
                 "this link leads to a different file (size or content differ)".to_owned()
             }
             e => e.to_string(),
@@ -522,7 +527,7 @@ async fn show_in_folder(
         path
     } else {
         let mut part = path.clone().into_os_string();
-        part.push(".idma-part");
+        part.push(".shardload-part");
         let part = PathBuf::from(part);
         if part.exists() {
             part
@@ -568,9 +573,9 @@ async fn apply_settings(handle: &AppHandle, new: Settings) -> CmdResult<Settings
     if new.torrent_links != old.torrent_links {
         let exe = std::env::current_exe().map_err(msg)?;
         if new.torrent_links {
-            idma_bridge::register_torrent_links(&exe, idma_bridge::CLASSES)
+            shardload_bridge::register_torrent_links(&exe, shardload_bridge::CLASSES)
         } else {
-            idma_bridge::unregister_torrent_links(&exe, idma_bridge::CLASSES)
+            shardload_bridge::unregister_torrent_links(&exe, shardload_bridge::CLASSES)
         }
         .map_err(|e| format!("could not change what opens magnet links: {e}"))?;
     }
@@ -648,18 +653,18 @@ fn watch_clipboard(handle: &AppHandle, on: bool) {
 
 /// Registers the native messaging host with the browsers, or removes the registration.
 ///
-/// The host is installed next to the app. A profile started with `IDMA_HOME` registers a
-/// small script that starts the host with the same `IDMA_HOME`, so browsers reach that
+/// The host is installed next to the app. A profile started with `SHARDLOAD_HOME` registers a
+/// small script that starts the host with the same `SHARDLOAD_HOME`, so browsers reach that
 /// profile and not the real one.
 fn set_browser_integration(data: &Path, on: bool) -> CmdResult<()> {
     if !on {
-        return idma_bridge::unregister(data).map_err(msg);
+        return shardload_bridge::unregister(data).map_err(msg);
     }
     let exe = std::env::current_exe().map_err(msg)?;
     let host = exe.with_file_name(if cfg!(windows) {
-        "idma-host.exe"
+        "shardload-host.exe"
     } else {
-        "idma-host"
+        "shardload-host"
     });
     if !host.exists() {
         return Err(format!(
@@ -667,12 +672,12 @@ fn set_browser_integration(data: &Path, on: bool) -> CmdResult<()> {
             host.display()
         ));
     }
-    let target = if std::env::var_os("IDMA_HOME").is_some() {
+    let target = if std::env::var_os("SHARDLOAD_HOME").is_some() {
         let (script, text) = if cfg!(windows) {
             (
-                data.join("idma-host.cmd"),
+                data.join("shardload-host.cmd"),
                 format!(
-                    "@echo off\nset \"IDMA_HOME={}\"\nset \"IDMA_APP={}\"\n\"{}\" %*\n",
+                    "@echo off\nset \"SHARDLOAD_HOME={}\"\nset \"SHARDLOAD_APP={}\"\n\"{}\" %*\n",
                     data.display(),
                     exe.display(),
                     host.display()
@@ -680,9 +685,9 @@ fn set_browser_integration(data: &Path, on: bool) -> CmdResult<()> {
             )
         } else {
             (
-                data.join("idma-host.sh"),
+                data.join("shardload-host.sh"),
                 format!(
-                    "#!/bin/sh\nexport IDMA_HOME='{}'\nexport IDMA_APP='{}'\nexec '{}' \"$@\"\n",
+                    "#!/bin/sh\nexport SHARDLOAD_HOME='{}'\nexport SHARDLOAD_APP='{}'\nexec '{}' \"$@\"\n",
                     data.display(),
                     exe.display(),
                     host.display()
@@ -700,7 +705,7 @@ fn set_browser_integration(data: &Path, on: bool) -> CmdResult<()> {
     } else {
         host
     };
-    idma_bridge::register(&target, data).map_err(msg)
+    shardload_bridge::register(&target, data).map_err(msg)
 }
 
 /// The manager's configuration: the settings plus the helper programs the app has.
@@ -719,15 +724,15 @@ async fn inspect_page(
     app: State<'_, App>,
     url: String,
     headers: Option<Vec<(String, String)>>,
-) -> CmdResult<idma_manager::ytdlp::PageInfo> {
+) -> CmdResult<shardload_manager::ytdlp::PageInfo> {
     let ytdlp = tools::installed(&app.data, tools::Tool::Ytdlp)
         .ok_or_else(|| "yt-dlp is not set up".to_owned())?;
-    let tools = idma_manager::ytdlp::Tools {
+    let tools = shardload_manager::ytdlp::Tools {
         ytdlp,
         deno: tools::installed(&app.data, tools::Tool::Deno),
         ffmpeg: app.ffmpeg.clone(),
     };
-    idma_manager::ytdlp::inspect(
+    shardload_manager::ytdlp::inspect(
         &tools,
         &url,
         &headers.unwrap_or_default(),
@@ -821,7 +826,7 @@ async fn daily_checks(handle: AppHandle) {
         let stamp = tools::dir(&app.data).join("last-check");
         let busy = app.manager.list().await.is_ok_and(|tasks| {
             tasks.iter().any(|t| {
-                t.status == idma_manager::Status::Downloading
+                t.status == shardload_manager::Status::Downloading
                     && t.stream.as_ref().is_some_and(|s| s.ytdlp.is_some())
             })
         });
@@ -932,7 +937,7 @@ async fn arm_when_done(handle: &AppHandle, action: schedule::WhenDone) -> CmdRes
     let busy = app.manager.list().await.map_err(msg)?.iter().any(|t| {
         matches!(
             t.status,
-            idma_manager::Status::Downloading | idma_manager::Status::Queued
+            shardload_manager::Status::Downloading | shardload_manager::Status::Queued
         )
     });
     *lock(&app.when_done) = schedule::Armed {
@@ -1252,8 +1257,11 @@ fn scan_done(handle: &AppHandle, task: &Task) {
 
 /// Answers the browser extension (through the native host): pings, and downloads or link
 /// lists it hands over, which open in the window for the user to confirm.
-async fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma_bridge::Reply {
-    use idma_bridge::{Reply, Request};
+async fn bridge_reply(
+    handle: &AppHandle,
+    request: shardload_bridge::Request,
+) -> shardload_bridge::Reply {
+    use shardload_bridge::{Reply, Request};
     match request {
         Request::Ping => Reply {
             version: Some(env!("CARGO_PKG_VERSION").into()),
@@ -1468,13 +1476,13 @@ async fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma
             depth,
             same_site,
         } => {
-            let opts = idma_manager::grabber::GrabOptions {
+            let opts = shardload_manager::grabber::GrabOptions {
                 depth: depth.unwrap_or(1).clamp(1, 5),
                 same_site: same_site.unwrap_or(true),
                 ..Default::default()
             };
             let manager = handle.state::<App>().manager.clone();
-            let cancel = idma_engine::CancellationToken::new();
+            let cancel = shardload_engine::CancellationToken::new();
             match manager.grab_site(&url, &opts, |_| {}, &cancel).await {
                 Ok(found) => Reply {
                     data: serde_json::to_value(found).ok(),
@@ -1490,7 +1498,7 @@ async fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma
 /// A download added by a local tool: a file, a page of a video site (through yt-dlp, with
 /// `video_height` or `audio_only`), a torrent (with `torrent_files`), or files out of a ZIP
 /// archive (with `archive_entries`).
-async fn tool_add(handle: &AppHandle, add: idma_bridge::AddDownload) -> CmdResult<Task> {
+async fn tool_add(handle: &AppHandle, add: shardload_bridge::AddDownload) -> CmdResult<Task> {
     let app = handle.state::<App>();
     let mut name = add.name.filter(|n| !n.trim().is_empty());
     let mut stream = None;
@@ -1507,21 +1515,21 @@ async fn tool_add(handle: &AppHandle, add: idma_bridge::AddDownload) -> CmdResul
         } else if tools::installed(&app.data, tools::Tool::Ytdlp).is_none() {
             return Err("yt-dlp is not set up".into());
         }
-        stream = Some(idma_manager::Stream {
-            ytdlp: Some(idma_manager::ytdlp::selector(height)),
+        stream = Some(shardload_manager::Stream {
+            ytdlp: Some(shardload_manager::ytdlp::selector(height)),
             ..Default::default()
         });
     } else if let Some(files) = add.torrent_files {
-        stream = Some(idma_manager::Stream {
-            torrent: Some(idma_manager::TorrentChoice {
+        stream = Some(shardload_manager::Stream {
+            torrent: Some(shardload_manager::TorrentChoice {
                 files: Some(files),
                 folder: None,
             }),
             ..Default::default()
         });
     } else if let Some(entries) = add.archive_entries.filter(|e| !e.is_empty()) {
-        stream = Some(idma_manager::Stream {
-            archive: Some(idma_manager::ArchiveChoice {
+        stream = Some(shardload_manager::Stream {
+            archive: Some(shardload_manager::ArchiveChoice {
                 entries,
                 ..Default::default()
             }),
@@ -1533,7 +1541,7 @@ async fn tool_add(handle: &AppHandle, add: idma_bridge::AddDownload) -> CmdResul
     let dir = add.dir.filter(|d| !d.trim().is_empty()).map(PathBuf::from);
     if let Some(dir) = &dir {
         let folders = app.manager.download_folders();
-        if !idma_manager::folder::within(dir, &folders) {
+        if !shardload_manager::folder::within(dir, &folders) {
             let allowed: Vec<String> = folders.iter().map(|f| f.display().to_string()).collect();
             return Err(format!(
                 "{} is not a download folder or inside one; use one of: {}",
@@ -1592,18 +1600,22 @@ async fn wait_for(
 }
 
 /// Runs `action` on each download, stopping at the first that fails.
-async fn for_each<F, Fut>(handle: &AppHandle, ids: Vec<TaskId>, action: F) -> idma_bridge::Reply
+async fn for_each<F, Fut>(
+    handle: &AppHandle,
+    ids: Vec<TaskId>,
+    action: F,
+) -> shardload_bridge::Reply
 where
     F: Fn(Manager, TaskId) -> Fut,
-    Fut: std::future::Future<Output = idma_manager::Result<()>>,
+    Fut: std::future::Future<Output = shardload_manager::Result<()>>,
 {
     let manager = handle.state::<App>().manager.clone();
     for id in ids {
         if let Err(e) = action(manager.clone(), id).await {
-            return idma_bridge::Reply::error(format!("download {id}: {e}"));
+            return shardload_bridge::Reply::error(format!("download {id}: {e}"));
         }
     }
-    idma_bridge::Reply::ok()
+    shardload_bridge::Reply::ok()
 }
 
 /// A download as local tools see it: no request headers, which may hold the browser's
@@ -1635,7 +1647,7 @@ const HIDDEN_ARG: &str = "--hidden";
 /// Keeps panics in `crash.log` in the data folder: a release build has no console, and a
 /// browser-started app has nowhere else to say why it stopped.
 fn log_panics() {
-    let Some(dir) = idma_bridge::data_dir() else {
+    let Some(dir) = shardload_bridge::data_dir() else {
         return;
     };
     let default = std::panic::take_hook();
@@ -1661,18 +1673,20 @@ fn log_panics() {
     }));
 }
 
-/// The app's log: `<data>/logs/idma.log.<date>`, a file a day, the last week kept, and stderr
-/// for a console. `DM_LOG` sets the level (default `info`). The guard writes out what is
+/// The app's log: `<data>/logs/shardload.log.<date>`, a file a day, the last week kept, and stderr
+/// for a console. `SHARDLOAD_LOG` sets the level (default `info`). The guard writes out what is
 /// still buffered when the app ends.
 fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::prelude::*;
-    let filter =
-        || tracing_subscriber::EnvFilter::try_from_env("DM_LOG").unwrap_or_else(|_| "info".into());
+    let filter = || {
+        tracing_subscriber::EnvFilter::try_from_env("SHARDLOAD_LOG")
+            .unwrap_or_else(|_| "info".into())
+    };
     let console = tracing_subscriber::fmt::layer().with_filter(filter());
-    let file = idma_bridge::data_dir().and_then(|data| {
+    let file = shardload_bridge::data_dir().and_then(|data| {
         tracing_appender::rolling::Builder::new()
             .rotation(tracing_appender::rolling::Rotation::DAILY)
-            .filename_prefix("idma")
+            .filename_prefix("shardload")
             .filename_suffix("log")
             .max_log_files(7)
             .build(data.join(LOG_DIR))
@@ -1724,7 +1738,7 @@ struct SettingsFile {
 #[tauri::command]
 fn export_settings(app: State<'_, App>, path: PathBuf) -> CmdResult<()> {
     let file = SettingsFile {
-        app: "idm-alternative".into(),
+        app: "shardload".into(),
         version: 1,
         settings: lock(&app.settings).clone(),
     };
@@ -1738,7 +1752,8 @@ async fn import_settings(handle: AppHandle, path: PathBuf) -> CmdResult<Settings
     let text = std::fs::read_to_string(&path).map_err(msg)?;
     let file: SettingsFile = serde_json::from_str(&text)
         .map_err(|e| format!("this is not a Shardload settings file ({e})"))?;
-    if file.app != "idm-alternative" {
+    // Files saved before the rename carry the old name.
+    if !matches!(file.app.as_str(), "shardload" | "idm-alternative") {
         return Err("this is not a Shardload settings file".into());
     }
     apply_settings(&handle, file.settings).await
@@ -1766,13 +1781,16 @@ fn main() {
             Some(vec![HIDDEN_ARG]),
         ))
         .setup(|app| {
-            // `IDMA_HOME` keeps the list and downloads in one folder of its own, for trying
+            // `SHARDLOAD_HOME` keeps the list and downloads in one folder of its own, for trying
             // the app out without touching the real list or the Downloads folder.
-            let home = std::env::var_os("IDMA_HOME").map(PathBuf::from);
+            let home = std::env::var_os("SHARDLOAD_HOME").map(PathBuf::from);
             let data = match &home {
                 Some(h) => h.clone(),
                 None => app.path().app_data_dir()?,
             };
+            if home.is_none() {
+                shardload_bridge::migrate_legacy_data(&data);
+            }
             std::fs::create_dir_all(&data)?;
             let default_dir = match &home {
                 Some(h) => h.join("downloads"),
@@ -1803,11 +1821,11 @@ fn main() {
 
             // The browser bridge: a fresh token per start, a pipe only this user and data
             // folder share.
-            let token = idma_bridge::new_token(&data)?;
-            let pipe = idma_bridge::pipe_name(&data);
+            let token = shardload_bridge::new_token(&data)?;
+            let pipe = shardload_bridge::pipe_name(&data);
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let serving = idma_bridge::serve(&pipe, token, move |request| {
+                let serving = shardload_bridge::serve(&pipe, token, move |request| {
                     let handle = handle.clone();
                     async move { bridge_reply(&handle, request).await }
                 });

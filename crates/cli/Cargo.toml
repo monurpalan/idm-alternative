@@ -1,5 +1,5 @@
 [package]
-name = "idma-cli"
+name = "shardload-cli"
 description = "`shard` command-line front end for the download engine"
 version.workspace = true
 edition.workspace = true
@@ -11,14 +11,14 @@ name = "shard"
 path = "src/main.rs"
 
 [dependencies]
-idma-engine = { path = "../engine" }
+shardload-engine = { path = "../engine" }
 anyhow.workspace = true
 clap.workspace = true
 tokio.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
-idma-testserver = { path = "../testserver" }
+shardload-testserver = { path = "../testserver" }
 axum = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
 serde_json.workspace = true

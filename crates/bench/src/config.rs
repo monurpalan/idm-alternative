@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use anyhow::Context;
-use idma_testserver::scenario::Size;
 use serde::{Deserialize, Deserializer};
+use shardload_testserver::scenario::Size;
 
 #[derive(Deserialize)]
 pub struct Config {

@@ -12,7 +12,7 @@ let current: HTMLVideoElement | null = null;
 let hideTimer: number | undefined;
 
 function build() {
-	host = document.createElement('idma-video-button');
+	host = document.createElement('shardload-video-button');
 	host.style.cssText = 'all: initial; position: fixed; z-index: 2147483647; display: none;';
 	const root = host.attachShadow({ mode: 'closed' });
 	root.innerHTML = `

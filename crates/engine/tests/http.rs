@@ -7,8 +7,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use idma_engine::{Browser, CancellationToken, Error, Options, Outcome, Request, download};
-use idma_testserver::{SelfSigned, Verdict, router, serve_plain, serve_tls, verify_file};
+use shardload_engine::{Browser, CancellationToken, Error, Options, Outcome, Request, download};
+use shardload_testserver::{SelfSigned, Verdict, router, serve_plain, serve_tls, verify_file};
 
 use common::workdir;
 
@@ -34,7 +34,7 @@ async fn start_plain() -> String {
     format!("http://{addr}")
 }
 
-async fn get(url: String, out: &Path, opts: &Options) -> idma_engine::Result<Outcome> {
+async fn get(url: String, out: &Path, opts: &Options) -> shardload_engine::Result<Outcome> {
     let req = Request {
         url,
         output: out.to_owned(),
@@ -320,13 +320,13 @@ async fn login_prompt_is_not_an_expired_link() {
         ..Options::default()
     };
     match get(url.clone(), &out, &opts).await {
-        Err(Error::AuthRequired { realm }) => assert_eq!(realm.as_deref(), Some("idma test")),
+        Err(Error::AuthRequired { realm }) => assert_eq!(realm.as_deref(), Some("shardload test")),
         other => panic!("expected AuthRequired, got {other:?}"),
     }
     let with = |user: &str, pass: &str| Request {
         url: url.clone(),
         output: out.clone(),
-        headers: vec![idma_engine::basic_auth(user, pass)],
+        headers: vec![shardload_engine::basic_auth(user, pass)],
         mirrors: Vec::new(),
     };
     let wrong = tokio::time::timeout(
@@ -358,11 +358,11 @@ async fn login_prompt_is_not_an_expired_link() {
 async fn fetches_a_small_text_after_redirects() {
     let base = start_plain().await;
     let url = format!("{base}/file/page.html?size=100&html_error_after=0&redirect=1");
-    let (text, final_url) = idma_engine::fetch_text(&url, &[], &Options::default(), 64 << 10)
+    let (text, final_url) = shardload_engine::fetch_text(&url, &[], &Options::default(), 64 << 10)
         .await
         .expect("fetch");
     assert!(text.contains("Session expired"), "{text}");
     assert!(final_url.contains("redirect=0"), "{final_url}");
-    let too_small = idma_engine::fetch_text(&url, &[], &Options::default(), 10).await;
+    let too_small = shardload_engine::fetch_text(&url, &[], &Options::default(), 10).await;
     assert!(too_small.is_err());
 }

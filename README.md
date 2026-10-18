@@ -33,7 +33,7 @@ saves videos and torrents. No ads, no trial, no account.</p>
 3. **That's it.** Downloads you start in the browser now open in Shardload. You can also paste a
    link with Ctrl+V or drop one on the window.
 
-**Linux (x64):** the `.deb` (`sudo apt install ./idm-alternative_*_amd64.deb`) or the AppImage
+**Linux (x64):** the `.deb` (`sudo apt install ./shardload_*_amd64.deb`) or the AppImage
 (`chmod +x`, then run it) from the same release.
 
 ## What it does
@@ -142,19 +142,19 @@ For those who want to know exactly what it does, how it was measured and how it 
   shut down, batch downloads (`photo[001-100].jpg`), clipboard monitoring, saved logins per
   site, a virus scan when a download finishes, a small progress window per download, and a
   tray icon. Interface in English and Turkish.
-- **For AI assistants:** `idma-mcp`, an [MCP](https://modelcontextprotocol.io) server installed
+- **For AI assistants:** `shardload-mcp`, an [MCP](https://modelcontextprotocol.io) server installed
   with the app, lets any MCP client add downloads (files, chosen files out of ZIP archives,
   torrents with a choice of files, metalinks, video pages at a chosen quality), find the files
   a site links to, list downloads with their progress, wait for them to finish, pause, resume,
   reorder and remove them, limit their speed and choose what happens when all are done. It
   reaches the app through the same per-user pipe as the browser; nothing listens on a network port. Register it in the client
-  as a stdio server whose command is `%LOCALAPPDATA%\idm-alternative\idma-mcp.exe`.
+  as a stdio server whose command is `%LOCALAPPDATA%\Shardload\shardload-mcp.exe`.
 
 ### Speed tests
 
 `shard` (Shardload's engine from the command line; `dm` in the result files, its
 earlier name) against IDM 6.43, Gopeed 1.9.3, AB Download Manager
-1.11.1, aria2 and curl, measured with [`idma-bench`](bench/README.md) on 2026-10-18. Every file was
+1.11.1, aria2 and curl, measured with [`shardload-bench`](bench/README.md) on 2026-10-18. Every file was
 verified byte for byte (local) or by size and SHA-256 (internet). Medians of 3 runs, clients in a
 new shuffled order each round (internet: 5 runs). Free Download Manager is not in the table: it has
 no command line or local API to start a download from.
@@ -267,8 +267,8 @@ flowchart LR
     subgraph Browser
         ext["Extension (MV3)<br/>capture, video button,<br/>media detection"]
     end
-    host["idma-host<br/>native messaging host"]
-    mcp["idma-mcp<br/>MCP server"]
+    host["shardload-host<br/>native messaging host"]
+    mcp["shardload-mcp<br/>MCP server"]
     assistant["AI assistant<br/>(MCP client)"]
     subgraph App["Desktop app (Tauri)"]
         ui["Svelte UI<br/>WebView2, closed in the tray"]
@@ -313,9 +313,9 @@ SHA-256 of each file in `SHA256SUMS`. The installer is not code-signed yet, whic
 Windows warns before running it.
 
 **Where are my downloads and settings?** Files go to your Downloads folder unless you choose
-another one. The list and settings live in `%APPDATA%\io.github.monurpalan.idma`.
+another one. The list and settings live in `%APPDATA%\io.github.monurpalan.shardload`.
 
-**How do I uninstall it?** Windows Settings → Apps → *idm-alternative* → Uninstall. Uninstalling
+**How do I uninstall it?** Windows Settings → Apps → *Shardload* → Uninstall. Uninstalling
 also removes the browser registration; the download list stays in case you come back.
 
 **Something does not work.** Please [open an issue](https://github.com/monurpalan/idm-alternative/issues)

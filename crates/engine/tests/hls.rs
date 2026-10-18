@@ -4,9 +4,9 @@ mod common;
 
 use std::time::Duration;
 
-use idma_engine::{CancellationToken, Error, Options, StreamRequest, download_hls};
-use idma_testserver::hls::track_seed;
-use idma_testserver::{Verdict, verify_file};
+use shardload_engine::{CancellationToken, Error, Options, StreamRequest, download_hls};
+use shardload_testserver::hls::track_seed;
+use shardload_testserver::{Verdict, verify_file};
 
 use common::{LIMIT, bytes_sent, start, workdir};
 
@@ -29,7 +29,10 @@ fn opts(connections: usize) -> Options {
     }
 }
 
-async fn get(req: &StreamRequest, opts: &Options) -> idma_engine::Result<idma_engine::Outcome> {
+async fn get(
+    req: &StreamRequest,
+    opts: &Options,
+) -> shardload_engine::Result<shardload_engine::Outcome> {
     tokio::time::timeout(
         LIMIT,
         download_hls(req, opts, None, &CancellationToken::new()),
@@ -51,7 +54,7 @@ async fn takes_the_best_variant_and_joins_its_segments() {
         Verdict::Ok
     );
     assert!(
-        !dir.join("show.ts.idma-hls").exists(),
+        !dir.join("show.ts.shardload-hls").exists(),
         "segments are cleaned up"
     );
 }
@@ -99,7 +102,7 @@ async fn continues_with_the_missing_segments() {
     let first = download_hls(&req, &opts(4), None, &cancel).await;
     assert!(matches!(first, Err(Error::Cancelled)), "{first:?}");
     assert!(
-        dir.join("long.ts.idma-hls").exists(),
+        dir.join("long.ts.shardload-hls").exists(),
         "finished segments are kept"
     );
     let before = bytes_sent(&base).await;
@@ -247,10 +250,10 @@ async fn joins_hls_subtitle_segments() {
     let base = start().await;
     let dir = workdir("hls-subs");
     let out = dir.join("film.tr.vtt");
-    let source = idma_engine::SubtitleSource::Hls {
+    let source = shardload_engine::SubtitleSource::Hls {
         playlist: format!("{base}/hls/subs.m3u8?segments=5&subs=1"),
     };
-    idma_engine::download_subtitles(&source, &out, &[], &Options::default())
+    shardload_engine::download_subtitles(&source, &out, &[], &Options::default())
         .await
         .expect("subtitles");
     let text = std::fs::read_to_string(&out).expect("read");

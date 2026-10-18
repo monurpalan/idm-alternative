@@ -1,5 +1,5 @@
 //! The client end of the pipe, for programs the user's tools start (the native messaging host,
-//! `idma-mcp`): connects to the running app, or starts it in the tray and waits for it, and
+//! `shardload-mcp`): connects to the running app, or starts it in the tray and waits for it, and
 //! reconnects once when the app restarted since the last message.
 
 use std::path::{Path, PathBuf};
@@ -86,17 +86,17 @@ async fn try_connect(data: &Path, pipe: &str) -> Result<Conn> {
     connect(pipe, &token).await.map_err(|e| e.to_string())
 }
 
-/// The app is installed next to the programs that use this; `IDMA_APP` overrides that
+/// The app is installed next to the programs that use this; `SHARDLOAD_APP` overrides that
 /// (tests, development).
 fn app_path() -> Result<PathBuf> {
-    if let Some(p) = std::env::var_os("IDMA_APP") {
+    if let Some(p) = std::env::var_os("SHARDLOAD_APP") {
         return Ok(PathBuf::from(p));
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     Ok(exe.with_file_name(if cfg!(windows) {
-        "idm-alternative.exe"
+        "shardload.exe"
     } else {
-        "idm-alternative"
+        "shardload"
     }))
 }
 

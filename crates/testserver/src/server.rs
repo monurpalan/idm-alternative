@@ -192,7 +192,7 @@ async fn serve_file(
         if given.as_deref() != Some(expected.as_bytes()) {
             return (
                 StatusCode::UNAUTHORIZED,
-                [(header::WWW_AUTHENTICATE, "Basic realm=\"idma test\"")],
+                [(header::WWW_AUTHENTICATE, "Basic realm=\"shardload test\"")],
                 "login required\n",
             )
                 .into_response();

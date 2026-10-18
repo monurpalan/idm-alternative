@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn written_to_the_stream() {
         let dir = std::env::temp_dir()
-            .join("idma-engine-unit")
+            .join("shardload-engine-unit")
             .join(format!("zone-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let file = dir.join("setup.exe");

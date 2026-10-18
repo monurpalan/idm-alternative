@@ -22,8 +22,8 @@ crates/
   manager/      download list, queue, events, saved logins, batch patterns
   media/        HLS and DASH playlist parsing
   bridge/       messages and the named pipe between the app and its local clients
-  native-host/  `idma-host`, the native messaging host the browser starts
-  mcp/          `idma-mcp`, the MCP server for AI assistants
+  native-host/  `shardload-host`, the native messaging host the browser starts
+  mcp/          `shardload-mcp`, the MCP server for AI assistants
   cli/          `shard` command-line front end
   testserver/   HTTP server reproducing hostile download scenarios (and HLS/DASH)
   bench/        benchmark runner
@@ -54,14 +54,14 @@ npm run tauri dev     # development, with hot reload
 npm run bundle        # installer in target/release/bundle/nsis
 ```
 
-`npm run bundle` builds the browser host (`idma-host.exe`) first and ships it next to the app.
+`npm run bundle` builds the browser host (`shardload-host.exe`) first and ships it next to the app.
 When the update signing key is on the machine (`%USERPROFILE%\.tauri\idma.key`, its password
 DPAPI-encrypted in `idma.key.password`), it also signs the installer and writes `latest.json`;
 uploading both to a GitHub release `v<version>` is what the app's daily update check looks for.
 The check needs the releases to be public.
 The installer is per user (no administrator rights) and silent with `/S`. Uninstalling removes
 the app's keys from the browsers and the "start with Windows" entry, and keeps the download
-list in `%APPDATA%\io.github.monurpalan.idma`.
+list in `%APPDATA%\io.github.monurpalan.shardload`.
 
 ### Linux
 
@@ -78,7 +78,7 @@ cd app && npm ci && npm run bundle -- --bundles deb,appimage
 ```
 
 On Linux the app talks to the browser host and the MCP server over a Unix socket in
-`~/.local/share/io.github.monurpalan.idma` (readable by the user only), registers the host
+`~/.local/share/io.github.monurpalan.shardload` (readable by the user only), registers the host
 by writing its manifest into each browser's folder (not Snap or Flatpak browsers), opens
 magnet links through a desktop entry, sleeps and shuts down through `systemctl`, and scans
 with ClamAV (`clamscan`) when virus scanning is on. Watching the clipboard is Windows-only

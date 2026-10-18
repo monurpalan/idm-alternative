@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 
-use idma_engine::{Phase, SegmentView};
 use serde::Serialize;
+use shardload_engine::{Phase, SegmentView};
 
 pub type TaskId = i64;
 
@@ -69,7 +69,7 @@ pub struct Stream {
 /// The files picked out of a ZIP archive on the server.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct ArchiveChoice {
-    /// Entry names (a folder brings what is in it; see [`idma_engine::select_zip_entries`]).
+    /// Entry names (a folder brings what is in it; see [`shardload_engine::select_zip_entries`]).
     pub entries: Vec<String>,
     /// The folder they go into, chosen on the first start.
     #[serde(default)]
@@ -120,8 +120,8 @@ pub enum ErrorKind {
 }
 
 impl ErrorKind {
-    pub(crate) fn of(e: &idma_engine::Error) -> Option<Self> {
-        use idma_engine::Error as E;
+    pub(crate) fn of(e: &shardload_engine::Error) -> Option<Self> {
+        use shardload_engine::Error as E;
         Some(match e {
             E::AuthRequired { .. } => ErrorKind::Auth,
             E::LinkExpired(_) => ErrorKind::Expired,

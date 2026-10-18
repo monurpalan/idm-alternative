@@ -3,8 +3,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use idma_testserver::router;
-use idma_testserver::zip::{sample, sample_entries};
+use shardload_testserver::router;
+use shardload_testserver::zip::{sample, sample_entries};
 
 async fn start() -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -17,7 +17,7 @@ async fn start() -> String {
 
 fn fresh_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("idma-cli-tests")
+        .join("shardload-cli-tests")
         .join(format!("{name}-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).expect("create dir");

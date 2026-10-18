@@ -1,4 +1,4 @@
-//! Messages from the extension (and from local tools such as `idma-mcp`) to the app, and
+//! Messages from the extension (and from local tools such as `shardload-mcp`) to the app, and
 //! the app's replies. The host passes the extension's messages on, refusing the ones only
 //! local tools may send (see [`Request::from_browser`]).
 

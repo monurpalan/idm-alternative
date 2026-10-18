@@ -4,8 +4,8 @@
 /// Used when nothing better is known.
 pub const FALLBACK: &str = "download";
 
-/// NTFS allows 255 UTF-16 units per name; the `.idma-state` suffix must fit as well.
-pub(crate) const MAX_UNITS: usize = 255 - ".idma-state".len();
+/// NTFS allows 255 UTF-16 units per name; the `.shardload-state` suffix must fit as well.
+pub(crate) const MAX_UNITS: usize = 255 - ".shardload-state".len();
 
 /// The name the server suggests, or the last segment of `final_url` (after redirects), or of
 /// `url`; an extension is added from `content_type` when the name has none. Never empty, never

@@ -2,12 +2,14 @@
 
 mod common;
 
-use idma_engine::{CancellationToken, Error, Options, Progress, RemoteZip, select_zip_entries};
-use idma_testserver::zip::{sample, sample_entries};
+use shardload_engine::{
+    CancellationToken, Error, Options, Progress, RemoteZip, select_zip_entries,
+};
+use shardload_testserver::zip::{sample, sample_entries};
 
 use common::{LIMIT, bytes_sent, start, workdir};
 
-async fn open(url: &str) -> idma_engine::Result<RemoteZip> {
+async fn open(url: &str) -> shardload_engine::Result<RemoteZip> {
     let opts = Options {
         browser: None,
         ..Options::default()
@@ -78,7 +80,7 @@ async fn extracts_chosen_entries() {
             assert!(got == want.data, "{} differs", d.name);
         }
         assert!(out.join("data").join("big.bin").is_file());
-        assert!(!out.join("data").join("big.bin.idma-part").exists());
+        assert!(!out.join("data").join("big.bin.shardload-part").exists());
         let p = rx.borrow().clone();
         assert_eq!(p.size, Some(p.received));
         // Again: everything is there already.

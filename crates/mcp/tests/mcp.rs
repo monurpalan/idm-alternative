@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-use idma_bridge::{Reply, Request};
 use serde_json::{Value, json};
+use shardload_bridge::{Reply, Request};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
@@ -15,7 +15,7 @@ struct Profile(PathBuf);
 impl Profile {
     fn new(name: &str) -> Self {
         let dir = std::env::temp_dir()
-            .join("idma-mcp-tests")
+            .join("shardload-mcp-tests")
             .join(format!("{name}-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).expect("create");
@@ -32,10 +32,10 @@ impl Drop for Profile {
 /// Stands in for the app: one download in the list, and every request echoed back so the
 /// test sees what arrived.
 fn serve_app(dir: &Path) {
-    let token = idma_bridge::new_token(dir).expect("token");
-    let pipe = idma_bridge::pipe_name(dir);
+    let token = shardload_bridge::new_token(dir).expect("token");
+    let pipe = shardload_bridge::pipe_name(dir);
     tokio::spawn(async move {
-        idma_bridge::serve(&pipe, token, |req| async move {
+        shardload_bridge::serve(&pipe, token, |req| async move {
             match req {
                 Request::Tasks => Reply {
                     data: Some(json!([{ "id": 7, "url": "https://x/a.zip", "status": "paused" }])),
@@ -62,9 +62,9 @@ struct Mcp {
 
 impl Mcp {
     async fn start(dir: &Path) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_idma-mcp"))
-            .env("IDMA_HOME", dir)
-            .env("IDMA_APP", "unused")
+        let mut child = Command::new(env!("CARGO_BIN_EXE_shardload-mcp"))
+            .env("SHARDLOAD_HOME", dir)
+            .env("SHARDLOAD_APP", "unused")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

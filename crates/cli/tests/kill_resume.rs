@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use idma_testserver::{Verdict, router, verify_file};
+use shardload_testserver::{Verdict, router, verify_file};
 
 const MB: u64 = 1 << 20;
 
@@ -33,12 +33,12 @@ fn shard(url: &str, out: &PathBuf) -> Command {
 async fn killed_process_resumes() {
     let base = start().await;
     let dir = std::env::temp_dir()
-        .join("idma-cli-tests")
+        .join("shardload-cli-tests")
         .join(format!("kill-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).expect("create dir");
     let out = dir.join("f.bin");
-    let state = dir.join("f.bin.idma-state");
+    let state = dir.join("f.bin.shardload-state");
     let size = 32 * MB;
     // 4 connections at 1 MiB/s: about 8 s in total. Checkpoints happen every 2 s.
     let url = format!("{base}/file/f.bin?size={size}&seed=5&rate=1M");

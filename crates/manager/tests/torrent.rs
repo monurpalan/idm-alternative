@@ -7,17 +7,17 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use idma_manager::{
+use librqbit::{CreateTorrentOptions, ListenerOptions, Session, SessionOptions};
+use shardload_manager::{
     Config, Manager, NewTask, Status, Stream, Task, TaskId, TorrentChoice, TorrentConfig,
 };
-use librqbit::{CreateTorrentOptions, ListenerOptions, Session, SessionOptions};
 
 struct WorkDir(PathBuf);
 
 impl WorkDir {
     fn new(name: &str) -> Self {
         let dir = std::env::temp_dir()
-            .join("idma-torrent-tests")
+            .join("shardload-torrent-tests")
             .join(format!("{name}-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).expect("create workdir");
@@ -242,7 +242,7 @@ async fn downloads_chosen_files_of_a_folder_and_resumes() {
 /// Over the internet: Ubuntu's server image. Its tracker hands out only Canonical's own seed,
 /// so peers come from the DHT, as in the app. Reads the file list, downloads some 30 MB, then
 /// removes it with its file. Run by hand:
-/// `cargo test -p idma-manager --test torrent -- --ignored --nocapture`.
+/// `cargo test -p shardload-manager --test torrent -- --ignored --nocapture`.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "uses the internet"]
 async fn internet_torrent() {
@@ -286,7 +286,7 @@ async fn internet_torrent() {
             begun.elapsed() < Duration::from_secs(180),
             "too slow: {received} bytes"
         );
-        if let Ok(Ok(idma_manager::Event::Progress(p))) =
+        if let Ok(Ok(shardload_manager::Event::Progress(p))) =
             tokio::time::timeout(Duration::from_secs(1), events.recv()).await
             && p.id == t.id
         {

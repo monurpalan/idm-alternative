@@ -1,6 +1,6 @@
 [package]
-name = "idma-app"
-description = "Desktop app: a Tauri shell over idma-manager"
+name = "shardload-app"
+description = "Desktop app: a Tauri shell over shardload-manager"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 publish = false
 
 [[bin]]
-name = "idm-alternative"
+name = "shardload"
 path = "src/main.rs"
 
 [build-dependencies]
@@ -16,10 +16,10 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 chrono = "0.4.45"
-idma-bridge = { version = "0.1.0", path = "../../crates/bridge" }
-idma-engine = { version = "0.1.0", path = "../../crates/engine" }
-idma-manager = { path = "../../crates/manager" }
-idma-media = { version = "0.1.0", path = "../../crates/media" }
+shardload-bridge = { version = "0.1.0", path = "../../crates/bridge" }
+shardload-engine = { version = "0.1.0", path = "../../crates/engine" }
+shardload-manager = { path = "../../crates/manager" }
+shardload-media = { version = "0.1.0", path = "../../crates/media" }
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }

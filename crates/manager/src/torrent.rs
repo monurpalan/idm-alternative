@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use idma_engine::{CancellationToken, Phase, Progress};
 use librqbit::{AddTorrent, AddTorrentOptions, AddTorrentResponse, Session, SessionOptions};
+use shardload_engine::{CancellationToken, Phase, Progress};
 use tokio::sync::{OnceCell, watch};
 
 /// How long to look for a magnet link's metadata before giving up.
@@ -240,7 +240,7 @@ impl Torrents {
 }
 
 /// The error text of a cancelled torrent download; the manager turns it into
-/// [`idma_engine::Error::Cancelled`].
+/// [`shardload_engine::Error::Cancelled`].
 pub const CANCELLED: &str = "cancelled";
 
 fn bps(rate: Option<u64>) -> Option<NonZeroU32> {

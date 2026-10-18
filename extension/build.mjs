@@ -38,7 +38,7 @@ const targets = {
 		...common,
 		background: { scripts: ['background.js'] },
 		browser_specific_settings: {
-			gecko: { id: 'idm-alternative@monurpalan.github.io', strict_min_version: '128.0' }
+			gecko: { id: 'shardload@monurpalan.github.io', strict_min_version: '128.0' }
 		}
 	}
 };

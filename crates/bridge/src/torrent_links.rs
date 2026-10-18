@@ -14,7 +14,7 @@ use crate::Result;
 
 /// Where per-user file types and URL schemes live.
 pub const CLASSES: &str = r"Software\Classes";
-const PROG_ID: &str = "idm-alternative.torrent";
+const PROG_ID: &str = "shardload.torrent";
 
 /// Makes `app` the handler of `magnet:` links and `.torrent` files, under `classes`
 /// ([`CLASSES`]; tests use another key).
@@ -103,8 +103,8 @@ mod tests {
 
     #[test]
     fn registers_and_removes_only_its_own() {
-        let classes = format!(r"Software\idma-tests-{}\Classes", std::process::id());
-        let app = Path::new(r"C:\Program Files\idm-alternative\idm-alternative.exe");
+        let classes = format!(r"Software\shardload-tests-{}\Classes", std::process::id());
+        let app = Path::new(r"C:\Program Files\Shardload\shardload.exe");
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
 
         register_torrent_links(app, &classes).expect("register");
@@ -142,7 +142,7 @@ mod tests {
             "removed another app's magnet handler"
         );
 
-        hkcu.delete_subkey_all(format!(r"Software\idma-tests-{}", std::process::id()))
+        hkcu.delete_subkey_all(format!(r"Software\shardload-tests-{}", std::process::id()))
             .expect("clean up");
     }
 }

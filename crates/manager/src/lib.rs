@@ -28,7 +28,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use idma_engine::{CancellationToken, Checksum, Conflict, Limiter, Options, Outcome, Progress};
+use shardload_engine::{
+    CancellationToken, Checksum, Conflict, Limiter, Options, Outcome, Progress,
+};
 use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 
@@ -48,7 +50,7 @@ pub enum Error {
     #[error("stored data: {0}")]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
-    Engine(#[from] idma_engine::Error),
+    Engine(#[from] shardload_engine::Error),
     #[error("no download with id {0}")]
     NotFound(TaskId),
     #[error("bad checksum: {0}")]
@@ -215,7 +217,7 @@ fn subtitle_path(video: &Path, label: &str, ext: &str) -> PathBuf {
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
-    video.with_file_name(idma_engine::name::sanitize(&format!(
+    video.with_file_name(shardload_engine::name::sanitize(&format!(
         "{stem}.{label}.{ext}"
     )))
 }
@@ -224,7 +226,7 @@ fn subtitle_path(video: &Path, label: &str, ext: &str) -> PathBuf {
 /// Not: a missing file (4xx), a changed file, a full disk, an expired link or a checksum
 /// mismatch, which need the user.
 fn retryable(e: &Error) -> bool {
-    use idma_engine::Error as E;
+    use shardload_engine::Error as E;
     match e {
         Error::Engine(e) => match e {
             E::Http(_)
@@ -257,10 +259,10 @@ fn delete_files_of(path: &Path) {
         p.push(suffix);
         PathBuf::from(p)
     };
-    for suffix in ["", ".idma-part", ".idma-state"] {
+    for suffix in ["", ".shardload-part", ".shardload-state"] {
         std::fs::remove_file(with(suffix)).ok();
     }
-    std::fs::remove_dir_all(with(".idma-hls")).ok();
+    std::fs::remove_dir_all(with(".shardload-hls")).ok();
     // yt-dlp's partial files: `<stem>.f137.mp4.part`, `<stem>.mp4.ytdl` and the like.
     if let (Some(dir), Some(stem)) = (path.parent(), path.file_stem()) {
         let prefix = format!("{}.", stem.to_string_lossy());
@@ -278,13 +280,16 @@ fn delete_files_of(path: &Path) {
 /// Asks the task's URL about the file, or when it fails its mirrors in turn (a mirror
 /// network may list an address before that mirror has the file). The first error is the
 /// one reported.
-async fn probe_any(task: &Task, opts: &Options) -> idma_engine::Result<idma_engine::Probe> {
-    let first = match idma_engine::probe(&task.url, &task.headers, opts).await {
+async fn probe_any(
+    task: &Task,
+    opts: &Options,
+) -> shardload_engine::Result<shardload_engine::Probe> {
+    let first = match shardload_engine::probe(&task.url, &task.headers, opts).await {
         Ok(p) => return Ok(p),
         Err(e) => e,
     };
     for mirror in &task.mirrors {
-        if let Ok(p) = idma_engine::probe(mirror, &task.headers, opts).await {
+        if let Ok(p) = shardload_engine::probe(mirror, &task.headers, opts).await {
             return Ok(p);
         }
     }
@@ -404,10 +409,14 @@ impl Manager {
 
     pub async fn add(&self, mut new: NewTask) -> Result<Task> {
         // A metalink: the file it describes, from its addresses, checked against its hash.
-        if idma_engine::metalink::is_metalink(&new.url) {
+        if shardload_engine::metalink::is_metalink(&new.url) {
             let opts = lock(&self.inner.config).engine.clone();
-            let m = idma_engine::metalink::fetch_metalink(&new.url, &new.headers, &opts).await?;
-            let mut urls = m.urls.into_iter().take(idma_engine::metalink::MAX_URLS);
+            let m =
+                shardload_engine::metalink::fetch_metalink(&new.url, &new.headers, &opts).await?;
+            let mut urls = m
+                .urls
+                .into_iter()
+                .take(shardload_engine::metalink::MAX_URLS);
             new.url = urls.next().unwrap_or_default();
             new.mirrors = urls.chain(std::mem::take(&mut new.mirrors)).collect();
             new.name = new.name.or(Some(m.name));
@@ -416,12 +425,12 @@ impl Manager {
         if let Some(c) = &new.checksum {
             c.parse::<Checksum>().map_err(Error::BadChecksum)?;
         }
-        let name = new.name.as_deref().map(idma_engine::name::sanitize);
+        let name = new.name.as_deref().map(shardload_engine::name::sanitize);
         // A guess from the URL until the server names the file.
         let category = Category::for_name(
             &name
                 .clone()
-                .or_else(|| idma_engine::name::from_url(&new.url))
+                .or_else(|| shardload_engine::name::from_url(&new.url))
                 .unwrap_or_default(),
         );
         let (dir, connections) = {
@@ -532,9 +541,9 @@ impl Manager {
         &self,
         url: &str,
         headers: &[(String, String)],
-    ) -> Result<idma_engine::Probe> {
+    ) -> Result<shardload_engine::Probe> {
         let opts = lock(&self.inner.config).engine.clone();
-        Ok(idma_engine::probe(url, headers, &opts).await?)
+        Ok(shardload_engine::probe(url, headers, &opts).await?)
     }
 
     /// Queues every paused or failed download.
@@ -616,7 +625,7 @@ impl Manager {
         let engine = lock(&self.inner.config).engine.clone();
         grabber::grab(url, opts, &[], &engine, progress, cancel)
             .await
-            .map_err(|e| idma_engine::Error::State(e).into())
+            .map_err(|e| shardload_engine::Error::State(e).into())
     }
 
     /// The name and files of a torrent (a magnet link, or a `.torrent` file on the web or on
@@ -626,11 +635,11 @@ impl Manager {
             .torrents
             .inspect(url)
             .await
-            .map_err(|e| idma_engine::Error::State(e).into())
+            .map_err(|e| shardload_engine::Error::State(e).into())
     }
 
     /// The files in a ZIP archive on the server, read without downloading it (the server must
-    /// support range requests; [`idma_engine::Error::NoRanges`] otherwise): for choosing
+    /// support range requests; [`shardload_engine::Error::NoRanges`] otherwise): for choosing
     /// which to download.
     pub async fn inspect_archive(
         &self,
@@ -638,7 +647,7 @@ impl Manager {
         headers: &[(String, String)],
     ) -> Result<ArchiveInfo> {
         let opts = lock(&self.inner.config).engine.clone();
-        let zip = idma_engine::RemoteZip::open(url, headers, &opts).await?;
+        let zip = shardload_engine::RemoteZip::open(url, headers, &opts).await?;
         Ok(ArchiveInfo {
             name: zip.name().to_owned(),
             size: zip.size(),
@@ -650,7 +659,7 @@ impl Manager {
                     name: e.name.clone(),
                     size: e.size,
                     compressed_size: e.compressed_size,
-                    method: idma_engine::method_name(e.method),
+                    method: shardload_engine::method_name(e.method),
                     is_dir: e.is_dir,
                     encrypted: e.encrypted,
                     unsupported: e.unsupported(),
@@ -677,7 +686,7 @@ impl Manager {
     /// Points a download at a fresh link for the same file (the old one expired, or the site
     /// hands out a new one per visit), keeping its progress. The new link must serve the same
     /// file: the same size, and the same bytes as already downloaded; otherwise this fails
-    /// with [`idma_engine::Error::FileChanged`] and nothing changes. A download that was
+    /// with [`shardload_engine::Error::FileChanged`] and nothing changes. A download that was
     /// running or had failed continues with the new link.
     ///
     /// `headers` from the browser (fresh cookies, referrer) replace the download's headers of
@@ -696,16 +705,16 @@ impl Manager {
         let was_running = self.inner.stop(id, Stop::Pause).await;
         if let Some(path) = &task.path {
             let mut state = path.as_os_str().to_owned();
-            state.push(".idma-state");
+            state.push(".shardload-state");
             if PathBuf::from(state).exists() {
                 let opts = lock(&self.inner.config).engine.clone();
-                let req = idma_engine::Request {
+                let req = shardload_engine::Request {
                     url: url.to_owned(),
                     output: path.clone(),
                     headers: headers.clone(),
                     mirrors: Vec::new(),
                 };
-                if let Err(e) = idma_engine::patch_url(&req, &opts).await {
+                if let Err(e) = shardload_engine::patch_url(&req, &opts).await {
                     if was_running {
                         self.start(id).await?;
                     }
@@ -732,7 +741,7 @@ impl Manager {
             .into_iter()
             .filter(|(k, _)| !k.eq_ignore_ascii_case("authorization"))
             .collect();
-        headers.push(idma_engine::basic_auth(user, password));
+        headers.push(shardload_engine::basic_auth(user, password));
         self.inner.db.set_headers(id, &headers).await?;
         if was_running || task.status != Status::Done {
             self.inner.set_status(id, Status::Queued, None).await?;
@@ -888,7 +897,7 @@ impl Inner {
         let Ok(Some((user, password))) = self.db.login(&site).await else {
             return false;
         };
-        let auth = idma_engine::basic_auth(&user, &password);
+        let auth = shardload_engine::basic_auth(&user, &password);
         if task.headers.iter().any(|h| h == &auth) {
             return false;
         }
@@ -916,7 +925,7 @@ impl Inner {
         let logged_in = why.is_none()
             && matches!(
                 result,
-                Err(Error::Engine(idma_engine::Error::AuthRequired { .. }))
+                Err(Error::Engine(shardload_engine::Error::AuthRequired { .. }))
             )
             && self.use_saved_login(id).await;
         let recorded = match (&result, why) {
@@ -928,12 +937,14 @@ impl Inner {
                 lock(&self.retries).remove(&id);
                 self.db.finish(id, outcome.size, now_ms()).await
             }
-            (Err(Error::Engine(idma_engine::Error::Cancelled)), Some(Stop::Pause)) => {
+            (Err(Error::Engine(shardload_engine::Error::Cancelled)), Some(Stop::Pause)) => {
                 self.db.set_status(id, Status::Paused, None).await
             }
             // Stays "downloading" so the next open resumes it.
-            (Err(Error::Engine(idma_engine::Error::Cancelled)), Some(Stop::Shutdown)) => Ok(()),
-            (Err(Error::Engine(idma_engine::Error::Cancelled)), Some(Stop::Remove)) => Ok(()),
+            (Err(Error::Engine(shardload_engine::Error::Cancelled)), Some(Stop::Shutdown)) => {
+                Ok(())
+            }
+            (Err(Error::Engine(shardload_engine::Error::Cancelled)), Some(Stop::Remove)) => Ok(()),
             (Err(e), _) => match self.schedule_retry(id, e) {
                 Some((delay, true)) => {
                     tracing::info!(id, "no network connection, checking again in {delay:?}");
@@ -991,24 +1002,24 @@ impl Inner {
         let path = match &task.path {
             Some(p) => p.clone(),
             None => {
-                std::fs::create_dir_all(&task.dir).map_err(idma_engine::Error::from)?;
+                std::fs::create_dir_all(&task.dir).map_err(shardload_engine::Error::from)?;
                 let base = task
                     .name
                     .clone()
-                    .or_else(|| idma_engine::name::from_url(&task.url))
+                    .or_else(|| shardload_engine::name::from_url(&task.url))
                     .unwrap_or_else(|| "video".to_owned());
-                let stem = idma_engine::name::split_extension(&base).0.to_owned();
+                let stem = shardload_engine::name::split_extension(&base).0.to_owned();
                 let ext = if ffmpeg.is_some() || stream.dash.is_some() {
                     "mp4"
                 } else {
                     "ts"
                 };
-                let name = idma_engine::name::sanitize(&format!("{stem}.{ext}"));
+                let name = shardload_engine::name::sanitize(&format!("{stem}.{ext}"));
                 let _one_at_a_time = self.naming.lock().await;
                 let taken: std::collections::HashSet<PathBuf> =
                     self.db.paths_except(task.id).await?.into_iter().collect();
                 let path =
-                    idma_engine::target_avoiding(&task.dir, &name, &task.url, conflict, |p| {
+                    shardload_engine::target_avoiding(&task.dir, &name, &task.url, conflict, |p| {
                         taken.contains(p)
                     });
                 let file_name = path
@@ -1031,7 +1042,7 @@ impl Inner {
         let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
         let result = match stream.dash {
             Some(video) => {
-                let req = idma_engine::DashRequest {
+                let req = shardload_engine::DashRequest {
                     manifest: task.url.clone(),
                     video,
                     audio: stream.audio,
@@ -1039,17 +1050,17 @@ impl Inner {
                     headers: task.headers.clone(),
                     ffmpeg,
                 };
-                idma_engine::download_dash(&req, &opts, Some(&tx), cancel).await
+                shardload_engine::download_dash(&req, &opts, Some(&tx), cancel).await
             }
             None => {
-                let req = idma_engine::StreamRequest {
+                let req = shardload_engine::StreamRequest {
                     video: task.url.clone(),
                     audio: stream.audio,
                     output: path,
                     headers: task.headers.clone(),
                     ffmpeg,
                 };
-                idma_engine::download_hls(&req, &opts, Some(&tx), cancel).await
+                shardload_engine::download_hls(&req, &opts, Some(&tx), cancel).await
             }
         };
         drop(tx);
@@ -1058,18 +1069,18 @@ impl Inner {
         // Subtitles go next to the video; a subtitle that fails does not fail the download.
         for (i, sub) in subtitles.iter().enumerate() {
             let source = if is_dash {
-                idma_engine::SubtitleSource::Dash {
+                shardload_engine::SubtitleSource::Dash {
                     manifest: task.url.clone(),
                     representation: sub.id.clone(),
                 }
             } else {
-                idma_engine::SubtitleSource::Hls {
+                shardload_engine::SubtitleSource::Hls {
                     playlist: sub.id.clone(),
                 }
             };
             let label = sub.language.clone().unwrap_or_else(|| (i + 1).to_string());
             let out = subtitle_path(&video_path, &label, "vtt");
-            match idma_engine::download_subtitles(&source, &out, &task.headers, &opts).await {
+            match shardload_engine::download_subtitles(&source, &out, &task.headers, &opts).await {
                 Ok(_) => {
                     // A DASH text track can be TTML rather than WebVTT.
                     let is_xml = std::fs::read(&out)
@@ -1099,12 +1110,13 @@ impl Inner {
     ) -> Result<Outcome> {
         let started = std::time::Instant::now();
         let zip = tokio::select! {
-            z = idma_engine::RemoteZip::open(&task.url, &task.headers, opts) => z?,
-            () = cancel.cancelled() => return Err(idma_engine::Error::Cancelled.into()),
+            z = shardload_engine::RemoteZip::open(&task.url, &task.headers, opts) => z?,
+            () = cancel.cancelled() => return Err(shardload_engine::Error::Cancelled.into()),
         };
-        let (chosen, missing) = idma_engine::select_zip_entries(zip.entries(), &choice.entries);
+        let (chosen, missing) =
+            shardload_engine::select_zip_entries(zip.entries(), &choice.entries);
         if !missing.is_empty() || chosen.is_empty() {
-            return Err(idma_engine::Error::Archive(format!(
+            return Err(shardload_engine::Error::Archive(format!(
                 "not in the archive: {}",
                 missing.join(", ")
             ))
@@ -1114,14 +1126,15 @@ impl Inner {
         let folder = match choice.folder.clone() {
             Some(f) => f,
             None => {
-                std::fs::create_dir_all(&task.dir).map_err(idma_engine::Error::from)?;
+                std::fs::create_dir_all(&task.dir).map_err(shardload_engine::Error::from)?;
                 let _one_at_a_time = self.naming.lock().await;
                 let taken: std::collections::HashSet<PathBuf> =
                     self.db.paths_except(task.id).await?.into_iter().collect();
-                let base =
-                    idma_engine::name::sanitize(idma_engine::name::split_extension(zip.name()).0);
+                let base = shardload_engine::name::sanitize(
+                    shardload_engine::name::split_extension(zip.name()).0,
+                );
                 let folder =
-                    idma_engine::target_avoiding(&task.dir, &base, &task.url, conflict, |p| {
+                    shardload_engine::target_avoiding(&task.dir, &base, &task.url, conflict, |p| {
                         taken.contains(p)
                     });
                 let name = folder
@@ -1164,7 +1177,7 @@ impl Inner {
             .filter_map(|d| d.error.as_ref().map(|e| format!("{}: {e}", d.name)))
             .collect();
         if !failed.is_empty() {
-            return Err(idma_engine::Error::Archive(format!(
+            return Err(shardload_engine::Error::Archive(format!(
                 "{} of {} files could not be extracted: {}",
                 failed.len(),
                 done.len(),
@@ -1175,7 +1188,7 @@ impl Inner {
         if opts.mark_of_the_web {
             for path in done.iter().filter_map(|d| d.path.as_ref()) {
                 if path.is_file() {
-                    idma_engine::mark_of_the_web(path, &task.url, &task.headers);
+                    shardload_engine::mark_of_the_web(path, &task.url, &task.headers);
                 }
             }
         }
@@ -1199,7 +1212,7 @@ impl Inner {
         cancel: &CancellationToken,
     ) -> Result<Outcome> {
         let started = std::time::Instant::now();
-        let state = |e: String| -> Error { idma_engine::Error::State(e).into() };
+        let state = |e: String| -> Error { shardload_engine::Error::State(e).into() };
         let mut stream = task.stream.clone().unwrap_or_default();
         let mut choice = stream.torrent.clone().unwrap_or_default();
         let folder = match choice.folder.clone() {
@@ -1207,19 +1220,19 @@ impl Inner {
             None => {
                 let info = tokio::select! {
                     i = self.torrents.inspect(&task.url) => i.map_err(state)?,
-                    () = cancel.cancelled() => return Err(idma_engine::Error::Cancelled.into()),
+                    () = cancel.cancelled() => return Err(shardload_engine::Error::Cancelled.into()),
                 };
                 let chosen: Vec<&TorrentFile> = match &choice.files {
                     Some(ids) => ids.iter().filter_map(|&i| info.files.get(i)).collect(),
                     None => info.files.iter().collect(),
                 };
                 let size: u64 = chosen.iter().map(|f| f.size).sum();
-                std::fs::create_dir_all(&task.dir).map_err(idma_engine::Error::from)?;
+                std::fs::create_dir_all(&task.dir).map_err(shardload_engine::Error::from)?;
                 let _one_at_a_time = self.naming.lock().await;
                 let taken: std::collections::HashSet<PathBuf> =
                     self.db.paths_except(task.id).await?.into_iter().collect();
                 let free = |p: &Path| !p.exists() && !taken.contains(p);
-                let base = idma_engine::name::sanitize(&info.name);
+                let base = shardload_engine::name::sanitize(&info.name);
                 let (folder, path, name) = match info.files.as_slice() {
                     // One file: straight into the folder unless the name is taken there.
                     [only] if free(&task.dir.join(&only.name)) => (
@@ -1228,7 +1241,7 @@ impl Inner {
                         only.name.clone(),
                     ),
                     _ => {
-                        let folder = idma_engine::target_avoiding(
+                        let folder = shardload_engine::target_avoiding(
                             &task.dir,
                             &base,
                             &task.url,
@@ -1281,7 +1294,7 @@ impl Inner {
                 checksum: None,
                 checksum_from: None,
             }),
-            Err(_) if cancel.is_cancelled() => Err(idma_engine::Error::Cancelled.into()),
+            Err(_) if cancel.is_cancelled() => Err(shardload_engine::Error::Cancelled.into()),
             Err(e) => Err(state(e)),
         }
     }
@@ -1302,15 +1315,15 @@ impl Inner {
         let path = match &task.path {
             Some(p) => p.clone(),
             None => {
-                std::fs::create_dir_all(&task.dir).map_err(idma_engine::Error::from)?;
+                std::fs::create_dir_all(&task.dir).map_err(shardload_engine::Error::from)?;
                 let stem = task.name.clone().unwrap_or_else(|| "video".to_owned());
-                let stem = idma_engine::name::split_extension(&stem).0.to_owned();
-                let name = idma_engine::name::sanitize(&format!("{stem}.mp4"));
+                let stem = shardload_engine::name::split_extension(&stem).0.to_owned();
+                let name = shardload_engine::name::sanitize(&format!("{stem}.mp4"));
                 let _one_at_a_time = self.naming.lock().await;
                 let taken: std::collections::HashSet<PathBuf> =
                     self.db.paths_except(task.id).await?.into_iter().collect();
                 let path =
-                    idma_engine::target_avoiding(&task.dir, &name, &task.url, conflict, |p| {
+                    shardload_engine::target_avoiding(&task.dir, &name, &task.url, conflict, |p| {
                         taken.contains(p)
                     });
                 let file_name = path
@@ -1334,8 +1347,10 @@ impl Inner {
         reporter.await.ok();
         let file = match result {
             Ok(f) => f,
-            Err(_) if cancel.is_cancelled() => return Err(idma_engine::Error::Cancelled.into()),
-            Err(e) => return Err(idma_engine::Error::State(e).into()),
+            Err(_) if cancel.is_cancelled() => {
+                return Err(shardload_engine::Error::Cancelled.into());
+            }
+            Err(e) => return Err(shardload_engine::Error::State(e).into()),
         };
         if file != path {
             // Not merged into MP4 (audio alone, or a single file of another type).
@@ -1349,10 +1364,10 @@ impl Inner {
                 .await?;
         }
         let size = std::fs::metadata(&file)
-            .map_err(idma_engine::Error::from)?
+            .map_err(shardload_engine::Error::from)?
             .len();
         if mark {
-            idma_engine::mark_of_the_web(&file, &task.url, &task.headers);
+            shardload_engine::mark_of_the_web(&file, &task.url, &task.headers);
         }
         Ok(Outcome {
             size,
@@ -1423,7 +1438,9 @@ impl Inner {
 
         if let Some(format) = task.stream.as_ref().and_then(|s| s.ytdlp.clone()) {
             let ytdlp = ytdlp.ok_or_else(|| {
-                idma_engine::Error::State("yt-dlp is not set up (Settings, Video tools)".into())
+                shardload_engine::Error::State(
+                    "yt-dlp is not set up (Settings, Video tools)".into(),
+                )
             })?;
             let tools = ytdlp::Tools {
                 ytdlp,
@@ -1460,7 +1477,7 @@ impl Inner {
                         .await
                     {
                         // The whole archive instead, from now on.
-                        Err(Error::Engine(idma_engine::Error::NoRanges)) => {
+                        Err(Error::Engine(shardload_engine::Error::NoRanges)) => {
                             tracing::info!(
                                 id = task.id,
                                 "no range requests: downloading the whole archive"
@@ -1489,15 +1506,15 @@ impl Inner {
                 // First start: ask the server for the name and size, then pick a free path.
                 let probe = tokio::select! {
                     p = probe_any(&task, &opts) => p?,
-                    () = cancel.cancelled() => return Err(idma_engine::Error::Cancelled.into()),
+                    () = cancel.cancelled() => return Err(shardload_engine::Error::Cancelled.into()),
                 };
-                std::fs::create_dir_all(&task.dir).map_err(idma_engine::Error::from)?;
+                std::fs::create_dir_all(&task.dir).map_err(shardload_engine::Error::from)?;
                 let name = task.name.clone().unwrap_or(probe.name);
                 let _one_at_a_time = self.naming.lock().await;
                 let taken: std::collections::HashSet<PathBuf> =
                     self.db.paths_except(task.id).await?.into_iter().collect();
                 let path =
-                    idma_engine::target_avoiding(&task.dir, &name, &task.url, conflict, |p| {
+                    shardload_engine::target_avoiding(&task.dir, &name, &task.url, conflict, |p| {
                         taken.contains(p)
                     });
                 let file_name = path
@@ -1516,7 +1533,7 @@ impl Inner {
             }
         };
 
-        let req = idma_engine::Request {
+        let req = shardload_engine::Request {
             url: task.url.clone(),
             output: path,
             headers: task.headers.clone(),
@@ -1524,7 +1541,7 @@ impl Inner {
         };
         let (tx, rx) = watch::channel(Progress::default());
         let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
-        let result = idma_engine::download(&req, &opts, Some(&tx), cancel).await;
+        let result = shardload_engine::download(&req, &opts, Some(&tx), cancel).await;
         drop(tx);
         reporter.await.ok();
         // A checksum found for the file stays with the download, so the list shows it and
@@ -1535,7 +1552,7 @@ impl Inner {
                 checksum_from: Some(from),
                 ..
             }) => Some((c.to_string(), from)),
-            Err(idma_engine::Error::ChecksumMismatch {
+            Err(shardload_engine::Error::ChecksumMismatch {
                 expected,
                 origin: Some(from),
                 ..

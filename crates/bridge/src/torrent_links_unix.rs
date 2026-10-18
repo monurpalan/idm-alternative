@@ -11,7 +11,7 @@ use crate::Result;
 /// Empty: the user's own applications folder (`~/.local/share/applications`). Tests pass a
 /// folder of their own, and then the desktop's defaults are left alone.
 pub const CLASSES: &str = "";
-const DESKTOP_FILE: &str = "idm-alternative-torrent.desktop";
+const DESKTOP_FILE: &str = "shardload-torrent.desktop";
 const TYPES: [&str; 2] = ["x-scheme-handler/magnet", "application/x-bittorrent"];
 
 fn applications(classes: &str) -> Option<PathBuf> {
@@ -74,9 +74,9 @@ mod tests {
 
     #[test]
     fn registers_and_removes_its_entry() {
-        let dir = std::env::temp_dir().join(format!("idma-links-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("shardload-links-{}", std::process::id()));
         let classes = dir.to_string_lossy().into_owned();
-        let app = Path::new("/opt/idm-alternative/idm-alternative");
+        let app = Path::new("/opt/shardload/shardload");
         register_torrent_links(app, &classes).expect("register");
         assert!(torrent_links_registered(app, &classes));
         let text = std::fs::read_to_string(dir.join(DESKTOP_FILE)).expect("entry");

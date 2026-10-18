@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use common::*;
-use idma_engine::{CancellationToken, Error, Options, Outcome, download};
+use shardload_engine::{CancellationToken, Error, Options, Outcome, download};
 
 /// Downloads `query` (appended to the URL) and checks the file.
 async fn ok(name: &str, size: u64, query: &str, connections: usize) -> Outcome {
@@ -118,7 +118,7 @@ async fn changed_file_is_detected_and_discarded() {
         .expect_err("must fail");
     assert!(matches!(err, Error::FileChanged), "{err}");
     assert!(!out.exists());
-    assert!(!PathBuf::from(format!("{}.idma-part", out.display())).exists());
+    assert!(!PathBuf::from(format!("{}.shardload-part", out.display())).exists());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -141,7 +141,7 @@ async fn html_error_page_is_not_written_as_data() {
 /// (`cancel`) or by dropping it mid-flight like a killed process would.
 /// Bytes the state file next to `out` records as written, 0 while there is none.
 fn saved(out: &Path) -> u64 {
-    let Ok(text) = std::fs::read_to_string(format!("{}.idma-state", out.display())) else {
+    let Ok(text) = std::fs::read_to_string(format!("{}.shardload-state", out.display())) else {
         return 0;
     };
     let Ok(state) = serde_json::from_str::<serde_json::Value>(&text) else {
@@ -193,7 +193,7 @@ async fn interrupted_then_resumed(name: &str, cancel: bool) {
     // 4 connections at 1 MiB/s: about 4 s in total.
     let url = format!("{base}/file/f.bin?size={size}&seed=3&rate=1M");
     interrupt(&url, &out, 2 * MB, cancel).await;
-    assert!(PathBuf::from(format!("{}.idma-state", out.display())).exists());
+    assert!(PathBuf::from(format!("{}.shardload-state", out.display())).exists());
 
     let started = Instant::now();
     let done = get(&request(url, &out), &opts(4)).await.expect("resume");

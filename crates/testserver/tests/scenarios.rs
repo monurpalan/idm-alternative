@@ -2,8 +2,8 @@
 
 use std::time::{Duration, Instant};
 
-use idma_testserver::{content, router};
 use reqwest::{StatusCode, header};
+use shardload_testserver::{content, router};
 
 async fn start() -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -331,8 +331,8 @@ async fn stats_count_gets_and_peak() {
 
 #[test]
 fn verify_file_detects_problems() {
-    use idma_testserver::{Verdict, verify_file};
-    let dir = std::env::temp_dir().join(format!("idma-verify-{}", std::process::id()));
+    use shardload_testserver::{Verdict, verify_file};
+    let dir = std::env::temp_dir().join(format!("shardload-verify-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("dir");
     let path = dir.join("f.bin");
 

@@ -1,5 +1,5 @@
 [package]
-name = "idma-media"
+name = "shardload-media"
 description = "Reading HLS and DASH playlists: which qualities, audio tracks and subtitles a stream offers"
 version.workspace = true
 edition.workspace = true

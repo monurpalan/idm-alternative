@@ -219,7 +219,7 @@ mod tests {
 
     #[tokio::test]
     async fn hashing() {
-        let dir = std::env::temp_dir().join(format!("idma-checksum-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("shardload-checksum-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let f = dir.join("t.txt");
         std::fs::write(&f, b"test").expect("write");

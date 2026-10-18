@@ -1,5 +1,5 @@
 [package]
-name = "idma-engine"
+name = "shardload-engine"
 description = "Segmented, resumable HTTP download engine"
 version.workspace = true
 edition.workspace = true
@@ -27,7 +27,7 @@ cbc = { version = "0.2.1", features = ["alloc", "block-padding"] }
 url = "2"
 crc32fast = "1.5"
 flate2 = "1.1"
-idma-media = { version = "0.1.0", path = "../media" }
+shardload-media = { version = "0.1.0", path = "../media" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
@@ -37,11 +37,11 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
-idma-testserver = { path = "../testserver" }
+shardload-testserver = { path = "../testserver" }
 axum = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 sha2 = "0.11.1"
-idma-media = { path = "../media" }
+shardload-media = { path = "../media" }
 
 [lints]
 workspace = true

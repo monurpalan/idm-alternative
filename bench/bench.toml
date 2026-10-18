@@ -1,4 +1,4 @@
-# Benchmark configuration for `cargo run --release -p idma-bench`.
+# Benchmark configuration for `cargo run --release -p shardload-bench`.
 #
 # Placeholders in `args`: {url}, {dir}, {file}, {path}.
 # `${VAR}` in `program` expands environment variables.

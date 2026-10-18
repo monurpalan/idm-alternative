@@ -7,8 +7,8 @@ File content is generated from `(seed, offset)`, so any size is served without d
 a download can be verified byte-for-byte without a reference copy.
 
 ```bash
-cargo run --release -p idma-testserver -- serve --bind 127.0.0.1:8787
-cargo run --release -p idma-testserver -- verify downloads/test.bin --size 100M --seed 1
+cargo run --release -p shardload-testserver -- serve --bind 127.0.0.1:8787
+cargo run --release -p shardload-testserver -- verify downloads/test.bin --size 100M --seed 1
 ```
 
 Serves HTTP/1.1 and h2c (HTTP/2 with prior knowledge), or with `--tls` HTTPS on a fresh self-signed

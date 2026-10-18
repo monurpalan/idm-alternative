@@ -4,8 +4,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use idma_manager::{Category, Config, Event, Manager, NewTask, Status, Task, TaskId};
-use idma_testserver::{Verdict, router, verify_file};
+use shardload_manager::{Category, Config, Event, Manager, NewTask, Status, Task, TaskId};
+use shardload_testserver::{Verdict, router, verify_file};
 
 const MB: u64 = 1 << 20;
 
@@ -24,7 +24,7 @@ struct WorkDir(PathBuf);
 impl WorkDir {
     fn new(name: &str) -> Self {
         let dir = std::env::temp_dir()
-            .join("idma-manager-tests")
+            .join("shardload-manager-tests")
             .join(format!("{name}-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).expect("create workdir");
@@ -46,9 +46,9 @@ impl WorkDir {
             dir: self.0.join("downloads"),
             max_active,
             connections: 4,
-            engine: idma_engine::Options {
+            engine: shardload_engine::Options {
                 find_checksum: false,
-                ..idma_engine::Options::default()
+                ..shardload_engine::Options::default()
             },
             ..Config::default()
         }
@@ -193,9 +193,9 @@ async fn remove_stops_and_deletes_files() {
     m.remove(task.id, true).await.expect("remove");
     assert!(matches!(
         m.get(task.id).await,
-        Err(idma_manager::Error::NotFound(_))
+        Err(shardload_manager::Error::NotFound(_))
     ));
-    for suffix in ["", ".idma-part", ".idma-state", ".idma-lock"] {
+    for suffix in ["", ".shardload-part", ".shardload-state", ".shardload-lock"] {
         let p = PathBuf::from(format!("{}{suffix}", path.display()));
         assert!(!p.exists(), "{} left behind", p.display());
     }
@@ -328,7 +328,7 @@ async fn killed_manager_resumes_on_next_open() {
     })
     .join()
     .expect("join");
-    assert!(w.path().join("downloads/k.bin.idma-state").exists());
+    assert!(w.path().join("downloads/k.bin.shardload-state").exists());
     let before = bytes_sent(&base).await;
 
     let m = Manager::open(&w.db(), w.config(3)).await.expect("reopen");
@@ -355,7 +355,7 @@ async fn bad_checksum_is_refused_and_failures_are_recorded() {
     bad.checksum = Some("sha256:abc".into());
     assert!(matches!(
         m.add(bad).await,
-        Err(idma_manager::Error::BadChecksum(_))
+        Err(shardload_manager::Error::BadChecksum(_))
     ));
 
     let task = m
@@ -418,7 +418,9 @@ async fn refreshed_link_continues_only_for_the_same_file() {
     assert!(
         matches!(
             refused,
-            Err(idma_manager::Error::Engine(idma_engine::Error::FileChanged))
+            Err(shardload_manager::Error::Engine(
+                shardload_engine::Error::FileChanged
+            ))
         ),
         "{refused:?}"
     );
@@ -508,12 +510,12 @@ async fn saved_login_is_used_when_the_server_asks() {
     let base = start_server().await;
     let w = WorkDir::new("saved-login");
     let m = Manager::open(&w.db(), w.config(2)).await.expect("open");
-    let site = idma_manager::site_of(&base).expect("site");
+    let site = shardload_manager::site_of(&base).expect("site");
     assert!(site.starts_with("127.0.0.1:"), "{site}");
     m.save_login(&site, "ali", "s3cret").await.expect("save");
     assert_eq!(
         m.saved_logins().await.expect("list"),
-        vec![idma_manager::SavedLogin {
+        vec![shardload_manager::SavedLogin {
             site: site.clone(),
             user: "ali".into()
         }]
@@ -542,7 +544,7 @@ async fn saved_login_is_used_when_the_server_asks() {
     })
     .await;
     assert_eq!(t.status, Status::Error);
-    assert_eq!(t.error_kind, Some(idma_manager::ErrorKind::Auth));
+    assert_eq!(t.error_kind, Some(shardload_manager::ErrorKind::Auth));
 
     m.forget_login(&site).await.expect("forget");
     assert!(m.saved_logins().await.expect("list").is_empty());
@@ -627,7 +629,7 @@ async fn checksum_found_next_to_the_file_is_kept_and_checked() {
 
     let w = WorkDir::new("found-checksum");
     let config = Config {
-        engine: idma_engine::Options::default(),
+        engine: shardload_engine::Options::default(),
         ..w.config(1)
     };
     let m = Manager::open(&w.db(), config).await.expect("open");
@@ -640,7 +642,7 @@ async fn checksum_found_next_to_the_file_is_kept_and_checked() {
     })
     .await;
     assert_eq!(t.status, Status::Error);
-    assert_eq!(t.error_kind, Some(idma_manager::ErrorKind::Checksum));
+    assert_eq!(t.error_kind, Some(shardload_manager::ErrorKind::Checksum));
     let error = t.error.as_deref().unwrap_or_default();
     assert!(error.contains("checksum from SHA256SUMS"), "{error}");
     assert_eq!(t.checksum, Some(format!("sha256:{wrong}")));

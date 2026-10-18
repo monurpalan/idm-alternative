@@ -8,8 +8,8 @@ use axum::Router;
 use axum::extract::State;
 use axum::http::{StatusCode, Uri};
 use axum::response::{Html, IntoResponse};
-use idma_engine::{CancellationToken, Options};
-use idma_manager::grabber::{GrabOptions, grab};
+use shardload_engine::{CancellationToken, Options};
+use shardload_manager::grabber::{GrabOptions, grab};
 
 #[derive(Default)]
 struct Hits {

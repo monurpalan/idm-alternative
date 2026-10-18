@@ -7,29 +7,31 @@
 
 use std::process::ExitCode;
 
-use idma_bridge::{Client, Reply, Request, read_frame, write_frame};
+use shardload_bridge::{Client, Reply, Request, read_frame, write_frame};
 
 type Result<T> = std::result::Result<T, String>;
 
 fn main() -> ExitCode {
-    // The uninstaller runs `idma-host --unregister` to take our keys out of the browsers.
+    // The uninstaller runs `shardload-host --unregister` to take our keys out of the browsers.
     // Browsers start the host with the extension's origin or id as the argument instead.
     if std::env::args().nth(1).as_deref() == Some("--unregister") {
-        let Some(data) = idma_bridge::data_dir() else {
-            eprintln!("idma-host: APPDATA is not set");
+        let Some(data) = shardload_bridge::data_dir() else {
+            eprintln!("shardload-host: APPDATA is not set");
             return ExitCode::FAILURE;
         };
         // Opening magnet links and .torrent files, when the user had turned it on.
         if let Ok(exe) = std::env::current_exe() {
-            let app = exe.with_file_name("idm-alternative.exe");
-            if let Err(e) = idma_bridge::unregister_torrent_links(&app, idma_bridge::CLASSES) {
-                eprintln!("idma-host: {e}");
+            let app = exe.with_file_name("shardload.exe");
+            if let Err(e) =
+                shardload_bridge::unregister_torrent_links(&app, shardload_bridge::CLASSES)
+            {
+                eprintln!("shardload-host: {e}");
             }
         }
-        return match idma_bridge::unregister(&data) {
+        return match shardload_bridge::unregister(&data) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("idma-host: {e}");
+                eprintln!("shardload-host: {e}");
                 ExitCode::FAILURE
             }
         };
@@ -40,21 +42,21 @@ fn main() -> ExitCode {
     {
         Ok(rt) => rt,
         Err(e) => {
-            eprintln!("idma-host: {e}");
+            eprintln!("shardload-host: {e}");
             return ExitCode::FAILURE;
         }
     };
     match rt.block_on(run()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("idma-host: {e}");
+            eprintln!("shardload-host: {e}");
             ExitCode::FAILURE
         }
     }
 }
 
 async fn run() -> Result<()> {
-    let data = idma_bridge::data_dir().ok_or("APPDATA is not set")?;
+    let data = shardload_bridge::data_dir().ok_or("APPDATA is not set")?;
     let mut app = Client::new(data);
     let mut stdin = tokio::io::stdin();
     let mut stdout = tokio::io::stdout();
@@ -63,7 +65,7 @@ async fn run() -> Result<()> {
         let reply = match forward(&mut app, &frame).await {
             Ok(bytes) => bytes,
             Err(e) => {
-                eprintln!("idma-host: {e}");
+                eprintln!("shardload-host: {e}");
                 serde_json::to_vec(&Reply::error(e)).map_err(|e| e.to_string())?
             }
         };

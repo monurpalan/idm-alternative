@@ -13,7 +13,7 @@ import {
 import { api } from './api.ts';
 import { chooseMedia, classify, remember, type MediaItem } from './media.ts';
 
-const HOST = 'io.github.monurpalan.idma';
+const HOST = 'io.github.monurpalan.shardload';
 /** Alt held this recently (by any page) means "let the browser download this one". */
 const ALT_WINDOW_MS = 1500;
 
@@ -141,8 +141,8 @@ async function sendVideo(tab: chrome.tabs.Tab, src: string): Promise<Reply> {
 }
 
 // Right-click menu.
-const MENU_LINK = 'idma-link';
-const MENU_PAGE = 'idma-page';
+const MENU_LINK = 'shardload-link';
+const MENU_PAGE = 'shardload-page';
 
 chrome.runtime.onInstalled.addListener(() => {
 	chrome.contextMenus.removeAll(() => {

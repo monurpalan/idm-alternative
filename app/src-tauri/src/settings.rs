@@ -2,9 +2,9 @@
 
 use std::path::PathBuf;
 
-use idma_engine::{Browser, Conflict, Options};
-use idma_manager::{Category, Config};
 use serde::{Deserialize, Serialize};
+use shardload_engine::{Browser, Conflict, Options};
+use shardload_manager::{Category, Config};
 
 /// Key the settings are saved under.
 pub const KEY: &str = "app";

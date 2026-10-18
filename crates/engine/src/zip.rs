@@ -335,7 +335,7 @@ impl RemoteZip {
         Ok(results)
     }
 
-    /// Fetches one entry into `path` (through `<path>.idma-part`). The outer error ends the
+    /// Fetches one entry into `path` (through `<path>.shardload-part`). The outer error ends the
     /// whole extraction; the inner one is this entry's problem only.
     async fn fetch_entry(
         &self,
@@ -348,7 +348,7 @@ impl RemoteZip {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let part = crate::state::sibling(path, ".idma-part");
+        let part = crate::state::sibling(path, ".shardload-part");
         let resp = self
             .http
             .range(&self.remote, e.header_offset, Some(end), 0)
@@ -856,7 +856,7 @@ fn u64_at(b: &[u8], i: usize) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use idma_testserver::zip::{DEFLATE, Entry, STORED, write};
+    use shardload_testserver::zip::{DEFLATE, Entry, STORED, write};
 
     fn list(archive: &[u8]) -> (End, Vec<ZipEntry>) {
         // The whole file is "the tail" here, as for any archive under 64 KiB.

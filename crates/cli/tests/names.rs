@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use idma_testserver::{Verdict, router, verify_file};
+use shardload_testserver::{Verdict, router, verify_file};
 
 async fn start() -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -19,7 +19,7 @@ async fn start() -> String {
 async fn saves_under_server_name() {
     let base = start().await;
     let dir = std::env::temp_dir()
-        .join("idma-cli-tests")
+        .join("shardload-cli-tests")
         .join(format!("names-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).expect("create dir");
@@ -81,7 +81,7 @@ async fn run(url: &str, dir: &Path) {
 async fn existing_files_get_numbered_and_interrupted_ones_resume() {
     let base = start().await;
     let dir = std::env::temp_dir()
-        .join("idma-cli-tests")
+        .join("shardload-cli-tests")
         .join(format!("collide-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).expect("create dir");
@@ -109,7 +109,7 @@ async fn existing_files_get_numbered_and_interrupted_ones_resume() {
     );
     child.kill().expect("kill");
     child.wait().expect("wait");
-    assert!(dir.join("slow.bin.idma-state").exists());
+    assert!(dir.join("slow.bin.shardload-state").exists());
     run(&url, &dir).await;
     assert_eq!(
         verify_file(&dir.join("slow.bin"), 6, size).expect("verify"),

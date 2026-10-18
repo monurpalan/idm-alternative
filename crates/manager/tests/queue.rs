@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use idma_manager::{Config, Manager, Move, NewTask, Status, Task, TaskId};
-use idma_testserver::{Verdict, router, verify_file};
+use shardload_manager::{Config, Manager, Move, NewTask, Status, Task, TaskId};
+use shardload_testserver::{Verdict, router, verify_file};
 
 const MB: u64 = 1 << 20;
 
@@ -26,7 +26,7 @@ struct WorkDir(PathBuf);
 impl WorkDir {
     fn new(name: &str) -> Self {
         let dir = std::env::temp_dir()
-            .join("idma-manager-tests")
+            .join("shardload-manager-tests")
             .join(format!("{name}-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).expect("create workdir");
@@ -261,7 +261,7 @@ async fn settings_persist_and_category_folders_apply() {
     let video = w.0.join("downloads").join("Video");
     config
         .category_dirs
-        .insert(idma_manager::Category::Video, video.clone());
+        .insert(shardload_manager::Category::Video, video.clone());
     let m = Manager::open(&w.db(), config).await.expect("open");
     let t = m
         .add(task("http://127.0.0.1:9/film.mkv".into(), false))
@@ -302,11 +302,11 @@ async fn login_prompt_then_credentials_continue() {
         .await
         .expect("add");
     let failed = wait_for(&m, t.id, 10, |t| t.status == Status::Error).await;
-    assert_eq!(failed.error_kind, Some(idma_manager::ErrorKind::Auth));
+    assert_eq!(failed.error_kind, Some(shardload_manager::ErrorKind::Auth));
 
     m.set_login(t.id, "ali", "wrong").await.expect("login");
     let again = wait_for(&m, t.id, 10, |t| t.status == Status::Error).await;
-    assert_eq!(again.error_kind, Some(idma_manager::ErrorKind::Auth));
+    assert_eq!(again.error_kind, Some(shardload_manager::ErrorKind::Auth));
 
     m.set_login(t.id, "ali", "s3cret").await.expect("login");
     let done = wait_for(&m, t.id, 20, |t| t.status == Status::Done).await;
@@ -336,24 +336,29 @@ async fn stream_task_pauses_and_finishes() {
             url: format!("{base}/hls/v360.m3u8?segments=12&seed=9&rate=256K"),
             name: Some("Kısa film".into()),
             start: true,
-            stream: Some(idma_manager::Stream::default()),
+            stream: Some(shardload_manager::Stream::default()),
             ..NewTask::default()
         })
         .await
         .expect("add");
     let running = wait_for(&m, t.id, 10, |t| t.received > 0).await;
     assert_eq!(running.name.as_deref(), Some("Kısa film.ts"));
-    assert_eq!(running.category, idma_manager::Category::Video);
+    assert_eq!(running.category, shardload_manager::Category::Video);
     m.pause(t.id).await.expect("pause");
     assert_eq!(m.get(t.id).await.expect("get").status, Status::Paused);
     let path = running.path.clone().expect("path");
-    assert!(PathBuf::from(format!("{}.idma-hls", path.display())).exists());
+    assert!(PathBuf::from(format!("{}.shardload-hls", path.display())).exists());
 
     m.start(t.id).await.expect("start");
     let done = wait_for(&m, t.id, 30, |t| t.status == Status::Done).await;
     assert_eq!(done.size, Some(12 * seg));
     assert_eq!(
-        verify_file(&path, idma_testserver::hls::track_seed(9, "v360"), 12 * seg).expect("verify"),
+        verify_file(
+            &path,
+            shardload_testserver::hls::track_seed(9, "v360"),
+            12 * seg
+        )
+        .expect("verify"),
         Verdict::Ok
     );
     m.close().await;
@@ -369,9 +374,9 @@ async fn dash_task_downloads_the_chosen_representation() {
             url: format!("{base}/dash/manifest.mpd?mode=timeline&segments=4&seed=3"),
             name: Some("Belgesel".into()),
             start: true,
-            stream: Some(idma_manager::Stream {
+            stream: Some(shardload_manager::Stream {
                 dash: Some("v360".into()),
-                ..idma_manager::Stream::default()
+                ..shardload_manager::Stream::default()
             }),
             ..NewTask::default()
         })
@@ -387,7 +392,7 @@ async fn dash_task_downloads_the_chosen_representation() {
     assert_eq!(
         verify_file(
             &done.path.expect("path"),
-            idma_testserver::hls::track_seed(3, "v360"),
+            shardload_testserver::hls::track_seed(3, "v360"),
             total
         )
         .expect("verify"),
@@ -407,12 +412,12 @@ async fn stream_subtitles_are_saved_next_to_the_video() {
             url: format!("{base}/hls/v360.m3u8?{q}"),
             name: Some("Film".into()),
             start: true,
-            stream: Some(idma_manager::Stream {
-                subtitles: vec![idma_manager::Subtitle {
+            stream: Some(shardload_manager::Stream {
+                subtitles: vec![shardload_manager::Subtitle {
                     id: format!("{base}/hls/subs.m3u8?{q}"),
                     language: Some("tr".into()),
                 }],
-                ..idma_manager::Stream::default()
+                ..shardload_manager::Stream::default()
             }),
             ..NewTask::default()
         })

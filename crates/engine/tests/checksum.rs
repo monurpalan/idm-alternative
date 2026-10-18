@@ -3,9 +3,9 @@
 
 mod common;
 
-use idma_engine::{CancellationToken, Checksum, Error, Options, Phase, Progress, download};
-use idma_testserver::content::fill;
 use sha2::{Digest, Sha256};
+use shardload_engine::{CancellationToken, Checksum, Error, Options, Phase, Progress, download};
+use shardload_testserver::content::fill;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -21,7 +21,7 @@ async fn start_with_sums(sums: String) -> String {
 async fn start_with_sums_counted(sums: String) -> (String, Arc<AtomicUsize>) {
     let asked = Arc::new(AtomicUsize::new(0));
     let counter = Arc::clone(&asked);
-    let app = idma_testserver::router().merge(axum::Router::new().route(
+    let app = shardload_testserver::router().merge(axum::Router::new().route(
         "/file/SHA256SUMS",
         axum::routing::get(move || async move {
             counter.fetch_add(1, Ordering::Relaxed);
@@ -140,8 +140,8 @@ async fn mismatch_fails_and_keeps_the_file() {
     }
     // The file is there for inspection; nothing is left to resume.
     assert_verified(&out, 12, size);
-    assert!(!dir.join("f.bin.idma-state").exists());
-    assert!(!dir.join("f.bin.idma-part").exists());
+    assert!(!dir.join("f.bin.shardload-state").exists());
+    assert!(!dir.join("f.bin.shardload-part").exists());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -283,7 +283,7 @@ async fn a_folder_is_searched_once() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_server_that_refuses_is_asked_no_more() {
-    let app = idma_testserver::router().merge(axum::Router::new().route(
+    let app = shardload_testserver::router().merge(axum::Router::new().route(
         "/file/r.bin.sha256",
         axum::routing::get(|| async { axum::http::StatusCode::TOO_MANY_REQUESTS }),
     ));

@@ -1,4 +1,4 @@
-// Typed access to the Rust side (`app/src-tauri`), which wraps `idma-manager`.
+// Typed access to the Rust side (`app/src-tauri`), which wraps `shardload-manager`.
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -237,7 +237,7 @@ export interface PageInfo {
 export const inspectPage = (url: string, headers: Headers) =>
 	invoke<PageInfo>('inspect_page', { url, headers });
 
-/** yt-dlp's format selector for a choice; the same as `idma_manager::ytdlp::selector`. */
+/** yt-dlp's format selector for a choice; the same as `shardload_manager::ytdlp::selector`. */
 export function ytdlpSelector(height: number | null): string {
 	return height === null
 		? 'bestaudio/best'
@@ -282,7 +282,7 @@ export interface CapturedMedia {
 	headers: Headers;
 }
 
-/** What a stream offers; see `idma-media`. */
+/** What a stream offers; see `shardload-media`. */
 export interface StreamInfo {
 	format: 'hls' | 'dash';
 	video: {

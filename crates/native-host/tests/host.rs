@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-use idma_bridge::{Reply, Request, read_json, write_json};
+use shardload_bridge::{Reply, Request, read_json, write_json};
 use tokio::process::{Child, Command};
 
 /// A data folder of its own: the pipe name and token follow from it.
@@ -14,7 +14,7 @@ struct Profile(PathBuf);
 impl Profile {
     fn new(name: &str) -> Self {
         let dir = std::env::temp_dir()
-            .join("idma-host-tests")
+            .join("shardload-host-tests")
             .join(format!("{name}-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).expect("create");
@@ -31,10 +31,10 @@ impl Drop for Profile {
 /// Stands in for the app: answers ping with a version, downloads with the URL as error text
 /// (so the test sees what arrived).
 fn serve_app(dir: &Path) {
-    let token = idma_bridge::new_token(dir).expect("token");
-    let pipe = idma_bridge::pipe_name(dir);
+    let token = shardload_bridge::new_token(dir).expect("token");
+    let pipe = shardload_bridge::pipe_name(dir);
     tokio::spawn(async move {
-        idma_bridge::serve(&pipe, token, |req| async move {
+        shardload_bridge::serve(&pipe, token, |req| async move {
             match req {
                 Request::Ping => Reply {
                     version: Some("test".into()),
@@ -53,9 +53,9 @@ fn serve_app(dir: &Path) {
 }
 
 fn host(dir: &Path, app: &str) -> Child {
-    Command::new(env!("CARGO_BIN_EXE_idma-host"))
-        .env("IDMA_HOME", dir)
-        .env("IDMA_APP", app)
+    Command::new(env!("CARGO_BIN_EXE_shardload-host"))
+        .env("SHARDLOAD_HOME", dir)
+        .env("SHARDLOAD_APP", app)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -142,8 +142,8 @@ async fn a_wrong_token_is_refused() {
     let p = Profile::new("token");
     serve_app(&p.0);
     // The token on disk no longer matches the running app's.
-    std::fs::write(p.0.join(idma_bridge::TOKEN_FILE), "0".repeat(64)).expect("write");
-    let mut h = host(&p.0, r"C:\nonexistent\idm-alternative.exe");
+    std::fs::write(p.0.join(shardload_bridge::TOKEN_FILE), "0".repeat(64)).expect("write");
+    let mut h = host(&p.0, r"C:\nonexistent\shardload.exe");
     let r = ask(&mut h, &serde_json::json!({ "type": "ping" })).await;
     assert!(!r.ok, "{r:?}");
 }
@@ -171,7 +171,7 @@ async fn waits_for_an_app_that_is_starting() {
 #[tokio::test(flavor = "multi_thread")]
 async fn reports_an_app_that_cannot_be_started() {
     let p = Profile::new("missing");
-    let mut h = host(&p.0, r"C:\nonexistent\idm-alternative.exe");
+    let mut h = host(&p.0, r"C:\nonexistent\shardload.exe");
     let r = ask(&mut h, &serde_json::json!({ "type": "ping" })).await;
     assert!(!r.ok);
     assert!(

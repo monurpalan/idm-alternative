@@ -7,7 +7,7 @@ mod common;
 use std::time::Instant;
 
 use common::*;
-use idma_engine::Request;
+use shardload_engine::Request;
 
 /// Bytes the server sent for each URL whose path contains `name`.
 async fn sent_for(base: &str, name: &str) -> u64 {

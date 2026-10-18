@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use idma_testserver::scenario::Size;
-use idma_testserver::{SelfSigned, Verdict, router, serve_plain, serve_tls, verify_file};
+use shardload_testserver::scenario::Size;
+use shardload_testserver::{SelfSigned, Verdict, router, serve_plain, serve_tls, verify_file};
 
 #[derive(Parser)]
 #[command(

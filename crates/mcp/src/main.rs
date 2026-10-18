@@ -4,17 +4,17 @@
 //! Nothing listens on a network port.
 //!
 //! Register it with the client as a stdio server whose command is
-//! `%LOCALAPPDATA%\idm-alternative\idma-mcp.exe`.
+//! `%LOCALAPPDATA%\Shardload\shardload-mcp.exe`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use idma_bridge::{AddDownload, Client, Reply, Request};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerConfig};
 use rmcp::{ErrorData, ServerHandler, ServiceExt, schemars, tool, tool_handler, tool_router};
 use serde::Deserialize;
+use shardload_bridge::{AddDownload, Client, Reply, Request};
 use tokio::sync::Mutex;
 
 #[derive(Clone)]
@@ -320,19 +320,19 @@ impl ServerHandler for Downloads {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> std::process::ExitCode {
-    let Some(data) = idma_bridge::data_dir() else {
-        eprintln!("idma-mcp: APPDATA is not set");
+    let Some(data) = shardload_bridge::data_dir() else {
+        eprintln!("shardload-mcp: APPDATA is not set");
         return std::process::ExitCode::FAILURE;
     };
     let server = match Downloads::new(data).serve(rmcp::transport::stdio()).await {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("idma-mcp: {e}");
+            eprintln!("shardload-mcp: {e}");
             return std::process::ExitCode::FAILURE;
         }
     };
     if let Err(e) = server.waiting().await {
-        eprintln!("idma-mcp: {e}");
+        eprintln!("shardload-mcp: {e}");
         return std::process::ExitCode::FAILURE;
     }
     std::process::ExitCode::SUCCESS

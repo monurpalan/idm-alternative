@@ -6,7 +6,8 @@
 const PREFIX: &str = "dpapi:";
 
 /// Ties the data to this use, so another program running as the same user cannot decrypt
-/// it with DPAPI alone.
+/// it with DPAPI alone. The text is part of the key: changing it makes the saved headers
+/// unreadable, so it keeps the name the app had when they were first saved.
 #[cfg(windows)]
 const ENTROPY: &[u8] = b"idm-alternative request headers";
 

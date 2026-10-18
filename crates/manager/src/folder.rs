@@ -53,7 +53,8 @@ mod tests {
 
     /// A fresh folder for one test, holding a `downloads` folder.
     fn scratch(name: &str) -> PathBuf {
-        let base = std::env::temp_dir().join(format!("idma-folder-{}-{name}", std::process::id()));
+        let base =
+            std::env::temp_dir().join(format!("shardload-folder-{}-{name}", std::process::id()));
         fs::remove_dir_all(&base).ok();
         fs::create_dir_all(base.join("downloads")).expect("create");
         base

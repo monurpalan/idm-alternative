@@ -18,10 +18,10 @@ const run = (cmd, args) =>
 
 // The browser host and the MCP server, where `tauri build` takes sidecars from.
 const triple = run('rustc', ['--print', 'host-tuple']).trim();
-run('cargo', ['build', '--release', '-p', 'idma-native-host', '-p', 'idma-mcp']);
+run('cargo', ['build', '--release', '-p', 'shardload-native-host', '-p', 'shardload-mcp']);
 const targetDir = process.env.CARGO_TARGET_DIR ?? join(root, 'target');
 const exe = process.platform === 'win32' ? '.exe' : '';
-for (const bin of ['idma-host', 'idma-mcp']) {
+for (const bin of ['shardload-host', 'shardload-mcp']) {
 	const sidecar = join(app, 'src-tauri', 'binaries', `${bin}-${triple}${exe}`);
 	mkdirSync(dirname(sidecar), { recursive: true });
 	copyFileSync(join(targetDir, 'release', `${bin}${exe}`), sidecar);
@@ -50,7 +50,7 @@ if (signing) {
 } else {
 	console.log(`no signing key at ${key}: building without an update`);
 }
-const merged = join(tmpdir(), `idma-bundle-${process.pid}.json`);
+const merged = join(tmpdir(), `shardload-bundle-${process.pid}.json`);
 writeFileSync(merged, JSON.stringify(config));
 try {
 	// npx is a .cmd on Windows, which only runs through a shell; quote every argument.

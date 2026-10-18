@@ -5,7 +5,7 @@ import { api } from './api.ts';
 import { cookieHeader } from './filter.ts';
 import { label, type MediaItem } from './media.ts';
 
-const HOST = 'io.github.monurpalan.idma';
+const HOST = 'io.github.monurpalan.shardload';
 
 function size(bytes: number | null): string {
 	if (!bytes) return '';

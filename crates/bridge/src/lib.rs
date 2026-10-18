@@ -1,7 +1,7 @@
 //! The bridge between the browser and the app.
 //!
 //! ```text
-//! extension ──native messaging (stdin/stdout)──▶ idma-host ──named pipe──▶ app
+//! extension ──native messaging (stdin/stdout)──▶ shardload-host ──named pipe──▶ app
 //! ```
 //!
 //! Both hops carry the same frames: a 4-byte little-endian length and that many bytes of
@@ -37,15 +37,15 @@ pub use torrent_links::{
 use std::path::{Path, PathBuf};
 
 /// The app's identifier (`tauri.conf.json`), which names its data folder.
-pub const APP_ID: &str = "io.github.monurpalan.idma";
+pub const APP_ID: &str = "io.github.monurpalan.shardload";
 
 /// Name of the native messaging host, as registered with the browsers.
-pub const HOST_NAME: &str = "io.github.monurpalan.idma";
+pub const HOST_NAME: &str = "io.github.monurpalan.shardload";
 
 /// The extension's ID in Chromium browsers (fixed by the public key in its manifest), and in
 /// Firefox; the host's registration allows only these to start it.
 pub const CHROMIUM_EXTENSION_ID: &str = "calgjlgiljgeegibddigkflnpegdhhle";
-pub const FIREFOX_EXTENSION_ID: &str = "idm-alternative@monurpalan.github.io";
+pub const FIREFOX_EXTENSION_ID: &str = "shardload@monurpalan.github.io";
 
 /// File in the app's data folder holding the current token.
 pub const TOKEN_FILE: &str = "bridge.token";
@@ -64,13 +64,19 @@ pub enum Error {
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// The app's data folder: `IDMA_HOME` when set (a separate profile for trying things out),
-/// otherwise where Tauri keeps it: `%APPDATA%\<app id>` on Windows,
+/// The app's data folder: `SHARDLOAD_HOME` when set (a separate profile for trying things
+/// out), otherwise where Tauri keeps it: `%APPDATA%\<app id>` on Windows,
 /// `$XDG_DATA_HOME/<app id>` (`~/.local/share/<app id>`) elsewhere.
 pub fn data_dir() -> Option<PathBuf> {
-    if let Some(home) = std::env::var_os("IDMA_HOME") {
+    if let Some(home) = std::env::var_os("SHARDLOAD_HOME") {
         return Some(PathBuf::from(home));
     }
+    let dir = default_data_dir()?;
+    migrate_legacy_data(&dir);
+    Some(dir)
+}
+
+fn default_data_dir() -> Option<PathBuf> {
     if cfg!(windows) {
         return std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join(APP_ID));
     }
@@ -81,9 +87,75 @@ pub fn data_dir() -> Option<PathBuf> {
     Some(data.join(APP_ID))
 }
 
+/// The identifier the app had before it was called Shardload. Its data folder sits next to
+/// the current one, under this name.
+const LEGACY_APP_ID: &str = "io.github.monurpalan.idma";
+
+/// Moves what the app kept under its old identifier into the current data folder, once per
+/// process.
+pub fn migrate_legacy_data(data: &Path) {
+    static DONE: std::sync::Once = std::sync::Once::new();
+    DONE.call_once(|| move_legacy(data));
+}
+
+/// Moves each entry of the old folder into `data`, unless `data` already has one with that
+/// name; a file another program holds open stays behind. The old folder is removed once empty.
+fn move_legacy(data: &Path) {
+    let is_default = data.file_name() == Some(std::ffi::OsStr::new(APP_ID));
+    let legacy = data.with_file_name(LEGACY_APP_ID);
+    if !is_default || !legacy.is_dir() || std::fs::create_dir_all(data).is_err() {
+        return;
+    }
+    if let Ok(entries) = std::fs::read_dir(&legacy) {
+        for entry in entries.flatten() {
+            let target = data.join(entry.file_name());
+            if !target.exists() {
+                let _ = std::fs::rename(entry.path(), target);
+            }
+        }
+    }
+    let _ = std::fs::remove_dir(&legacy);
+}
+
+#[cfg(test)]
+mod legacy_tests {
+    use super::*;
+
+    #[test]
+    fn moves_the_old_folder_and_keeps_what_the_new_one_has() {
+        let base = std::env::temp_dir().join(format!("shardload-legacy-{}", std::process::id()));
+        std::fs::remove_dir_all(&base).ok();
+        let legacy = base.join(LEGACY_APP_ID);
+        let data = base.join(APP_ID);
+        std::fs::create_dir_all(legacy.join("logs")).expect("old folder");
+        std::fs::create_dir_all(&data).expect("new folder");
+        std::fs::write(legacy.join("downloads.db"), b"list").expect("list");
+        std::fs::write(legacy.join("logs").join("a.log"), b"log").expect("log");
+        std::fs::write(legacy.join("bridge.token"), b"old").expect("old token");
+        std::fs::write(data.join("bridge.token"), b"new").expect("new token");
+
+        move_legacy(&data);
+
+        assert_eq!(
+            std::fs::read(data.join("downloads.db")).expect("moved"),
+            b"list"
+        );
+        assert!(data.join("logs").join("a.log").is_file());
+        assert_eq!(
+            std::fs::read(data.join("bridge.token")).expect("kept"),
+            b"new"
+        );
+        assert!(
+            legacy.join("bridge.token").is_file(),
+            "a clash stays in the old folder"
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+}
+
 /// The channel for this user and data folder. On Windows a named pipe,
-/// `\\.\pipe\idm-alternative-<user>-<hash>`; elsewhere a socket in the data folder, which only
-/// this user can open. Different users, and different `IDMA_HOME` profiles, get different
+/// `\\.\pipe\shardload-<user>-<hash>`; elsewhere a socket in the data folder, which only
+/// this user can open. Different users, and different `SHARDLOAD_HOME` profiles, get different
 /// ones.
 pub fn pipe_name(data_dir: &Path) -> String {
     if !cfg!(windows) {
@@ -102,7 +174,7 @@ pub fn pipe_name(data_dir: &Path) -> String {
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
         .collect();
-    format!(r"\\.\pipe\idm-alternative-{user}-{hash:016x}")
+    format!(r"\\.\pipe\shardload-{user}-{hash:016x}")
 }
 
 /// Writes a fresh random token into `data_dir` and returns it. Called by the app on every
@@ -146,30 +218,33 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn the_socket_is_in_the_data_folder() {
-        let a = pipe_name(Path::new("/home/x/.local/share/io.github.monurpalan.idma"));
+        let a = pipe_name(Path::new(
+            "/home/x/.local/share/io.github.monurpalan.shardload",
+        ));
         assert_eq!(
             a,
-            "/home/x/.local/share/io.github.monurpalan.idma/bridge.sock"
+            "/home/x/.local/share/io.github.monurpalan.shardload/bridge.sock"
         );
-        assert_ne!(a, pipe_name(Path::new("/tmp/idma-ui")));
+        assert_ne!(a, pipe_name(Path::new("/tmp/shardload-ui")));
     }
 
     #[test]
     #[cfg(windows)]
     fn pipe_names_differ_per_profile() {
         let a = pipe_name(Path::new(
-            r"C:\Users\x\AppData\Roaming\io.github.monurpalan.idma",
+            r"C:\Users\x\AppData\Roaming\io.github.monurpalan.shardload",
         ));
-        let b = pipe_name(Path::new(r"C:\tmp\idma-ui"));
+        let b = pipe_name(Path::new(r"C:\tmp\shardload-ui"));
         assert_ne!(a, b);
-        assert!(a.starts_with(r"\\.\pipe\idm-alternative-"));
+        assert!(a.starts_with(r"\\.\pipe\shardload-"));
         // Case-insensitive like Windows paths.
-        assert_eq!(b, pipe_name(Path::new(r"C:\TMP\idma-ui")));
+        assert_eq!(b, pipe_name(Path::new(r"C:\TMP\shardload-ui")));
     }
 
     #[test]
     fn tokens() {
-        let dir = std::env::temp_dir().join(format!("idma-bridge-token-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("shardload-bridge-token-{}", std::process::id()));
         let t1 = new_token(&dir).expect("token");
         assert_eq!(t1.len(), 64);
         assert_eq!(read_token(&dir).expect("read"), t1);

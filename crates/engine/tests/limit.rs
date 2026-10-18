@@ -6,7 +6,7 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::*;
-use idma_engine::{CancellationToken, Limiter, Options, Progress, download};
+use shardload_engine::{CancellationToken, Limiter, Options, Progress, download};
 
 /// Average speed of `bytes` over `elapsed`, as a fraction of `rate`.
 fn ratio(bytes: u64, elapsed: Duration, rate: u64) -> f64 {
@@ -115,7 +115,7 @@ async fn low_limit_uses_few_connections() {
     let (size, rate) = (192 << 10, 96 << 10);
     let o = Options {
         limiters: vec![Limiter::new(Some(rate))],
-        split: idma_engine::segments::SplitPolicy {
+        split: shardload_engine::segments::SplitPolicy {
             min_piece: 16 << 10,
             ..Default::default()
         },

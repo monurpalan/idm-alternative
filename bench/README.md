@@ -1,16 +1,16 @@
 # Benchmarks
 
-`idma-bench` starts the [test server](../crates/testserver/README.md) in-process, runs every
+`shardload-bench` starts the [test server](../crates/testserver/README.md) in-process, runs every
 enabled client on every scenario in [bench.toml](bench.toml), and writes a Markdown summary to
 `results/` (raw per-run JSON goes to `results/raw/`, which is not committed).
 Result files from before the command-line tool was renamed call `shard` by its old name, `dm`.
 
 ```bash
-cargo run --release -p idma-bench                         # all scenarios, enabled clients
-cargo run --release -p idma-bench -- --scenario slow-tail # one scenario
-cargo run --release -p idma-bench -- --client "shard,shard x8,IDM" # these clients only (enables disabled ones)
-cargo run --release -p idma-bench -- --scenario internet-linode-1g # real internet (off by default)
-cargo run --release -p idma-bench -- --out-dir E:/scratch # where downloads are written
+cargo run --release -p shardload-bench                         # all scenarios, enabled clients
+cargo run --release -p shardload-bench -- --scenario slow-tail # one scenario
+cargo run --release -p shardload-bench -- --client "shard,shard x8,IDM" # these clients only (enables disabled ones)
+cargo run --release -p shardload-bench -- --scenario internet-linode-1g # real internet (off by default)
+cargo run --release -p shardload-bench -- --out-dir E:/scratch # where downloads are written
 ```
 
 ## What is measured
@@ -54,7 +54,7 @@ the running app and exit when it reports it done (`--client "Gopeed,AB DM"`; off
 Their *CPU %* and *RAM* columns measure the script, not the app: ignore them.
 
 - **Gopeed** (1.9.3, `winget install monkeyWie.Gopeed.Web`): start its server first, allowing
-  the output folder: `gopeed -A 127.0.0.1 -P 9999 -d <data dir> -w C:\tmp\idma-bench`. Tasks
+  the output folder: `gopeed -A 127.0.0.1 -P 9999 -d <data dir> -w C:\tmp\shardload-bench`. Tasks
   are added and polled through its REST API (`/api/v1/tasks`); default 16 connections.
 - **Gopeed 2.0.0-beta.3** (`gopeed-web` zip from its GitHub release): the same, on port 9998;
   this version names the option `-white-download-dirs` instead of `-w`.

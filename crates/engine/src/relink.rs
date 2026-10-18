@@ -65,8 +65,8 @@ pub(crate) async fn same_content(
 /// right after the browser captured it.
 pub async fn patch_url(req: &Request, opts: &Options) -> Result<()> {
     let _lock = crate::place::Lock::acquire(&req.output)?;
-    let state_path = sibling(&req.output, ".idma-state");
-    let part = sibling(&req.output, ".idma-part");
+    let state_path = sibling(&req.output, ".shardload-state");
+    let part = sibling(&req.output, ".shardload-part");
     let mut state = State::load(&state_path).ok_or_else(|| {
         Error::State(format!(
             "no interrupted download at {}",

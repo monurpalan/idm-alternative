@@ -10,8 +10,8 @@ dist/
 
 # Downloads produced while testing
 /downloads/
-*.idma-state
-*.idma-part
+*.shardload-state
+*.shardload-part
 
 # Benchmark raw output (summaries are committed separately)
 /bench/results/raw/

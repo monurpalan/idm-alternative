@@ -4,8 +4,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use idma_engine::{CancellationToken, Phase, Progress};
 use serde::Serialize;
+use shardload_engine::{CancellationToken, Phase, Progress};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::watch;
 
@@ -227,7 +227,7 @@ fn page_info(v: &serde_json::Value) -> PageInfo {
 /// One progress line from our `--progress-template`: downloaded, total, estimated total,
 /// speed (`NA` when unknown).
 pub(crate) fn parse_progress(line: &str) -> Option<(u64, Option<u64>, f64)> {
-    let rest = line.strip_prefix("idma ")?;
+    let rest = line.strip_prefix("shardload ")?;
     let mut it = rest.split_whitespace();
     let num = |s: Option<&str>| s.and_then(|s| s.parse::<f64>().ok());
     let downloaded = num(it.next())? as u64;
@@ -248,7 +248,7 @@ pub async fn run(
     progress: &watch::Sender<Progress>,
     cancel: &CancellationToken,
 ) -> Result<PathBuf, String> {
-    let cookie_path = PathBuf::from(format!("{}.idma-cookies.txt", output_stem.display()));
+    let cookie_path = PathBuf::from(format!("{}.shardload-cookies.txt", output_stem.display()));
     let cookies = write_cookies(&cookie_path, url, headers);
     let mut args = vec![
         "-f".to_owned(),
@@ -260,9 +260,9 @@ pub async fn run(
         "--continue".into(),
         "--newline".into(),
         "--progress-template".into(),
-        "download:idma %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s %(progress.speed)s".into(),
+        "download:shardload %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s %(progress.speed)s".into(),
         "--print".into(),
-        "after_move:idma-file %(filepath)s".into(),
+        "after_move:shardload-file %(filepath)s".into(),
         "-o".into(),
         format!("{}.%(ext)s", output_stem.display()),
     ];
@@ -296,7 +296,7 @@ pub async fn run(
                 Ok(Some(line)) => {
                     let line = String::from_utf8_lossy(&line);
                     let line = line.trim_end_matches('\r');
-                    if let Some(path) = line.strip_prefix("idma-file ") {
+                    if let Some(path) = line.strip_prefix("shardload-file ") {
                         file = Some(PathBuf::from(path.trim()));
                     } else if let Some((got, total, speed)) = parse_progress(line) {
                         if got < last.0 {
@@ -410,13 +410,13 @@ mod tests {
 
     #[test]
     fn finds_the_written_file() {
-        let dir = std::env::temp_dir().join(format!("idma-ytdlp-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("shardload-ytdlp-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let stem = dir.join("Клип 視頻");
         for (name, len) in [
             ("Клип 視頻.f137.mp4.part", 9),
             ("Клип 視頻.mp4.ytdl", 1),
-            ("Клип 視頻.idma-cookies.txt", 1),
+            ("Клип 視頻.shardload-cookies.txt", 1),
             ("Клип 視頻.mp4", 5),
             ("other.mp4", 50),
         ] {
@@ -444,15 +444,15 @@ mod tests {
     #[test]
     fn progress_lines() {
         assert_eq!(
-            parse_progress("idma 1024 4096 NA 512.5"),
+            parse_progress("shardload 1024 4096 NA 512.5"),
             Some((1024, Some(4096), 512.5))
         );
         assert_eq!(
-            parse_progress("idma 10 NA 2000.0 NA"),
+            parse_progress("shardload 10 NA 2000.0 NA"),
             Some((10, Some(2000), 0.0))
         );
         assert_eq!(parse_progress("[download] 5%"), None);
-        assert_eq!(parse_progress("idma NA NA NA NA"), None);
+        assert_eq!(parse_progress("shardload NA NA NA NA"), None);
     }
 
     #[test]

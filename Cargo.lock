@@ -2763,192 +2763,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
-name = "idma-app"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "idma-bridge",
- "idma-engine",
- "idma-manager",
- "idma-media",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-dialog",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tokio",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "url",
- "windows-sys 0.61.2",
- "zip 9.0.4",
-]
-
-[[package]]
-name = "idma-bench"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "chrono",
- "clap",
- "idma-testserver",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sysinfo",
- "tokio",
- "toml 0.9.12+spec-1.1.0",
-]
-
-[[package]]
-name = "idma-bridge"
-version = "0.1.0"
-dependencies = [
- "getrandom 0.3.4",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
- "windows-sys 0.61.2",
- "winreg",
-]
-
-[[package]]
-name = "idma-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "clap",
- "idma-engine",
- "idma-testserver",
- "reqwest 0.12.28",
- "serde_json",
- "tokio",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "idma-engine"
-version = "0.1.0"
-dependencies = [
- "aes",
- "axum",
- "base64 0.22.1",
- "cbc",
- "crc32fast",
- "flate2",
- "fs4",
- "futures-util",
- "idma-media",
- "idma-testserver",
- "md-5 0.11.0",
- "quick-xml 0.42.0",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha1 0.11.0",
- "sha2 0.11.1",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
- "tracing",
- "url",
- "windows-sys 0.61.2",
- "wreq",
- "wreq-util",
-]
-
-[[package]]
-name = "idma-manager"
-version = "0.1.0"
-dependencies = [
- "axum",
- "base64 0.22.1",
- "futures-util",
- "idma-engine",
- "idma-testserver",
- "librqbit",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "idma-mcp"
-version = "0.1.0"
-dependencies = [
- "idma-bridge",
- "rmcp",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "idma-media"
-version = "0.1.0"
-dependencies = [
- "roxmltree",
- "serde",
- "url",
-]
-
-[[package]]
-name = "idma-native-host"
-version = "0.1.0"
-dependencies = [
- "idma-bridge",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "idma-testserver"
-version = "0.1.0"
-dependencies = [
- "aes",
- "anyhow",
- "axum",
- "base64 0.22.1",
- "bytes",
- "cbc",
- "clap",
- "crc32fast",
- "flate2",
- "futures-util",
- "httpdate",
- "hyper",
- "hyper-util",
- "rcgen",
- "reqwest 0.12.28",
- "rustls",
- "serde",
- "serde_json",
- "tokio",
- "tokio-rustls",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "idna"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5868,6 +5682,192 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
+]
+
+[[package]]
+name = "shardload-app"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "shardload-bridge",
+ "shardload-engine",
+ "shardload-manager",
+ "shardload-media",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-dialog",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "url",
+ "windows-sys 0.61.2",
+ "zip 9.0.4",
+]
+
+[[package]]
+name = "shardload-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "clap",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "shardload-testserver",
+ "sysinfo",
+ "tokio",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "shardload-bridge"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "windows-sys 0.61.2",
+ "winreg",
+]
+
+[[package]]
+name = "shardload-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "reqwest 0.12.28",
+ "serde_json",
+ "shardload-engine",
+ "shardload-testserver",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "shardload-engine"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "axum",
+ "base64 0.22.1",
+ "cbc",
+ "crc32fast",
+ "flate2",
+ "fs4",
+ "futures-util",
+ "md-5 0.11.0",
+ "quick-xml 0.42.0",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha1 0.11.0",
+ "sha2 0.11.1",
+ "shardload-media",
+ "shardload-testserver",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "url",
+ "windows-sys 0.61.2",
+ "wreq",
+ "wreq-util",
+]
+
+[[package]]
+name = "shardload-manager"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "futures-util",
+ "librqbit",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "shardload-engine",
+ "shardload-testserver",
+ "sqlx",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "shardload-mcp"
+version = "0.1.0"
+dependencies = [
+ "rmcp",
+ "serde",
+ "serde_json",
+ "shardload-bridge",
+ "tokio",
+]
+
+[[package]]
+name = "shardload-media"
+version = "0.1.0"
+dependencies = [
+ "roxmltree",
+ "serde",
+ "url",
+]
+
+[[package]]
+name = "shardload-native-host"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "shardload-bridge",
+ "tokio",
+]
+
+[[package]]
+name = "shardload-testserver"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "cbc",
+ "clap",
+ "crc32fast",
+ "flate2",
+ "futures-util",
+ "httpdate",
+ "hyper",
+ "hyper-util",
+ "rcgen",
+ "reqwest 0.12.28",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

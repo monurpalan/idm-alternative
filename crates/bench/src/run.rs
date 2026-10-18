@@ -2,8 +2,8 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-use idma_testserver::Verdict;
 use serde::{Deserialize, Serialize};
+use shardload_testserver::Verdict;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::io::AsyncReadExt;
 
@@ -271,8 +271,10 @@ pub async fn run_once(
         Some(Ok(_)) => {
             let p = path.clone();
             let seed = scenario.seed;
-            match tokio::task::spawn_blocking(move || idma_testserver::verify_file(&p, seed, size))
-                .await
+            match tokio::task::spawn_blocking(move || {
+                shardload_testserver::verify_file(&p, seed, size)
+            })
+            .await
             {
                 Ok(Ok(Verdict::Ok)) => result.status = Status::Ok,
                 Ok(Ok(Verdict::WrongLength { expected, actual })) => {

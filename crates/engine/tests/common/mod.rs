@@ -5,8 +5,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use idma_engine::{CancellationToken, Options, Outcome, Request, download};
-use idma_testserver::{Verdict, router, verify_file};
+use shardload_engine::{CancellationToken, Options, Outcome, Request, download};
+use shardload_testserver::{Verdict, router, verify_file};
 
 pub const MB: u64 = 1 << 20;
 /// No test may hang the suite.
@@ -39,7 +39,7 @@ impl Drop for WorkDir {
 
 pub fn workdir(name: &str) -> WorkDir {
     let dir = std::env::temp_dir()
-        .join("idma-engine-tests")
+        .join("shardload-engine-tests")
         .join(format!("{name}-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).expect("create workdir");
@@ -63,7 +63,7 @@ pub fn opts(connections: usize) -> Options {
     }
 }
 
-pub async fn get(req: &Request, opts: &Options) -> idma_engine::Result<Outcome> {
+pub async fn get(req: &Request, opts: &Options) -> shardload_engine::Result<Outcome> {
     tokio::time::timeout(LIMIT, download(req, opts, None, &CancellationToken::new()))
         .await
         .expect("download hung")
@@ -71,8 +71,8 @@ pub async fn get(req: &Request, opts: &Options) -> idma_engine::Result<Outcome> 
 
 pub fn assert_verified(path: &Path, seed: u64, size: u64) {
     assert_eq!(verify_file(path, seed, size).expect("verify"), Verdict::Ok);
-    assert!(!PathBuf::from(format!("{}.idma-part", path.display())).exists());
-    assert!(!PathBuf::from(format!("{}.idma-state", path.display())).exists());
+    assert!(!PathBuf::from(format!("{}.shardload-part", path.display())).exists());
+    assert!(!PathBuf::from(format!("{}.shardload-state", path.display())).exists());
 }
 
 /// Bytes the server sent for every URL so far.

@@ -78,17 +78,19 @@ pub fn numbered(name: &str, n: u32) -> String {
 
 /// An interrupted download of `url` is waiting at `path`.
 fn resumes(path: &Path, url: &str) -> bool {
-    sibling(path, ".idma-part").exists()
-        && State::load(&sibling(path, ".idma-state")).is_some_and(|s| s.url == url)
+    sibling(path, ".shardload-part").exists()
+        && State::load(&sibling(path, ".shardload-state")).is_some_and(|s| s.url == url)
 }
 
 /// An unfinished download of a different URL is using `path`.
 fn has_other_download(path: &Path, url: &str) -> bool {
-    sibling(path, ".idma-part").exists() && !resumes(path, url)
+    sibling(path, ".shardload-part").exists() && !resumes(path, url)
 }
 
 fn occupied(path: &Path) -> bool {
-    path.exists() || sibling(path, ".idma-part").exists() || sibling(path, ".idma-state").exists()
+    path.exists()
+        || sibling(path, ".shardload-part").exists()
+        || sibling(path, ".shardload-state").exists()
 }
 
 /// Held while a download writes `output`; a second download of the same output fails with
@@ -100,7 +102,7 @@ pub(crate) struct Lock {
 
 impl Lock {
     pub(crate) fn acquire(output: &Path) -> Result<Self> {
-        let path = sibling(output, ".idma-lock");
+        let path = sibling(output, ".shardload-lock");
         let file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -127,7 +129,7 @@ mod tests {
 
     fn dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir()
-            .join("idma-engine-unit")
+            .join("shardload-engine-unit")
             .join(format!("{name}-{}", std::process::id()));
         std::fs::remove_dir_all(&d).ok();
         std::fs::create_dir_all(&d).expect("create");
@@ -135,9 +137,9 @@ mod tests {
     }
 
     fn interrupted(path: &Path, url: &str) {
-        std::fs::write(sibling(path, ".idma-part"), b"x").expect("part");
+        std::fs::write(sibling(path, ".shardload-part"), b"x").expect("part");
         State::new(url, 1, Validators::default(), Vec::new())
-            .save(&sibling(path, ".idma-state"))
+            .save(&sibling(path, ".shardload-state"))
             .expect("state");
     }
 
@@ -208,7 +210,7 @@ mod tests {
         let held = Lock::acquire(&out).expect("first");
         assert!(matches!(Lock::acquire(&out), Err(Error::InUse(_))));
         drop(held);
-        assert!(!sibling(&out, ".idma-lock").exists());
+        assert!(!sibling(&out, ".shardload-lock").exists());
         Lock::acquire(&out).expect("after release");
         std::fs::remove_dir_all(&d).ok();
     }

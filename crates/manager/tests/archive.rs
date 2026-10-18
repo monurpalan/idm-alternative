@@ -3,9 +3,9 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use idma_manager::{ArchiveChoice, Config, Manager, NewTask, Status, Stream, Task, TaskId};
-use idma_testserver::router;
-use idma_testserver::zip::{sample, sample_entries};
+use shardload_manager::{ArchiveChoice, Config, Manager, NewTask, Status, Stream, Task, TaskId};
+use shardload_testserver::router;
+use shardload_testserver::zip::{sample, sample_entries};
 
 async fn start_server() -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -21,7 +21,7 @@ struct WorkDir(PathBuf);
 impl WorkDir {
     fn new(name: &str) -> Self {
         let dir = std::env::temp_dir()
-            .join("idma-manager-tests")
+            .join("shardload-manager-tests")
             .join(format!("{name}-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).expect("create workdir");

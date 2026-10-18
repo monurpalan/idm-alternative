@@ -1,4 +1,4 @@
-//! The local channel between the app and its clients (the native host, `idma-mcp`): a named
+//! The local channel between the app and its clients (the native host, `shardload-mcp`): a named
 //! pipe on Windows, a Unix socket in the data folder elsewhere. Both carry the same frames,
 //! and every connection must present the app's token first.
 

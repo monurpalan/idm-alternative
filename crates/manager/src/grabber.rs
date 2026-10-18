@@ -5,7 +5,7 @@
 
 use std::collections::{HashSet, VecDeque};
 
-use idma_engine::{CancellationToken, Options};
+use shardload_engine::{CancellationToken, Options};
 use url::Url;
 
 /// Pages read at the same time.
@@ -77,7 +77,8 @@ pub async fn grab(
             let take = PARALLEL.min(level.len()).min(opts.max_pages - pages_read);
             let batch: Vec<Url> = level.drain(..take).collect();
             let reads = batch.iter().map(|page| async move {
-                let r = idma_engine::fetch_text(page.as_str(), headers, engine, PAGE_LIMIT).await;
+                let r =
+                    shardload_engine::fetch_text(page.as_str(), headers, engine, PAGE_LIMIT).await;
                 (page, r)
             });
             let results = tokio::select! {

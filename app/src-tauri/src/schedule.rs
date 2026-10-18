@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use chrono::{Datelike, NaiveDateTime, NaiveTime, Timelike};
-use idma_manager::{Event, Status};
 use serde::{Deserialize, Serialize};
+use shardload_manager::{Event, Status};
 use tauri::{AppHandle, Emitter, Manager as _};
 use tokio::sync::broadcast::error::RecvError;
 
@@ -205,12 +205,12 @@ async fn countdown(handle: &AppHandle, action: WhenDone) {
     perform(handle, action).await;
 }
 
-/// Does `action` now. `IDMA_DRY_POWER` only reports it, for trying the feature out.
+/// Does `action` now. `SHARDLOAD_DRY_POWER` only reports it, for trying the feature out.
 pub async fn perform(handle: &AppHandle, action: WhenDone) {
     tracing::info!("when done: {action:?}");
     let l = crate::lang(handle);
     let what = crate::i18n::t(l, action.label(), &[]);
-    if std::env::var_os("IDMA_DRY_POWER").is_some() {
+    if std::env::var_os("SHARDLOAD_DRY_POWER").is_some() {
         let text = crate::i18n::t(
             l,
             "When done: would {action} now (dry run)",

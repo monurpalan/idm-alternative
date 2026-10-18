@@ -3,9 +3,9 @@
 
 mod common;
 
-use idma_engine::{CancellationToken, DashRequest, Options, download_dash};
-use idma_testserver::hls::track_seed;
-use idma_testserver::{Verdict, verify_file};
+use shardload_engine::{CancellationToken, DashRequest, Options, download_dash};
+use shardload_testserver::hls::track_seed;
+use shardload_testserver::{Verdict, verify_file};
 
 use common::{LIMIT, start, workdir};
 
@@ -23,7 +23,7 @@ fn request(manifest: String, video: &str, out: &std::path::Path) -> DashRequest 
     }
 }
 
-async fn get(req: &DashRequest) -> idma_engine::Result<idma_engine::Outcome> {
+async fn get(req: &DashRequest) -> shardload_engine::Result<shardload_engine::Outcome> {
     let opts = Options {
         connections: 4,
         ..Options::default()
@@ -57,7 +57,7 @@ async fn every_addressing_mode_gives_the_whole_representation() {
             "{mode}"
         );
         assert!(
-            !dir.join(&format!("{mode}.mp4.idma-hls")).exists(),
+            !dir.join(&format!("{mode}.mp4.shardload-hls")).exists(),
             "{mode}"
         );
     }
@@ -70,7 +70,9 @@ async fn separate_audio_needs_ffmpeg_and_unknown_ids_fail() {
     let url = format!("{base}/dash/manifest.mpd?audio=1");
     let mut req = request(url.clone(), "v360", &dir.join("a.mp4"));
     req.audio = Some("a".into());
-    assert!(matches!(get(&req).await, Err(idma_engine::Error::State(m)) if m.contains("ffmpeg")));
+    assert!(
+        matches!(get(&req).await, Err(shardload_engine::Error::State(m)) if m.contains("ffmpeg"))
+    );
     let wrong = request(url, "v1080", &dir.join("b.mp4"));
     assert!(get(&wrong).await.is_err());
 }
@@ -128,7 +130,7 @@ async fn joins_real_dash_video_and_audio() {
         .expect("run ffmpeg");
     assert!(made.success(), "ffmpeg could not make the clip");
     let manifest = std::fs::read_to_string(src.join("manifest.mpd")).expect("mpd");
-    let streams = idma_media::parse_mpd("http://x/manifest.mpd", &manifest).expect("parse");
+    let streams = shardload_media::parse_mpd("http://x/manifest.mpd", &manifest).expect("parse");
     let (video, audio) = (
         streams.video[0].id.clone(),
         streams.audio[0].id.clone().expect("audio id"),
@@ -189,18 +191,18 @@ async fn saves_a_dash_text_representation() {
     let base = start().await;
     let dir = workdir("dash-subs");
     let out = dir.join("film.tr.vtt");
-    let source = idma_engine::SubtitleSource::Dash {
+    let source = shardload_engine::SubtitleSource::Dash {
         manifest: format!("{base}/dash/manifest.mpd?segments=3&subs=1"),
         representation: "s".into(),
     };
-    idma_engine::download_subtitles(&source, &out, &[], &Options::default())
+    shardload_engine::download_subtitles(&source, &out, &[], &Options::default())
         .await
         .expect("subtitles");
     let text = std::fs::read_to_string(&out).expect("read");
     assert!(text.starts_with("WEBVTT"));
     assert_eq!(text.matches(" --> ").count(), 3);
     // The manifest lists it with its language.
-    let (mpd, _) = idma_engine::fetch_text(
+    let (mpd, _) = shardload_engine::fetch_text(
         &format!("{base}/dash/manifest.mpd?segments=3&subs=1"),
         &[],
         &Options::default(),
@@ -208,6 +210,6 @@ async fn saves_a_dash_text_representation() {
     )
     .await
     .expect("mpd");
-    let streams = idma_media::parse_mpd("u", &mpd).expect("parse");
+    let streams = shardload_media::parse_mpd("u", &mpd).expect("parse");
     assert_eq!(streams.subtitles[0].language.as_deref(), Some("tr"));
 }

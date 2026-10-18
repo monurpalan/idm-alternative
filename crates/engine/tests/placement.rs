@@ -2,11 +2,11 @@
 
 mod common;
 
-use idma_engine::{Options, probe};
+use shardload_engine::{Options, probe};
 
 use common::{LIMIT, MB, start};
 
-async fn ask(url: String) -> idma_engine::Probe {
+async fn ask(url: String) -> shardload_engine::Probe {
     tokio::time::timeout(LIMIT, probe(&url, &[], &Options::default()))
         .await
         .expect("probe hung")
@@ -71,12 +71,12 @@ async fn second_download_of_the_same_file_is_refused() {
     });
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     match common::get(&req, &opts).await {
-        Err(idma_engine::Error::InUse(p)) => assert_eq!(p, out),
+        Err(shardload_engine::Error::InUse(p)) => assert_eq!(p, out),
         other => panic!("expected InUse, got {other:?}"),
     }
     first.await.expect("join").expect("first download");
     common::assert_verified(&out, 9, size);
-    assert!(!dir.join("f.bin.idma-lock").exists());
+    assert!(!dir.join("f.bin.shardload-lock").exists());
 }
 
 /// A file larger than the free space is refused before anything is written, instead of
@@ -89,7 +89,7 @@ async fn file_larger_than_free_space_is_refused() {
     let size: u64 = 1 << 50; // 1 PiB
     let req = common::request(format!("{base}/file/huge.bin?size={size}"), &out);
     match common::get(&req, &common::opts(4)).await {
-        Err(idma_engine::Error::DiskFull {
+        Err(shardload_engine::Error::DiskFull {
             need: Some(need),
             free: Some(free),
         }) => {
@@ -98,6 +98,6 @@ async fn file_larger_than_free_space_is_refused() {
         }
         other => panic!("expected DiskFull, got {other:?}"),
     }
-    assert!(!dir.join("huge.bin.idma-part").exists());
+    assert!(!dir.join("huge.bin.shardload-part").exists());
     assert!(!out.exists());
 }

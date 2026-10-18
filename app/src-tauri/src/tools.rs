@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use idma_engine::{CancellationToken, Options, Request};
+use shardload_engine::{CancellationToken, Options, Request};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -129,7 +129,7 @@ pub async fn latest(tool: Tool, opts: &Options) -> Result<String, String> {
         "Accept".to_owned(),
         "application/vnd.github+json".to_owned(),
     )];
-    let (text, _) = idma_engine::fetch_text(source(tool).latest, &headers, opts, 1 << 20)
+    let (text, _) = shardload_engine::fetch_text(source(tool).latest, &headers, opts, 1 << 20)
         .await
         .map_err(|e| format!("could not ask GitHub for the latest release: {e}"))?;
     let release: serde_json::Value = serde_json::from_str(&text)
@@ -162,7 +162,7 @@ pub async fn install(data: &Path, tool: Tool, opts: &Options) -> Result<PathBuf,
     let src = source(tool);
     let tools = dir(data);
     std::fs::create_dir_all(&tools).map_err(|e| e.to_string())?;
-    let (sums, _) = idma_engine::fetch_text(src.sums, &[], opts, 1 << 20)
+    let (sums, _) = shardload_engine::fetch_text(src.sums, &[], opts, 1 << 20)
         .await
         .map_err(|e| format!("could not read the release's checksums: {e}"))?;
     let hash = checksum_for(&sums, src.file)
@@ -175,7 +175,7 @@ pub async fn install(data: &Path, tool: Tool, opts: &Options) -> Result<PathBuf,
         connections: 8,
         ..opts.clone()
     };
-    idma_engine::download(
+    shardload_engine::download(
         &Request {
             url: src.url.to_owned(),
             output: download.clone(),
@@ -225,12 +225,13 @@ pub async fn install(data: &Path, tool: Tool, opts: &Options) -> Result<PathBuf,
 mod tests {
     use super::*;
 
-    /// Against GitHub: an older yt-dlp in `IDMA_TOOLS_TEST` (a folder with `tools/yt-dlp.exe`)
+    /// Against GitHub: an older yt-dlp in `SHARDLOAD_TOOLS_TEST` (a folder with `tools/yt-dlp.exe`)
     /// is replaced by the latest release, and a second run finds nothing to do.
     #[tokio::test]
     #[ignore = "downloads from GitHub"]
     async fn updates_an_old_ytdlp() {
-        let data = PathBuf::from(std::env::var("IDMA_TOOLS_TEST").expect("IDMA_TOOLS_TEST"));
+        let data =
+            PathBuf::from(std::env::var("SHARDLOAD_TOOLS_TEST").expect("SHARDLOAD_TOOLS_TEST"));
         let opts = Options::default();
         let latest = latest(Tool::Ytdlp, &opts).await.expect("latest");
         let updated = update(&data, Tool::Ytdlp, &opts).await.expect("update");

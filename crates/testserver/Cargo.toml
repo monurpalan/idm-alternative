@@ -1,5 +1,5 @@
 [package]
-name = "idma-testserver"
+name = "shardload-testserver"
 description = "HTTP server that reproduces hostile download scenarios for testing and benchmarks"
 version.workspace = true
 edition.workspace = true

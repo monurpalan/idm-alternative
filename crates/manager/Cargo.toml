@@ -1,5 +1,5 @@
 [package]
-name = "idma-manager"
+name = "shardload-manager"
 description = "Download list, queue and persistence on top of the engine; what the app and the native host talk to"
 version.workspace = true
 edition.workspace = true
@@ -9,7 +9,7 @@ license.workspace = true
 [dependencies]
 futures-util.workspace = true
 base64 = "0.22"
-idma-engine = { path = "../engine" }
+shardload-engine = { path = "../engine" }
 # rqbit's main branch until a release after 9.0.1: 9.0.1's DHT stops for good on Windows at the
 # first ICMP "port unreachable" (WSAECONNRESET), within seconds (ikatson/rqbit#690).
 librqbit = { git = "https://github.com/ikatson/rqbit", rev = "57e95d16c8", default-features = false, features = ["rust-tls"] }
@@ -24,7 +24,7 @@ url = "2"
 [dev-dependencies]
 tracing-subscriber.workspace = true
 librqbit = { git = "https://github.com/ikatson/rqbit", rev = "57e95d16c8", default-features = false, features = ["rust-tls"] }
-idma-testserver = { path = "../testserver" }
+shardload-testserver = { path = "../testserver" }
 axum = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
 serde_json.workspace = true

@@ -34,7 +34,7 @@ torrent indirir. Reklam yok, deneme süresi yok, hesap yok.</p>
 3. **Bu kadar.** Tarayıcıda başlattığınız indirmeler artık Shardload'da açılır. Bir bağlantıyı
    Ctrl+V ile yapıştırabilir ya da pencereye sürükleyip bırakabilirsiniz.
 
-**Linux (x64):** aynı sürümdeki `.deb` (`sudo apt install ./idm-alternative_*_amd64.deb`) ya da
+**Linux (x64):** aynı sürümdeki `.deb` (`sudo apt install ./shardload_*_amd64.deb`) ya da
 AppImage (`chmod +x` ve çalıştırın).
 
 ## Neler yapar
@@ -106,9 +106,9 @@ ya da Tonec Inc. ile bağlantısı yoktur. Ad yalnızca neyin alternatifi olduğ
 bundandır.
 
 **İndirmelerim ve ayarlarım nerede?** Dosyalar, başka bir klasör seçmediyseniz İndirilenler
-klasörüne iner. Liste ve ayarlar `%APPDATA%\io.github.monurpalan.idma` klasöründe durur.
+klasörüne iner. Liste ve ayarlar `%APPDATA%\io.github.monurpalan.shardload` klasöründe durur.
 
-**Nasıl kaldırılır?** Windows Ayarlar → Uygulamalar → *idm-alternative* → Kaldır. Kaldırma,
+**Nasıl kaldırılır?** Windows Ayarlar → Uygulamalar → *Shardload* → Kaldır. Kaldırma,
 tarayıcı kaydını da siler; geri dönerseniz diye indirme listesi kalır.
 
 **Bir şey çalışmıyor.** Lütfen ne yaptığınızı ve ne olduğunu yazarak bir
