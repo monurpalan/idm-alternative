@@ -890,9 +890,15 @@ async fn install_update(handle: AppHandle, app: State<'_, App>) -> CmdResult<()>
 #[tauri::command]
 async fn set_when_done(
     handle: AppHandle,
-    app: State<'_, App>,
+    _app: State<'_, App>,
     action: schedule::WhenDone,
 ) -> CmdResult<()> {
+    arm_when_done(&handle, action).await
+}
+
+/// Arms (or with `Nothing` disarms) the action for when every download is finished.
+async fn arm_when_done(handle: &AppHandle, action: schedule::WhenDone) -> CmdResult<()> {
+    let app = handle.state::<App>();
     let busy = app.manager.list().await.map_err(msg)?.iter().any(|t| {
         matches!(
             t.status,
@@ -1325,22 +1331,84 @@ async fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma
                 Err(e) => Reply::error(e.to_string()),
             }
         }
-        Request::Add(add) => {
+        Request::Add(add) => match tool_add(handle, add).await {
+            Ok(t) => Reply {
+                data: Some(task_view(&t, None)),
+                ..Reply::ok()
+            },
+            Err(e) => Reply::error(e),
+        },
+        Request::InspectVideo { url } => {
             let app = handle.state::<App>();
-            let new = NewTask {
-                mirrors: clean_mirrors(add.mirrors),
-                url: add.url,
-                name: add.name.filter(|n| !n.trim().is_empty()),
-                dir: add.dir.filter(|d| !d.trim().is_empty()).map(PathBuf::from),
-                start: add.start.unwrap_or(true),
-                ..NewTask::default()
-            };
-            match app.manager.add(new).await {
-                Ok(t) => Reply {
-                    data: Some(task_view(&t, None)),
+            match inspect_page(app, url, None).await {
+                Ok(info) => Reply {
+                    data: serde_json::to_value(info).ok(),
+                    ..Reply::ok()
+                },
+                Err(e) => Reply::error(e),
+            }
+        }
+        Request::InspectTorrent { url } => {
+            let app = handle.state::<App>();
+            match app.manager.inspect_torrent(&url).await {
+                Ok(info) => Reply {
+                    data: serde_json::to_value(info).ok(),
                     ..Reply::ok()
                 },
                 Err(e) => Reply::error(e.to_string()),
+            }
+        }
+        Request::Wait { ids, timeout_secs } => {
+            let timeout = std::time::Duration::from_secs(timeout_secs.unwrap_or(60).clamp(1, 600));
+            match wait_for(handle, &ids, timeout).await {
+                Ok(data) => Reply {
+                    data: Some(data),
+                    ..Reply::ok()
+                },
+                Err(e) => Reply::error(e),
+            }
+        }
+        Request::SpeedLimit {
+            id,
+            bytes_per_second,
+        } => {
+            let app = handle.state::<App>();
+            let rate = bytes_per_second.filter(|r| *r > 0);
+            let result = match id {
+                Some(id) => app.manager.set_speed_limit(id, rate).await.map_err(msg),
+                None => {
+                    // Through the settings, so the window and the tray show it too.
+                    let mut settings = lock(&app.settings).clone();
+                    settings.speed_limit = rate;
+                    apply_settings(handle, settings).await.map(drop)
+                }
+            };
+            match result {
+                Ok(()) => Reply::ok(),
+                Err(e) => Reply::error(e),
+            }
+        }
+        Request::Move { id, to } => {
+            let app = handle.state::<App>();
+            match serde_json::from_value::<Move>(serde_json::Value::String(to.clone())) {
+                Ok(to) => match app.manager.move_task(id, to).await {
+                    Ok(()) => Reply::ok(),
+                    Err(e) => Reply::error(e.to_string()),
+                },
+                Err(_) => Reply::error(format!("`{to}` is not top, up, down or bottom")),
+            }
+        }
+        Request::WhenDone { action } => {
+            match serde_json::from_value::<schedule::WhenDone>(serde_json::Value::String(
+                action.clone(),
+            )) {
+                Ok(action) => match arm_when_done(handle, action).await {
+                    Ok(()) => Reply::ok(),
+                    Err(e) => Reply::error(e),
+                },
+                Err(_) => Reply::error(format!(
+                    "`{action}` is not nothing, exit, sleep, hibernate or shutdown"
+                )),
             }
         }
         Request::Resume { ids } => {
@@ -1379,6 +1447,87 @@ async fn bridge_reply(handle: &AppHandle, request: idma_bridge::Request) -> idma
     }
 }
 
+/// A download added by a local tool: a file, a page of a video site (through yt-dlp, with
+/// `video_height` or `audio_only`), or a torrent (with `torrent_files`).
+async fn tool_add(handle: &AppHandle, add: idma_bridge::AddDownload) -> CmdResult<Task> {
+    let app = handle.state::<App>();
+    let mut name = add.name.filter(|n| !n.trim().is_empty());
+    let mut stream = None;
+    if add.video_height.is_some() || add.audio_only == Some(true) {
+        let height = if add.audio_only == Some(true) {
+            None
+        } else {
+            add.video_height
+        };
+        if name.is_none() {
+            // The page's title, as the media dialog does.
+            let info = inspect_page(handle.state::<App>(), add.url.clone(), None).await?;
+            name = info.title.map(|t| format!("{t}.mp4"));
+        } else if tools::installed(&app.data, tools::Tool::Ytdlp).is_none() {
+            return Err("yt-dlp is not set up".into());
+        }
+        stream = Some(idma_manager::Stream {
+            ytdlp: Some(idma_manager::ytdlp::selector(height)),
+            ..Default::default()
+        });
+    } else if let Some(files) = add.torrent_files {
+        stream = Some(idma_manager::Stream {
+            torrent: Some(idma_manager::TorrentChoice {
+                files: Some(files),
+                folder: None,
+            }),
+            ..Default::default()
+        });
+    }
+    app.manager
+        .add(NewTask {
+            mirrors: clean_mirrors(add.mirrors),
+            url: add.url,
+            name,
+            dir: add.dir.filter(|d| !d.trim().is_empty()).map(PathBuf::from),
+            start: add.start.unwrap_or(true),
+            checksum: add.checksum.filter(|c| !c.trim().is_empty()),
+            stream,
+            ..NewTask::default()
+        })
+        .await
+        .map_err(msg)
+}
+
+/// Waits until none of `ids` is queued or downloading, or `timeout` passes, and returns
+/// `{finished, downloads}`.
+async fn wait_for(
+    handle: &AppHandle,
+    ids: &[TaskId],
+    timeout: std::time::Duration,
+) -> CmdResult<serde_json::Value> {
+    let app = handle.state::<App>();
+    let mut events = app.manager.subscribe();
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let mut tasks = Vec::new();
+        for id in ids {
+            tasks.push(app.manager.get(*id).await.map_err(msg)?);
+        }
+        let finished = tasks
+            .iter()
+            .all(|t| !matches!(t.status, Status::Queued | Status::Downloading));
+        let now = tokio::time::Instant::now();
+        if finished || now >= deadline {
+            let live = lock(&app.live).clone();
+            return Ok(serde_json::json!({
+                "finished": finished,
+                "downloads": tasks.iter().map(|t| task_view(t, live.get(&t.id))).collect::<Vec<_>>(),
+            }));
+        }
+        // Any change to the list may be one of ours; progress events are not waited for.
+        let _ = tokio::time::timeout(deadline - now, async {
+            while let Ok(Event::Progress(_)) = events.recv().await {}
+        })
+        .await;
+    }
+}
+
 /// Runs `action` on each download, stopping at the first that fails.
 async fn for_each<F, Fut>(handle: &AppHandle, ids: Vec<TaskId>, action: F) -> idma_bridge::Reply
 where
@@ -1410,6 +1559,8 @@ fn task_view(t: &Task, live: Option<&(u64, f64)>) -> serde_json::Value {
         "speed": speed.round(),
         "added_at": t.added_at,
         "finished_at": t.finished_at,
+        "queue_pos": t.queue_pos,
+        "speed_limit": t.speed_limit,
     })
 }
 

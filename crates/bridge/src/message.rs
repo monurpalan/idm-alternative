@@ -49,6 +49,39 @@ pub enum Request {
         #[serde(default)]
         same_site: Option<bool>,
     },
+    /// What a page of a video site offers (read by yt-dlp): title, duration, heights.
+    InspectVideo {
+        url: String,
+    },
+    /// A torrent's name and files, for choosing `torrent_files`.
+    InspectTorrent {
+        url: String,
+    },
+    /// Answers once none of these downloads is queued or downloading any more, or after
+    /// `timeout_secs` (60 by default), with `{finished, downloads}`.
+    Wait {
+        ids: Vec<i64>,
+        #[serde(default)]
+        timeout_secs: Option<u64>,
+    },
+    /// A speed limit in bytes per second, `None` for none: of one download, or of all
+    /// together when `id` is absent.
+    SpeedLimit {
+        #[serde(default)]
+        id: Option<i64>,
+        #[serde(default)]
+        bytes_per_second: Option<u64>,
+    },
+    /// Moves a download in the queue: `top`, `up`, `down` or `bottom`.
+    Move {
+        id: i64,
+        to: String,
+    },
+    /// What to do once nothing is downloading or waiting any more: `nothing`, `exit`,
+    /// `sleep`, `hibernate` or `shutdown`.
+    WhenDone {
+        action: String,
+    },
 }
 
 impl Request {
@@ -75,6 +108,14 @@ pub struct AddDownload {
     pub start: Option<bool>,
     /// Other addresses of the same file.
     pub mirrors: Vec<String>,
+    /// `algorithm:hex` (sha256, sha512, sha1, md5) the finished file must match.
+    pub checksum: Option<String>,
+    /// A page of a video site, downloaded through yt-dlp at this height at most.
+    pub video_height: Option<u32>,
+    /// A page of a video site, its audio alone.
+    pub audio_only: Option<bool>,
+    /// A torrent: indices of the files to download (see `inspect_torrent`); all when absent.
+    pub torrent_files: Option<Vec<usize>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -264,6 +305,17 @@ mod tests {
         let grab: Request =
             serde_json::from_str(r#"{"type":"grab","url":"https://x/"}"#).expect("grab");
         assert!(!grab.from_browser());
+        for msg in [
+            r#"{"type":"inspect_video","url":"https://x/v"}"#,
+            r#"{"type":"inspect_torrent","url":"magnet:?xt=urn:btih:x"}"#,
+            r#"{"type":"wait","ids":[1]}"#,
+            r#"{"type":"speed_limit","bytes_per_second":1048576}"#,
+            r#"{"type":"move","id":1,"to":"top"}"#,
+            r#"{"type":"when_done","action":"sleep"}"#,
+        ] {
+            let r: Request = serde_json::from_str(msg).expect(msg);
+            assert!(!r.from_browser(), "{msg}");
+        }
         assert!(Request::Ping.from_browser());
     }
 

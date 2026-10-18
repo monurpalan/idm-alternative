@@ -158,10 +158,16 @@ async fn tools_reach_the_app() {
         [
             "add_download",
             "find_site_files",
+            "inspect_torrent",
+            "inspect_video",
             "list_downloads",
+            "move_download",
             "pause_downloads",
             "remove_downloads",
-            "resume_downloads"
+            "resume_downloads",
+            "set_speed_limit",
+            "set_when_done",
+            "wait_for_downloads"
         ]
     );
 
@@ -178,8 +184,67 @@ async fn tools_reach_the_app() {
     assert!(!failed);
     assert_eq!(
         added,
-        json!({ "type": "add", "url": "https://x/b.zip", "dir": null, "name": "b.zip", "start": null, "mirrors": [] })
+        json!({
+            "type": "add", "url": "https://x/b.zip", "dir": null, "name": "b.zip", "start": null,
+            "mirrors": [], "checksum": null, "video_height": null, "audio_only": null,
+            "torrent_files": null
+        })
     );
+
+    // A video page at 720p, and some files of a torrent.
+    let (_, video) = mcp
+        .tool(
+            "add_download",
+            json!({ "url": "https://video.example/watch?v=1", "video_height": 720 }),
+        )
+        .await;
+    assert_eq!(video["video_height"], 720);
+    let (_, torrent) = mcp
+        .tool(
+            "add_download",
+            json!({ "url": "magnet:?xt=urn:btih:abc", "torrent_files": [0, 2] }),
+        )
+        .await;
+    assert_eq!(torrent["torrent_files"], json!([0, 2]));
+
+    // Each new tool sends its own request.
+    for (tool, args, want) in [
+        (
+            "inspect_video",
+            json!({ "url": "https://v/1" }),
+            json!({ "type": "inspect_video", "url": "https://v/1" }),
+        ),
+        (
+            "inspect_torrent",
+            json!({ "url": "magnet:?x" }),
+            json!({ "type": "inspect_torrent", "url": "magnet:?x" }),
+        ),
+        (
+            "set_speed_limit",
+            json!({ "bytes_per_second": 1024 }),
+            json!({ "type": "speed_limit", "id": null, "bytes_per_second": 1024 }),
+        ),
+        (
+            "move_download",
+            json!({ "id": 7, "to": "top" }),
+            json!({ "type": "move", "id": 7, "to": "top" }),
+        ),
+        (
+            "set_when_done",
+            json!({ "action": "nothing" }),
+            json!({ "type": "when_done", "action": "nothing" }),
+        ),
+        // Over a connection of its own.
+        (
+            "wait_for_downloads",
+            json!({ "ids": [7], "timeout_secs": 5 }),
+            json!({ "type": "wait", "ids": [7], "timeout_secs": 5 }),
+        ),
+    ] {
+        let (failed, got) = mcp.tool(tool, args).await;
+        assert!(!failed, "{tool}: {got}");
+        assert_eq!(got, want, "{tool}");
+    }
 
     let (_, removed) = mcp
         .tool(
