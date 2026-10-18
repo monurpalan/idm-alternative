@@ -6,8 +6,11 @@ import {
 	cookieHeader,
 	extension,
 	isExcluded,
+	notePost,
 	parseList,
+	POST_MEMORY_MS,
 	shouldCapture,
+	wasPosted,
 	type Candidate
 } from './filter.ts';
 
@@ -37,6 +40,17 @@ test('never captures what the app cannot fetch, or when told not to', () => {
 	assert.equal(shouldCapture(zip, DEFAULT_SETTINGS, true), false, 'Alt held');
 	assert.equal(shouldCapture({ ...zip, ours: true }, DEFAULT_SETTINGS, false), false, 'own fallback');
 	assert.equal(shouldCapture(zip, { ...DEFAULT_SETTINGS, enabled: false }, false), false);
+});
+
+test('leaves form (POST) downloads to the browser', () => {
+	assert.equal(shouldCapture({ ...zip, posted: true }, DEFAULT_SETTINGS, false), false);
+	const log = new Map<string, number>();
+	notePost(log, 'https://x.com/export', 1000);
+	assert.equal(wasPosted(log, 'https://x.com/export', 1000 + POST_MEMORY_MS), true);
+	assert.equal(wasPosted(log, 'https://x.com/export', 1001 + POST_MEMORY_MS), false);
+	assert.equal(wasPosted(log, 'https://x.com/other', 1000), false);
+	notePost(log, 'https://x.com/later', 2002 + POST_MEMORY_MS);
+	assert.equal(log.has('https://x.com/export'), false, 'old entries are dropped');
 });
 
 test('size and site filters', () => {

@@ -35,11 +35,13 @@ export interface Candidate {
 	size: number;
 	/** Started by this extension itself (its fallback after the app could not take it). */
 	ours: boolean;
+	/** The browser sent a form (POST) for it: the app could only repeat it as a GET. */
+	posted?: boolean;
 }
 
 /** `true` when the app should take this download over. */
 export function shouldCapture(c: Candidate, s: Settings, altHeld: boolean): boolean {
-	if (!s.enabled || c.ours || altHeld) return false;
+	if (!s.enabled || c.ours || c.posted || altHeld) return false;
 	let url: URL;
 	try {
 		url = new URL(c.url);
@@ -56,6 +58,21 @@ export function shouldCapture(c: Candidate, s: Settings, altHeld: boolean): bool
 		if (ext && !s.extensions.includes(ext)) return false;
 	}
 	return true;
+}
+
+/** How long a POST is remembered: from the request until the browser creates the download. */
+export const POST_MEMORY_MS = 60_000;
+
+/** Remembers that `url` was requested with POST at `now`, forgetting old entries. */
+export function notePost(log: Map<string, number>, url: string, now: number) {
+	for (const [u, at] of log) if (now - at > POST_MEMORY_MS) log.delete(u);
+	log.set(url, now);
+}
+
+/** `url` was requested with POST in the last minute. */
+export function wasPosted(log: Map<string, number>, url: string, now: number): boolean {
+	const at = log.get(url);
+	return at !== undefined && now - at <= POST_MEMORY_MS;
 }
 
 /** `host` is one of `sites`, or a subdomain of one. */

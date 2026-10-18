@@ -1,7 +1,15 @@
 // Takes downloads over from the browser and hands them to the app through the native
 // messaging host. When the app cannot take one, the browser downloads it after all.
 
-import { DEFAULT_SETTINGS, baseName, cookieHeader, shouldCapture, type Settings } from './filter.ts';
+import {
+	DEFAULT_SETTINGS,
+	baseName,
+	cookieHeader,
+	notePost,
+	shouldCapture,
+	wasPosted,
+	type Settings
+} from './filter.ts';
 import { api } from './api.ts';
 import { chooseMedia, classify, remember, type MediaItem } from './media.ts';
 
@@ -12,6 +20,20 @@ const ALT_WINDOW_MS = 1500;
 let altDownAt = 0;
 /** URLs this extension gave back to the browser; not taken again. */
 const givenBack = new Set<string>();
+/**
+ * Addresses pages sent a form to (POST), with when. The app only gets the URL and cookies, so
+ * it would fetch these with a GET and get something else; the browser keeps them. Each hop of
+ * a redirect is noted with its own method, so a POST answered by a redirect to a plain
+ * address is still taken over.
+ */
+const posted = new Map<string, number>();
+
+api.webRequest.onBeforeRequest.addListener(
+	(d) => {
+		if (d.method === 'POST') notePost(posted, d.url, Date.now());
+	},
+	{ urls: ['<all_urls>'], types: ['main_frame', 'sub_frame', 'other'] }
+);
 
 async function settings(): Promise<Settings> {
 	const stored = await api.storage.sync.get('settings');
@@ -59,7 +81,8 @@ api.downloads.onCreated.addListener(async (item) => {
 		url,
 		filename: item.filename ?? '',
 		size: item.totalBytes ?? item.fileSize ?? -1,
-		ours: givenBack.delete(url) || item.byExtensionId === chrome.runtime.id
+		ours: givenBack.delete(url) || item.byExtensionId === chrome.runtime.id,
+		posted: wasPosted(posted, url, Date.now())
 	};
 	if (!shouldCapture(candidate, s, Date.now() - altDownAt < ALT_WINDOW_MS)) return;
 
