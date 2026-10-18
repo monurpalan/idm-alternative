@@ -32,7 +32,16 @@
 	let dialog: HTMLDialogElement | undefined = $state();
 	const titleId = `dialog-${Math.random().toString(36).slice(2)}`;
 
-	onMount(() => dialog?.showModal());
+	onMount(() => {
+		dialog?.showModal();
+		// The browser focuses the first control, which is the close button in the header:
+		// start in the first field instead, so that typing goes where it is meant to.
+		dialog
+			?.querySelector<HTMLElement>(
+				'.body :is(input:not([type=checkbox]):not([type=radio]), select, textarea)'
+			)
+			?.focus();
+	});
 
 	export function close() {
 		dialog?.close();

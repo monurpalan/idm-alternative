@@ -1025,7 +1025,7 @@ fn open_progress(handle: &AppHandle, id: TaskId, asked: bool) {
             tauri::WebviewUrl::App(format!("progress?id={id}").into()),
         )
         .title(i18n::t(lang(&handle), "Download", &[]))
-        .inner_size(440.0, 236.0)
+        .inner_size(440.0, 288.0)
         .resizable(false)
         .maximizable(false)
         .build();
