@@ -28,6 +28,11 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "Mahsum Onur Palan",
+    "homepage": "https://github.com/monurpalan/idm-alternative",
+    "category": "Utility",
+    "shortDescription": "Download manager",
+    "longDescription": "An open-source download manager that aims to match Internet Download Manager: segmented downloads with work stealing, browser integration, video, torrents, mirrors and Metalink.",
     "targets": [
       "nsis"
     ],

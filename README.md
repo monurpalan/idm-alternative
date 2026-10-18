@@ -1,6 +1,6 @@
 # idm-alternative
 
-An open-source download manager for Windows that aims to match Internet Download Manager
+An open-source download manager for Windows (and Linux) that aims to match Internet Download Manager
 feature for feature, built by combining the best ideas from existing open-source projects.
 
 > **Status:** usable day to day on Windows. The engine, the desktop app, browser integration,
@@ -141,6 +141,27 @@ The check needs the releases to be public.
 The installer is per user (no administrator rights) and silent with `/S`. Uninstalling removes
 the app's keys from the browsers and the "start with Windows" entry, and keeps the download
 list in `%APPDATA%\io.github.monurpalan.idma`.
+
+### Linux
+
+CI builds, tests and packages the app on Ubuntu 24.04 (`.deb` and AppImage, kept as the run's
+`linux-packages` artifact). To build locally, install the GTK/WebKit stack Tauri needs and
+CMake and libclang for BoringSSL:
+
+```bash
+sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev cmake clang libclang-dev patchelf
+```
+
+```bash
+cd app && npm ci && npm run bundle -- --bundles deb,appimage
+```
+
+On Linux the app talks to the browser host and the MCP server over a Unix socket in
+`~/.local/share/io.github.monurpalan.idma` (readable by the user only), registers the host
+by writing its manifest into each browser's folder (not Snap or Flatpak browsers), opens
+magnet links through a desktop entry, sleeps and shuts down through `systemctl`, and scans
+with ClamAV (`clamscan`) when virus scanning is on. Watching the clipboard is Windows-only
+for now, and request headers are kept as they are (no DPAPI): the data folder is the user's.
 
 ## Size and memory
 
