@@ -964,14 +964,13 @@ async fn end_countdown(handle: AppHandle, now: Option<schedule::WhenDone>) -> Cm
 }
 
 /// WebView2 switches of every window; they share one browser process, so all must pass the
-/// same ones. The first three features are what wry turns off by default. A list of rows does
-/// not need the GPU: drawing in software drops the GPU process from ~50 MB to ~8 MB at the same
-/// idle CPU, and the rest (network in the browser process, one renderer for all windows, no
-/// background updates) take the app from ~116 MB to ~70 MB.
+/// same ones. The first three features are what wry turns off by default. The rest run the
+/// network in the browser process, one renderer for all windows and no background updates.
+/// Drawing stays on the GPU: in software (or with `--enable-low-end-device-mode`, or with the
+/// GPU in the browser process) colours lose the monitor's colour profile and look different.
 const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
-    --enable-features=NetworkServiceInProcess2 --disable-gpu --disable-gpu-compositing \
-    --enable-low-end-device-mode --renderer-process-limit=1 --disable-background-networking \
-    --disable-component-update";
+    --enable-features=NetworkServiceInProcess2 --renderer-process-limit=1 \
+    --disable-background-networking --disable-component-update";
 
 /// Brings the window back, also from the tray.
 ///
