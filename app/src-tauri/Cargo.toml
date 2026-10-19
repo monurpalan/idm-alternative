@@ -20,8 +20,10 @@ shardload-bridge = { version = "0.1.0", path = "../../crates/bridge" }
 shardload-engine = { version = "0.1.0", path = "../../crates/engine" }
 shardload-manager = { path = "../../crates/manager" }
 shardload-media = { version = "0.1.0", path = "../../crates/media" }
+lzma-rs = { version = "0.3", default-features = false }
 serde.workspace = true
 serde_json.workspace = true
+tar = { version = "0.4.46", default-features = false }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-autostart = "2.7.0"
 tauri-plugin-dialog = "2.8.3"

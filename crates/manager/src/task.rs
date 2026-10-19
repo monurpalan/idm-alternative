@@ -314,6 +314,7 @@ pub struct TaskProgress {
 fn phase_name<S: serde::Serializer>(p: &Phase, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(match p {
         Phase::Probing => "probing",
+        Phase::SettingUp => "settingup",
         Phase::Downloading => "downloading",
         Phase::Verifying => "verifying",
         Phase::Done => "done",

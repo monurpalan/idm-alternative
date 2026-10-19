@@ -53,6 +53,7 @@ export default {
 	'Time left': 'Kalan',
 	Added: 'Eklendi',
 	'Verifying {v}%': 'Doğrulanıyor %{v}',
+	'Setting up ffmpeg {v}%': 'ffmpeg kuruluyor %{v}',
 	'Verifying (checksum from {from}) {v}%': 'Doğrulanıyor ({from} ile) %{v}',
 	Downloading: 'İndiriliyor',
 	Connecting: 'Bağlanıyor',

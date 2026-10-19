@@ -34,8 +34,8 @@ struct App {
     data: PathBuf,
     settings: Mutex<Settings>,
     tray: Mutex<Option<tray::Tray>>,
-    /// ffmpeg, found on PATH at start: joins stream video and audio.
-    ffmpeg: Option<PathBuf>,
+    /// ffmpeg found on PATH at start, used instead of setting one up.
+    path_ffmpeg: Option<PathBuf>,
     /// A download waiting for the browser to capture a fresh link to it ("refresh in browser"),
     /// and since when.
     awaiting_link: Mutex<Option<(TaskId, std::time::Instant)>>,
@@ -575,7 +575,7 @@ async fn apply_settings(handle: &AppHandle, new: Settings) -> CmdResult<Settings
     let app = handle.state::<App>();
     let old = lock(&app.settings).clone();
     app.manager
-        .set_config(manager_config(&new, app.ffmpeg.clone(), &app.data))
+        .set_config(manager_config(&new, app.path_ffmpeg.clone(), &app.data))
         .await
         .map_err(msg)?;
     app.manager.set_global_limit(new.speed_limit);
@@ -723,14 +723,48 @@ fn set_browser_integration(data: &Path, on: bool) -> CmdResult<()> {
     shardload_bridge::register(&target, data).map_err(msg)
 }
 
-/// The manager's configuration: the settings plus the helper programs the app has.
-fn manager_config(settings: &Settings, ffmpeg: Option<PathBuf>, data: &Path) -> Config {
+/// The manager's configuration: the settings plus the helper programs the app has. ffmpeg:
+/// the one on PATH (`path_ffmpeg`), else the one set up, else set up when first needed.
+fn manager_config(settings: &Settings, path_ffmpeg: Option<PathBuf>, data: &Path) -> Config {
+    let ffmpeg = path_ffmpeg.or_else(|| tools::installed(data, tools::Tool::Ffmpeg));
+    let setup_data = data.to_owned();
     Config {
         ffmpeg,
+        ffmpeg_setup: Some(shardload_manager::FfmpegSetup(std::sync::Arc::new(
+            move |opts, progress, cancel| {
+                let data = setup_data.clone();
+                Box::pin(async move { set_up_ffmpeg(&data, &opts, progress, &cancel).await })
+            },
+        ))),
         ytdlp: tools::installed(data, tools::Tool::Ytdlp),
         deno: tools::installed(data, tools::Tool::Deno),
         ..settings.config()
     }
+}
+
+/// Sets up ffmpeg for a download that needs it. One setup at a time: a download that waited
+/// for another's uses the program it set up.
+async fn set_up_ffmpeg(
+    data: &Path,
+    opts: &shardload_engine::Options,
+    progress: tokio::sync::watch::Sender<shardload_engine::Progress>,
+    cancel: &shardload_engine::CancellationToken,
+) -> Result<PathBuf, String> {
+    static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _one = tokio::select! {
+        held = ONE_AT_A_TIME.lock() => held,
+        () = cancel.cancelled() => return Err("cancelled".into()),
+    };
+    if let Some(exe) = tools::installed(data, tools::Tool::Ffmpeg) {
+        return Ok(exe);
+    }
+    tracing::info!("setting up ffmpeg");
+    let exe = tools::install(data, tools::Tool::Ffmpeg, opts, Some(&progress), cancel).await?;
+    tracing::info!(
+        "set up ffmpeg {}",
+        tools::version(&exe).await.unwrap_or_default()
+    );
+    Ok(exe)
 }
 
 /// What a page of a site such as YouTube offers, read by yt-dlp with the page's headers.
@@ -745,7 +779,7 @@ async fn inspect_page(
     let tools = shardload_manager::ytdlp::Tools {
         ytdlp,
         deno: tools::installed(&app.data, tools::Tool::Deno),
-        ffmpeg: app.ffmpeg.clone(),
+        ffmpeg: app.manager.config().ffmpeg,
     };
     shardload_manager::ytdlp::inspect(
         &tools,
@@ -756,17 +790,24 @@ async fn inspect_page(
     .await
 }
 
-/// The first `name` in a folder on PATH.
+/// The first program `name` in a folder on PATH.
 fn find_on_path(name: &str) -> Option<PathBuf> {
+    let name = if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_owned()
+    };
     std::env::split_paths(&std::env::var_os("PATH")?)
-        .map(|dir| dir.join(name))
+        .map(|dir| dir.join(&name))
         .find(|p| p.is_file())
 }
 
 /// Which helper programs the app has, and their versions.
 #[derive(Serialize)]
 struct Tools {
-    ffmpeg: bool,
+    ffmpeg: Option<String>,
+    /// The ffmpeg used is the one on PATH, not one the app set up.
+    ffmpeg_on_path: bool,
     ytdlp: Option<String>,
     deno: Option<String>,
 }
@@ -783,8 +824,13 @@ async fn tools(app: State<'_, App>) -> CmdResult<Tools> {
             }
         }
     };
+    let ffmpeg = match &app.path_ffmpeg {
+        Some(exe) => tools::version(exe).await.or_else(|| Some(String::new())),
+        None => version(tools::Tool::Ffmpeg).await,
+    };
     Ok(Tools {
-        ffmpeg: app.ffmpeg.is_some(),
+        ffmpeg,
+        ffmpeg_on_path: app.path_ffmpeg.is_some(),
         ytdlp: version(tools::Tool::Ytdlp).await,
         deno: version(tools::Tool::Deno).await,
     })
@@ -794,11 +840,16 @@ async fn tools(app: State<'_, App>) -> CmdResult<Tools> {
 #[tauri::command]
 async fn install_tool(app: State<'_, App>, tool: tools::Tool) -> CmdResult<String> {
     let opts = app.manager.config().engine;
-    let exe = tools::install(&app.data, tool, &opts).await?;
+    let cancel = shardload_engine::CancellationToken::new();
+    let exe = tools::install(&app.data, tool, &opts, None, &cancel).await?;
     // Downloads started from now on use it.
     let settings = lock(&app.settings).clone();
     app.manager
-        .set_config(manager_config(&settings, app.ffmpeg.clone(), &app.data))
+        .set_config(manager_config(
+            &settings,
+            app.path_ffmpeg.clone(),
+            &app.data,
+        ))
         .await
         .map_err(msg)?;
     Ok(tools::version(&exe).await.unwrap_or_default())
@@ -825,7 +876,7 @@ fn touch(stamp: &Path) {
     std::fs::write(stamp, b"").ok();
 }
 
-/// Once a day: keeps yt-dlp and deno current while `update_tools` is on, never while a
+/// Once a day: keeps yt-dlp, deno and ffmpeg current while `update_tools` is on, never while a
 /// download runs through them (Windows cannot replace a running program), and offers a new
 /// version of the app while `check_updates` is on. The times of the last checks are kept in
 /// files, so restarting the app does not check again.
@@ -841,15 +892,19 @@ async fn daily_checks(handle: AppHandle) {
         let stamp = tools::dir(&app.data).join("last-check");
         let busy = app.manager.list().await.is_ok_and(|tasks| {
             tasks.iter().any(|t| {
+                // yt-dlp for pages; ffmpeg for pages and streams.
                 t.status == shardload_manager::Status::Downloading
-                    && t.stream.as_ref().is_some_and(|s| s.ytdlp.is_some())
+                    && t.stream
+                        .as_ref()
+                        .is_some_and(|s| s.torrent.is_none() && s.archive.is_none())
             })
         });
         if update_tools && due(&stamp) && !busy {
             let opts = app.manager.config().engine;
             let mut changed = false;
             let mut failed = false;
-            for tool in [tools::Tool::Ytdlp, tools::Tool::Deno] {
+            // ffmpeg only when it is the one set up (`update` skips tools not set up).
+            for tool in [tools::Tool::Ytdlp, tools::Tool::Deno, tools::Tool::Ffmpeg] {
                 match tools::update(&app.data, tool, &opts).await {
                     Ok(Some(v)) => {
                         tracing::info!("updated {tool:?} to {v}");
@@ -865,7 +920,11 @@ async fn daily_checks(handle: AppHandle) {
             if changed {
                 let settings = lock(&app.settings).clone();
                 app.manager
-                    .set_config(manager_config(&settings, app.ffmpeg.clone(), &app.data))
+                    .set_config(manager_config(
+                        &settings,
+                        app.path_ffmpeg.clone(),
+                        &app.data,
+                    ))
                     .await
                     .ok();
                 handle.emit("tools", ()).ok();
@@ -1900,8 +1959,9 @@ fn main() {
             if settings.dir.as_os_str().is_empty() {
                 settings.dir = default_dir;
             }
-            let ffmpeg = find_on_path("ffmpeg.exe");
-            let config = manager_config(&settings, ffmpeg.clone(), &data);
+            // One the user installed is kept: they may want their own build.
+            let path_ffmpeg = find_on_path("ffmpeg");
+            let config = manager_config(&settings, path_ffmpeg.clone(), &data);
             let manager = tauri::async_runtime::block_on(Manager::open(&db, config))?;
             if settings.browser_integration
                 && let Err(e) = set_browser_integration(&data, true)
@@ -1943,7 +2003,7 @@ fn main() {
                 live: Mutex::new(HashMap::new()),
                 #[cfg(windows)]
                 clipboard: Mutex::new(None),
-                ffmpeg,
+                path_ffmpeg,
             });
             tauri::async_runtime::spawn(daily_checks(app.handle().clone()));
             if lock(&app.state::<App>().settings).watch_clipboard {
@@ -2041,4 +2101,165 @@ fn main() {
             tauri::async_runtime::block_on(manager.close());
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const YOUTUBE: &str = "https://www.youtube.com/watch?v=9bZkp7q19f0";
+
+    /// A page through the manager and yt-dlp, the way the app adds it, at up to `height`, with
+    /// ffmpeg missing. `SHARDLOAD_TOOLS` is a tools folder with yt-dlp and deno set up. Run with no
+    /// ffmpeg on PATH, so that yt-dlp cannot find one by itself.
+    async fn page(
+        url: &str,
+        height: u32,
+        setup: Option<shardload_manager::FfmpegSetup>,
+    ) -> (Task, bool, PathBuf) {
+        let tools_from = PathBuf::from(std::env::var("SHARDLOAD_TOOLS").expect("SHARDLOAD_TOOLS"));
+        let data = std::env::temp_dir().join(format!(
+            "shardload-youtube-{}-{}",
+            std::process::id(),
+            setup.is_some()
+        ));
+        std::fs::remove_dir_all(&data).ok();
+        std::fs::create_dir_all(tools::dir(&data)).expect("tools folder");
+        for exe in ["yt-dlp.exe", "deno.exe"] {
+            std::fs::copy(tools_from.join(exe), tools::dir(&data).join(exe)).expect("copy");
+        }
+        let settings = Settings {
+            dir: data.join("downloads"),
+            ..Settings::default()
+        };
+        let mut config = manager_config(&settings, None, &data);
+        assert!(config.ffmpeg.is_none(), "no ffmpeg set up yet");
+        if let Some(setup) = setup {
+            config.ffmpeg_setup = Some(setup);
+        }
+        let manager = Manager::open(&data.join("downloads.db"), config)
+            .await
+            .expect("open");
+        let mut events = manager.subscribe();
+        let added = manager
+            .add(NewTask {
+                url: url.into(),
+                name: Some("clip.mp4".into()),
+                start: true,
+                stream: Some(shardload_manager::Stream {
+                    ytdlp: Some(shardload_manager::ytdlp::selector(Some(height))),
+                    ..Default::default()
+                }),
+                ..NewTask::default()
+            })
+            .await
+            .expect("add");
+        let mut set_up = false;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(900);
+        let task = loop {
+            let event = tokio::time::timeout_at(deadline, events.recv())
+                .await
+                .expect("in time")
+                .expect("event");
+            match event {
+                Event::Progress(p) if p.id == added.id => {
+                    set_up |= p.phase == shardload_engine::Phase::SettingUp;
+                }
+                Event::Updated(t)
+                    if t.id == added.id && matches!(t.status, Status::Done | Status::Error) =>
+                {
+                    break manager.get(t.id).await.expect("task");
+                }
+                _ => {}
+            }
+        };
+        manager.close().await;
+        (task, set_up, data)
+    }
+
+    /// The streams in a file, by ffprobe: `video,1080` and `audio,` lines.
+    fn streams(ffprobe: &Path, file: &Path) -> String {
+        let out = std::process::Command::new(ffprobe)
+            .args(["-v", "error", "-show_entries", "stream=codec_type,height"])
+            .args(["-of", "csv=p=0"])
+            .arg(file)
+            .output()
+            .expect("ffprobe");
+        String::from_utf8_lossy(&out.stdout).replace('\r', "")
+    }
+
+    fn files_in(dir: &Path) -> Vec<String> {
+        std::fs::read_dir(dir)
+            .expect("folder")
+            .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "downloads ffmpeg and a YouTube video"]
+    async fn youtube_1080p_sets_up_ffmpeg_and_joins() {
+        let (task, set_up, data) = page(YOUTUBE, 1080, None).await;
+        assert_eq!(task.status, Status::Done, "{:?}", task.error);
+        assert!(set_up, "the setup's progress was shown");
+        assert_eq!(task.error, None);
+        let ffmpeg = tools::installed(&data, tools::Tool::Ffmpeg).expect("set up");
+        let file = task.path.expect("path");
+        assert_eq!(files_in(&data.join("downloads")), ["clip.mp4"]);
+        let found = streams(&ffmpeg.with_file_name("ffprobe.exe"), &file);
+        assert!(found.contains("video,1080"), "{found}");
+        assert!(found.contains("audio"), "{found}");
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    fn offline() -> shardload_manager::FfmpegSetup {
+        shardload_manager::FfmpegSetup(std::sync::Arc::new(|_, _, _| {
+            Box::pin(async { Err("offline".to_owned()) })
+        }))
+    }
+
+    /// Without ffmpeg, a site that offers formats with both video and sound gives one of them
+    /// (here the Internet Archive's 360p MP4), and the download says why.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "downloads a video from the Internet Archive"]
+    async fn without_ffmpeg_a_page_is_one_file_with_sound() {
+        let url = "https://archive.org/details/BigBuckBunny_124";
+        let (task, _, data) = page(url, 480, Some(offline())).await;
+        assert_eq!(task.status, Status::Done, "{:?}", task.error);
+        let note = task.error.expect("the download says why");
+        assert!(
+            note.contains("lower quality") && note.contains("offline"),
+            "{note}"
+        );
+        let names = files_in(&data.join("downloads"));
+        assert_eq!(names.len(), 1, "{names:?}");
+        let ffprobe = PathBuf::from(std::env::var("SHARDLOAD_FFPROBE").expect("SHARDLOAD_FFPROBE"));
+        let found = streams(&ffprobe, &task.path.expect("path"));
+        assert!(
+            found.contains("video") && found.contains("audio"),
+            "{found}"
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// Without ffmpeg, YouTube (which offers no format with both any more) fails and says why,
+    /// instead of leaving a silent video next to its sound.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "asks YouTube for a video"]
+    async fn without_ffmpeg_youtube_says_why_and_leaves_no_files() {
+        let (task, _, data) = page(YOUTUBE, 1080, Some(offline())).await;
+        assert_eq!(task.status, Status::Error);
+        let error = task.error.expect("why");
+        assert!(
+            error.contains("separate video and audio") && error.contains("offline"),
+            "{error}"
+        );
+        let dir = data.join("downloads");
+        let names = if dir.exists() {
+            files_in(&dir)
+        } else {
+            Vec::new()
+        };
+        assert!(names.is_empty(), "{names:?}");
+        std::fs::remove_dir_all(&data).ok();
+    }
 }

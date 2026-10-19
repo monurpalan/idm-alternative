@@ -34,7 +34,6 @@
 		if (!info) return msg('Read the playlist first');
 		if (info.encryption === 'DRM') return msg('Protected streams cannot be downloaded');
 		if (info.live) return msg('Live streams cannot be downloaded yet');
-		if (!ffmpeg && info.audio.length) return msg('This stream has separate audio: ffmpeg is needed');
 		return null;
 	});
 
@@ -85,7 +84,7 @@
 	onMount(() => {
 		name = media.title ?? '';
 		tools()
-			.then((found) => (ffmpeg = found.ffmpeg))
+			.then((found) => (ffmpeg = found.ffmpeg !== null))
 			.catch(() => {});
 		if (streams[0]) load(streams[0].url);
 	});
@@ -170,8 +169,10 @@
 		</Field>
 	{/if}
 
-	{#if info && !ffmpeg}
-		<Text variant="caption">{t('ffmpeg was not found: the video is saved as joined .ts segments.')}</Text>
+	{#if info && !ffmpeg && info.audio.length}
+		<Text variant="caption">{t('ffmpeg, which joins the video and its audio, is set up when the download starts.')}</Text>
+	{:else if info && !ffmpeg && info.format !== 'dash'}
+		<Text variant="caption">{t('Without ffmpeg the video is saved as joined .ts segments.')}</Text>
 	{/if}
 	{#if blocked && info}<Text variant="caption">{t(blocked)}.</Text>{/if}
 

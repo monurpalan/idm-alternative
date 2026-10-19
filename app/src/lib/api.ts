@@ -6,7 +6,8 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 export type TaskId = number;
 export type Status = 'queued' | 'downloading' | 'paused' | 'done' | 'error';
 export type Category = 'general' | 'compressed' | 'documents' | 'music' | 'programs' | 'video';
-export type Phase = 'probing' | 'downloading' | 'verifying' | 'done';
+/** `settingup`: ffmpeg is being set up first; the sizes are its download's. */
+export type Phase = 'probing' | 'settingup' | 'downloading' | 'verifying' | 'done';
 
 export interface Task {
 	id: TaskId;
@@ -248,14 +249,18 @@ export function ytdlpSelector(height: number | null): string {
 
 /** Helper programs the app has; versions of the ones it sets up itself. */
 export interface ToolStatus {
-	ffmpeg: boolean;
+	ffmpeg: string | null;
+	/** The ffmpeg used is the one on PATH (its version may be empty). */
+	ffmpeg_on_path: boolean;
 	ytdlp: string | null;
 	deno: string | null;
 }
 
+export type ToolId = 'ytdlp' | 'deno' | 'ffmpeg';
+
 export const tools = () => invoke<ToolStatus>('tools');
-/** Sets up (or updates) yt-dlp or deno; returns the new version. */
-export const installTool = (tool: 'ytdlp' | 'deno') => invoke<string>('install_tool', { tool });
+/** Sets up (or updates) a helper program; returns the new version. */
+export const installTool = (tool: ToolId) => invoke<string>('install_tool', { tool });
 
 /** A download the browser handed over. */
 export interface Capture {

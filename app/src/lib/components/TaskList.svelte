@@ -118,6 +118,11 @@
 		if (moved !== undefined) return t('Moving {p}%', { p: Math.floor(moved * 100) });
 		switch (task.status) {
 			case 'downloading':
+				if (r.live?.phase === 'settingup') {
+					const { received, size } = r.live;
+					const v = size ? Math.floor((received / size) * 100) : 0;
+					return t('Setting up ffmpeg {v}%', { v });
+				}
 				if (r.live?.phase === 'verifying') {
 					const v = r.size ? Math.floor((r.live.verified / r.size) * 100) : 0;
 					const from = r.live.checksum_from;
