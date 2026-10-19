@@ -183,6 +183,38 @@ async fn downloads_a_single_file_torrent() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn writes_a_spoofing_name_as_it_reads() {
+    let w = WorkDir::new("spoof");
+    let source = w.0.join("source");
+    std::fs::create_dir_all(&source).expect("mkdir");
+    let data = content(3, 200_000);
+    // Shows as `invoiceexe.pdf` where the override is honoured.
+    let spoof = "invoice\u{202E}fdp.exe";
+    std::fs::write(source.join(spoof), &data).expect("write");
+    let s = seed(&source.join(spoof), &w.0.join("spoof.torrent")).await;
+
+    let m = manager(&w.0, s.addr).await;
+    let url = s.torrent.to_string_lossy().into_owned();
+    let info = m.inspect_torrent(&url).await.expect("inspect");
+    assert_eq!(info.files[0].name, "invoice_fdp.exe");
+    let t = m
+        .add(NewTask {
+            url,
+            start: true,
+            ..NewTask::default()
+        })
+        .await
+        .expect("add");
+    let done = wait_for(&m, t.id, Status::Done).await;
+    let path = done.path.expect("path");
+    assert_eq!(path, w.0.join("downloads").join("invoice_fdp.exe"));
+    assert_eq!(std::fs::read(&path).expect("read"), data);
+    assert!(!w.0.join("downloads").join(spoof).exists());
+    m.close().await;
+    s.session.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn downloads_chosen_files_of_a_folder_and_resumes() {
     let w = WorkDir::new("folder");
     let source = w.0.join("source").join("Album");

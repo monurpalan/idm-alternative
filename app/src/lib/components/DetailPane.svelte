@@ -17,6 +17,11 @@
 
 	const r = $derived(row(task, downloads.live[task.id]));
 
+	// A program dressed as a document or a video: `report.pdf.exe`, `clip.mp4.scr`.
+	const SHOWN_AS =
+		/\.(pdf|docx?|xlsx?|pptx?|txt|rtf|odt|jpe?g|png|gif|webp|mp3|wav|flac|mp4|mkv|avi|mov|webm|zip|rar|7z)\.(exe|scr|com|pif|bat|cmd|msi|vbs|vbe|js|jse|wsf|hta|cpl|lnk|ps1)$/i;
+	const disguised = $derived(task.status === 'done' && SHOWN_AS.test(r.name));
+
 	let limitKb = $state('');
 	let newUrl = $state('');
 	let refreshing = $state(false);
@@ -207,6 +212,10 @@
 			{#if task.error}
 				<dt>{t('Problem')}</dt>
 				<dd class="error" title={task.error}>{task.error}</dd>
+			{/if}
+			{#if disguised}
+				<dt>{t('Warning')}</dt>
+				<dd class="error">{t('A program named like a document: open it only if you trust where it came from')}</dd>
 			{/if}
 		</dl>
 		<form class="inline" onsubmit={applyLimit}>

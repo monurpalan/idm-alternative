@@ -1014,6 +1014,10 @@ mod tests {
             safe_path("con/aux.txt"),
             Some(PathBuf::from("_con").join("_aux.txt"))
         );
+        assert_eq!(
+            safe_path("docs\u{202E}/invoice\u{202E}fdp.exe"),
+            Some(PathBuf::from("docs_").join("invoice_fdp.exe"))
+        );
     }
 
     #[test]
