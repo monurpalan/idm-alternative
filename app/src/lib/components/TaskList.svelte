@@ -41,6 +41,26 @@
 		return pos;
 	});
 
+	// Only the rows in view (and a few around them) are in the page; empty rows above and below
+	// keep the scroll height. A long list otherwise costs the WebView ~0.1 MB per row.
+	const OVERSCAN = 8;
+	let scroller: HTMLDivElement;
+	let scrollTop = $state(0);
+	let viewHeight = $state(0);
+	/** Measured from a drawn row; the CSS height plus its share of the border. */
+	let rowHeight = $state(40);
+	const first = $derived(Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN));
+	const last = $derived(
+		Math.min(tasks.length, Math.ceil((scrollTop + viewHeight) / rowHeight) + OVERSCAN)
+	);
+	const shown = $derived(tasks.slice(first, last));
+
+	$effect(() => {
+		void shown;
+		const h = scroller.querySelector('tbody tr:not(.pad)')?.getBoundingClientRect().height;
+		if (h && Math.abs(h - rowHeight) > 0.01) rowHeight = h;
+	});
+
 	/** Where a Shift-click range starts. */
 	let anchor: TaskId | null = null;
 
@@ -122,7 +142,12 @@
 	}
 </script>
 
-<div class="scroll">
+<div
+	class="scroll"
+	bind:this={scroller}
+	bind:clientHeight={viewHeight}
+	onscroll={() => (scrollTop = scroller.scrollTop)}
+>
 	<table>
 		<colgroup>
 			<col class="c-queue" /><col class="c-name" /><col class="c-size" /><col class="c-progress" /><col
@@ -145,7 +170,10 @@
 			</tr>
 		</thead>
 		<tbody>
-			{#each tasks as t (t.id)}
+			{#if first > 0}
+				<tr class="pad" style:height="{first * rowHeight}px"><td colspan="7"></td></tr>
+			{/if}
+			{#each shown as t (t.id)}
 				{@const r = row(t, downloads.live[t.id])}
 				<tr
 					class:selected={downloads.selected.has(t.id)}
@@ -180,6 +208,9 @@
 					</td>
 				</tr>
 			{/each}
+			{#if last < tasks.length}
+				<tr class="pad" style:height="{(tasks.length - last) * rowHeight}px"><td colspan="7"></td></tr>
+			{/if}
 		</tbody>
 	</table>
 	{#if downloads.loaded && tasks.length === 0}
@@ -252,6 +283,13 @@
 	}
 	tbody tr:hover {
 		background: var(--hover);
+	}
+	tbody tr.pad:hover {
+		background: none;
+	}
+	tr.pad td {
+		padding: 0;
+		border: 0;
 	}
 	tbody tr.selected {
 		background: var(--selected);
