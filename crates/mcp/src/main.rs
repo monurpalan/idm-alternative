@@ -113,6 +113,24 @@ struct MoveParams {
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
+struct RenameParams {
+    /// The download's id.
+    id: i64,
+    /// The new file name, with its extension; characters Windows does not allow in names
+    /// become `_`. A torrent's or an archive's folder takes this name.
+    name: String,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+struct RelocateParams {
+    /// The download's id.
+    id: i64,
+    /// Absolute path of the folder to move it into: the app's download folder or a
+    /// category's folder from its settings, or a folder inside one of them.
+    dir: String,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
 struct WhenDoneParams {
     /// `nothing` (cancel), `exit` (close the app), `sleep`, `hibernate` or `shutdown`.
     action: String,
@@ -278,6 +296,34 @@ impl Downloads {
     }
 
     #[tool(
+        description = "Rename a download, at any stage: a running one pauses for a moment and continues, a finished file is renamed on disk. If another file already has the name, a number is added (name (1).ext). Returns the download with its new name and path."
+    )]
+    async fn rename_download(
+        &self,
+        Parameters(p): Parameters<RenameParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.ask(Request::Rename {
+            id: p.id,
+            name: p.name,
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Move a download into another folder, at any stage, with its files: a running one pauses for a moment and continues, a finished file (or a torrent's folder) is moved, copied and checked first when it goes to another drive. Returns the download with its new path."
+    )]
+    async fn relocate_download(
+        &self,
+        Parameters(p): Parameters<RelocateParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.ask(Request::Relocate {
+            id: p.id,
+            dir: p.dir,
+        })
+        .await
+    }
+
+    #[tool(
         description = "Choose what the computer does once no download is running or waiting any more: nothing (cancels), exit (closes the app), sleep, hibernate or shutdown. Only on the user's request."
     )]
     async fn set_when_done(
@@ -312,8 +358,8 @@ impl ServerHandler for Downloads {
                 "Controls the Shardload download manager on this computer: add downloads \
                  (files, chosen files out of ZIP archives, torrents, metalinks, video pages), \
                  find the files a site links to, list \
-                 downloads and their progress, wait for them to finish, pause, resume, reorder and \
-                 remove them, limit their speed, and choose what happens when all are done.",
+                 downloads and their progress, wait for them to finish, pause, resume, reorder, \
+                 rename, move and remove them, limit their speed, and choose what happens when all are done.",
             )
     }
 }

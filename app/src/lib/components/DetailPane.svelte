@@ -5,7 +5,7 @@
 	// "refresh link" for links that expired.
 
 	import { refreshInBrowser, refreshLink, setLogin, setSpeedLimit, type Task } from '../api.ts';
-	import { downloads, HISTORY, row } from '../downloads.svelte.ts';
+	import { downloads, HISTORY, moveToFolder, row } from '../downloads.svelte.ts';
 	import { bytes, date, duration, percent, speed } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
 
@@ -180,7 +180,19 @@
 			<dt>{t('Link')}</dt>
 			<dd title={task.url}>{task.url}</dd>
 			<dt>{t('Saved to')}</dt>
-			<dd title={task.path ?? task.dir}>{task.path ?? task.dir}</dd>
+			<dd class="place">
+				<span title={task.path ?? task.dir}
+					>{downloads.moving[task.id] !== undefined
+						? t('Moving {p}%', { p: Math.floor(downloads.moving[task.id] * 100) })
+						: (task.path ?? task.dir)}</span
+				>
+				<Button
+					variant="link"
+					onclick={() => moveToFolder(task).then(() => onerror(null), (e) => onerror(String(e)))}
+					disabled={downloads.moving[task.id] !== undefined}
+					title={t('Move to another folder')}>{t('Move…')}</Button
+				>
+			</dd>
 			<dt>{t('Added')}</dt>
 			<dd class="num">{date(task.added_at)}</dd>
 			<dt>{t('Downloaded')}</dt>
@@ -311,6 +323,19 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.place {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-2);
+	}
+	.place > span {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.place > :global(button) {
+		flex: none;
 	}
 	.num {
 		font-family: var(--font-mono);

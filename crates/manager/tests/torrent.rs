@@ -138,6 +138,21 @@ async fn downloads_a_single_file_torrent() {
     assert_eq!(info.name, "film.mkv");
     assert_eq!(info.size, data.len() as u64);
 
+    // Its name comes from the torrent when it starts, so it cannot be renamed before.
+    let waiting = m
+        .add(NewTask {
+            url: url.clone(),
+            ..NewTask::default()
+        })
+        .await
+        .expect("add");
+    let err = m
+        .rename(waiting.id, "x.mkv")
+        .await
+        .expect_err("not started");
+    assert!(err.to_string().contains("once it starts"), "{err}");
+    m.remove(waiting.id, false).await.expect("remove");
+
     let t = m
         .add(NewTask {
             url,
@@ -152,6 +167,17 @@ async fn downloads_a_single_file_torrent() {
     assert_eq!(path, w.0.join("downloads").join("film.mkv"));
     assert_eq!(std::fs::read(&path).expect("read"), data);
     assert_eq!(done.size, Some(data.len() as u64));
+
+    // Finished, its file can be renamed and moved like any other.
+    let renamed = m.rename(t.id, "movie.mkv").await.expect("rename");
+    let moved = m
+        .relocate(t.id, &w.0.join("moved"))
+        .await
+        .expect("relocate");
+    assert_eq!(renamed.path, Some(w.0.join("downloads").join("movie.mkv")));
+    let path = moved.path.expect("path");
+    assert_eq!(path, w.0.join("moved").join("movie.mkv"));
+    assert_eq!(std::fs::read(&path).expect("read"), data);
     m.close().await;
     s.session.stop().await;
 }
@@ -212,10 +238,17 @@ async fn downloads_chosen_files_of_a_folder_and_resumes() {
     }
     m.pause(t.id).await.expect("pause");
     wait_for(&m, t.id, Status::Paused).await;
+    // Moved and renamed while paused: the whole folder goes, and it continues there.
+    m.relocate(t.id, &w.0.join("moved"))
+        .await
+        .expect("relocate");
+    let renamed = m.rename(t.id, "Album 2026").await.expect("rename");
+    let folder = w.0.join("moved").join("Album 2026");
+    assert_eq!(renamed.path.as_deref(), Some(folder.as_path()));
+    assert!(!w.0.join("downloads").join("Album").exists());
     m.start(t.id).await.expect("resume");
     let done = wait_for(&m, t.id, Status::Done).await;
 
-    let folder = w.0.join("downloads").join("Album");
     assert_eq!(done.path.as_deref(), Some(folder.as_path()));
     assert_eq!(done.size, Some((a.len() + b.len()) as u64));
     assert_eq!(std::fs::read(folder.join("01.flac")).expect("01"), a);

@@ -114,6 +114,8 @@
 
 	function statusText(r: Row): string {
 		const task = r.task;
+		const moved = downloads.moving[task.id];
+		if (moved !== undefined) return t('Moving {p}%', { p: Math.floor(moved * 100) });
 		switch (task.status) {
 			case 'downloading':
 				if (r.live?.phase === 'verifying') {

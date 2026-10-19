@@ -3,6 +3,9 @@ export default {
 	// Detail pane
 	'Download details': 'İndirme ayrıntıları',
 	'Saved to': 'Konum',
+	'Move to another folder': 'Başka bir klasöre taşı',
+	Rename: 'Yeniden adlandır',
+	'New name': 'Yeni ad',
 	Downloaded: 'İndirilen',
 	'{a} of {b}': '{a} / {b}',
 	'{time} left': '{time} kaldı',

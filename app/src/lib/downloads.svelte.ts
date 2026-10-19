@@ -1,11 +1,13 @@
 // The download list as the UI sees it: tasks from the manager, kept current by its events,
 // plus the live progress of running downloads.
 
+import { open as pickFolder } from '@tauri-apps/plugin-dialog';
 import { SvelteSet } from 'svelte/reactivity';
 import { msg } from './i18n.svelte.ts';
 import {
 	listTasks,
 	onManagerEvent,
+	relocateTask,
 	type Category,
 	type Task,
 	type TaskId,
@@ -121,6 +123,8 @@ export const HISTORY = 240;
 class Downloads {
 	tasks = $state<Task[]>([]);
 	live = $state<Record<TaskId, TaskProgress>>({});
+	/** Downloads whose files are being copied to another drive: the share done, 0 to 1. */
+	moving = $state<Record<TaskId, number>>({});
 	/**
 	 * Recent speeds per download, oldest first. Not reactive itself: whoever draws it also
 	 * reads `live[id]`, which changes with every new sample.
@@ -152,8 +156,12 @@ class Downloads {
 						if (i >= 0) this.tasks[i] = e.data;
 						else this.tasks.push(e.data);
 						if (e.data.status !== 'downloading') delete this.live[e.data.id];
+						delete this.moving[e.data.id];
 						break;
 					}
+					case 'moving':
+						this.moving[e.data.id] = e.data.total ? e.data.copied / e.data.total : 0;
+						break;
 					case 'removed':
 						this.tasks = this.tasks.filter((t) => t.id !== e.data);
 						delete this.live[e.data];
@@ -195,3 +203,9 @@ class Downloads {
 }
 
 export const downloads = new Downloads();
+
+/** Asks for a folder and moves the download there; nothing when the user cancels. */
+export async function moveToFolder(task: Task): Promise<void> {
+	const dir = await pickFolder({ directory: true, defaultPath: task.dir });
+	if (typeof dir === 'string') await relocateTask(task.id, dir);
+}

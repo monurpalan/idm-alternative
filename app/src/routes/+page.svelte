@@ -38,6 +38,7 @@
 	import Countdown from '#lib/components/Countdown.svelte';
 	import ContextMenu, { type Item } from '#lib/components/ContextMenu.svelte';
 	import DetailPane from '#lib/components/DetailPane.svelte';
+	import RenameDialog from '#lib/components/RenameDialog.svelte';
 	import LinksDialog from '#lib/components/LinksDialog.svelte';
 	import GrabDialog from '#lib/components/GrabDialog.svelte';
 	import MediaDialog from '#lib/components/MediaDialog.svelte';
@@ -50,6 +51,7 @@
 		compare,
 		downloads,
 		inView,
+		moveToFolder,
 		row,
 		VIEWS,
 		type SortKey,
@@ -71,6 +73,7 @@
 	let streaming = $state<CapturedMedia | null>(null);
 	let pageMedia = $state<CapturedMedia | null>(null);
 	let removing = $state<TaskId[] | null>(null);
+	let renaming = $state<Task | null>(null);
 	let menu = $state<{ x: number; y: number; items: Item[] } | null>(null);
 	let notice = $state<string | null>(null);
 	/** A passing message that is not an error. */
@@ -229,6 +232,18 @@
 					disabled: !one || one.status === 'done'
 				},
 				{
+					label: msg('Rename…'),
+					action: () => (renaming = task),
+					disabled: !one,
+					shortcut: 'F2',
+					separated: true
+				},
+				{
+					label: msg('Move…'),
+					action: () => run(moveToFolder(task)),
+					disabled: !one
+				},
+				{
 					label: msg('Copy link'),
 					action: () => run(navigator.clipboard.writeText(sel.map((t) => t.url).join('\n'))),
 					separated: true
@@ -258,7 +273,8 @@
 	}
 
 	function keydown(e: KeyboardEvent) {
-		if (adding || removing || settingsOpen || picking || streaming || pageMedia || inField(e)) return;
+		if (adding || removing || renaming || settingsOpen || picking || streaming || pageMedia || inField(e))
+			return;
 		const ctrl = e.ctrlKey || e.metaKey;
 		if (ctrl && e.key.toLowerCase() === 'a') {
 			e.preventDefault();
@@ -268,6 +284,9 @@
 			adding = { url: '' };
 		} else if (e.key === 'Delete' && selectedTasks.length) {
 			removing = selectedTasks.map((t) => t.id);
+		} else if (e.key === 'F2' && selectedTasks.length === 1) {
+			e.preventDefault();
+			renaming = selectedTasks[0];
 		} else if (e.key === 'Enter' && selectedTasks.length === 1) {
 			const t = selectedTasks[0];
 			if (t.status === 'done') run(openFile(t.id));
@@ -277,7 +296,7 @@
 	}
 
 	function paste(e: ClipboardEvent) {
-		if (adding || removing || settingsOpen || picking || inField(e)) return;
+		if (adding || removing || renaming || settingsOpen || picking || inField(e)) return;
 		const text = e.clipboardData?.getData('text/plain') ?? '';
 		if (looksLikeUrl(text)) {
 			e.preventDefault();
@@ -405,6 +424,10 @@
 		}}
 		onclose={() => (removing = null)}
 	/>
+{/if}
+
+{#if renaming}
+	<RenameDialog task={renaming} onclose={() => (renaming = null)} />
 {/if}
 
 {#if pageMedia}

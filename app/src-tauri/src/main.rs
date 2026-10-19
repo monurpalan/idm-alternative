@@ -343,6 +343,21 @@ async fn restart_task(app: State<'_, App>, id: TaskId) -> CmdResult<()> {
     app.manager.restart(id).await.map_err(msg)
 }
 
+/// A new file name; the download's files on disk follow.
+#[tauri::command]
+async fn rename_task(app: State<'_, App>, id: TaskId, name: String) -> CmdResult<Task> {
+    if name.trim().is_empty() {
+        return Err("the name is empty".into());
+    }
+    app.manager.rename(id, &name).await.map_err(msg)
+}
+
+/// Another folder, chosen by the user; the download's files on disk follow.
+#[tauri::command]
+async fn relocate_task(app: State<'_, App>, id: TaskId, dir: PathBuf) -> CmdResult<Task> {
+    app.manager.relocate(id, &dir).await.map_err(msg)
+}
+
 /// This download's own limit in bytes per second; `None` removes it.
 #[tauri::command]
 async fn set_speed_limit(app: State<'_, App>, id: TaskId, rate: Option<u64>) -> CmdResult<()> {
@@ -1215,7 +1230,7 @@ async fn forward_events(handle: AppHandle, mut events: broadcast::Receiver<Event
                             lock(&handle.state::<App>().live).remove(id);
                             statuses.remove(id);
                         }
-                        Event::Progress(_) => {}
+                        Event::Progress(_) | Event::Moving(_) => {}
                     }
                     handle.emit("manager", &e).ok();
                 }
@@ -1487,6 +1502,41 @@ async fn bridge_reply(
                     Err(e) => Reply::error(e.to_string()),
                 },
                 Err(_) => Reply::error(format!("`{to}` is not top, up, down or bottom")),
+            }
+        }
+        Request::Rename { id, name } => {
+            let app = handle.state::<App>();
+            if name.trim().is_empty() {
+                return Reply::error("the name is empty");
+            }
+            match app.manager.rename(id, &name).await {
+                Ok(t) => Reply {
+                    data: Some(task_view(&t, None)),
+                    ..Reply::ok()
+                },
+                Err(e) => Reply::error(e.to_string()),
+            }
+        }
+        Request::Relocate { id, dir } => {
+            let app = handle.state::<App>();
+            // Like adding: a tool may move files only into the app's own folders.
+            let dir = PathBuf::from(dir);
+            let folders = app.manager.download_folders();
+            if !shardload_manager::folder::within(&dir, &folders) {
+                let allowed: Vec<String> =
+                    folders.iter().map(|f| f.display().to_string()).collect();
+                return Reply::error(format!(
+                    "{} is not a download folder or inside one; use one of: {}",
+                    dir.display(),
+                    allowed.join(", ")
+                ));
+            }
+            match app.manager.relocate(id, &dir).await {
+                Ok(t) => Reply {
+                    data: Some(task_view(&t, None)),
+                    ..Reply::ok()
+                },
+                Err(e) => Reply::error(e.to_string()),
             }
         }
         Request::WhenDone { action } => {
@@ -1935,6 +1985,8 @@ fn main() {
             pause_tasks,
             remove_tasks,
             restart_task,
+            rename_task,
+            relocate_task,
             start_all,
             pause_all,
             move_task,

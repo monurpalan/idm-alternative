@@ -157,15 +157,17 @@ pub async fn run_when_done(handle: AppHandle) {
     loop {
         match events.recv().await {
             Ok(Event::Updated(_) | Event::Removed(_) | Event::Added(_)) => {}
-            Ok(Event::Progress(_)) => continue,
+            Ok(Event::Progress(_) | Event::Moving(_)) => continue,
             Err(RecvError::Lagged(_)) => {}
             Err(RecvError::Closed) => break,
         }
-        let busy = app.manager.list().await.is_ok_and(|tasks| {
-            tasks
-                .iter()
-                .any(|t| matches!(t.status, Status::Downloading | Status::Queued))
-        });
+        // A file being copied to another drive counts too: sleeping would cut the copy.
+        let busy = app.manager.is_moving()
+            || app.manager.list().await.is_ok_and(|tasks| {
+                tasks
+                    .iter()
+                    .any(|t| matches!(t.status, Status::Downloading | Status::Queued))
+            });
         let action = {
             let mut armed = lock(&app.when_done);
             if armed.action == WhenDone::Nothing {

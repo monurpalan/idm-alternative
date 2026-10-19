@@ -82,6 +82,16 @@ pub enum Request {
         id: i64,
         to: String,
     },
+    /// Gives a download another file name; its files on disk follow.
+    Rename {
+        id: i64,
+        name: String,
+    },
+    /// Moves a download, and its files on disk, into another folder.
+    Relocate {
+        id: i64,
+        dir: String,
+    },
     /// What to do once nothing is downloading or waiting any more: `nothing`, `exit`,
     /// `sleep`, `hibernate` or `shutdown`.
     WhenDone {
@@ -321,6 +331,8 @@ mod tests {
             r#"{"type":"wait","ids":[1]}"#,
             r#"{"type":"speed_limit","bytes_per_second":1048576}"#,
             r#"{"type":"move","id":1,"to":"top"}"#,
+            r#"{"type":"rename","id":1,"name":"a.zip"}"#,
+            r#"{"type":"relocate","id":1,"dir":"C:\\Users\\x\\Downloads"}"#,
             r#"{"type":"when_done","action":"sleep"}"#,
         ] {
             let r: Request = serde_json::from_str(msg).expect(msg);

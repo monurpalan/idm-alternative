@@ -199,6 +199,26 @@ impl Db {
         Ok(())
     }
 
+    /// Where a download goes, after a rename or a move.
+    pub(crate) async fn set_place(
+        &self,
+        id: TaskId,
+        dir: &Path,
+        name: Option<&str>,
+        path: Option<&Path>,
+        category: Category,
+    ) -> Result<()> {
+        sqlx::query("UPDATE tasks SET dir = ?, name = ?, path = ?, category = ? WHERE id = ?")
+            .bind(dir.to_string_lossy())
+            .bind(name)
+            .bind(path.map(|p| p.to_string_lossy()))
+            .bind(category.as_str())
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// A checksum found for a download the user gave none for, and where it was found.
     pub(crate) async fn set_found_checksum(
         &self,

@@ -7,6 +7,8 @@
 		danger?: boolean;
 		/** Draw a separator above this item. */
 		separated?: boolean;
+		/** Its keyboard shortcut, shown at the right. */
+		shortcut?: string;
 	}
 </script>
 
@@ -52,7 +54,8 @@
 			role="menuitem"
 			disabled={item.disabled}
 			danger={item.danger}
-			onclick={() => choose(item)}>{t(item.label)}</Button
+			onclick={() => choose(item)}
+			>{t(item.label)}{#if item.shortcut}<kbd>{item.shortcut}</kbd>{/if}</Button
 		>
 	{/each}
 </div>
@@ -70,6 +73,12 @@
 		background: var(--bg);
 		box-shadow: var(--shadow);
 		outline: none;
+	}
+	kbd {
+		margin-left: auto;
+		padding-left: var(--space-4);
+		color: var(--muted);
+		font-family: inherit;
 	}
 	hr {
 		width: 100%;

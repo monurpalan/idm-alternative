@@ -164,7 +164,9 @@ async fn tools_reach_the_app() {
             "list_downloads",
             "move_download",
             "pause_downloads",
+            "relocate_download",
             "remove_downloads",
+            "rename_download",
             "resume_downloads",
             "set_speed_limit",
             "set_when_done",
@@ -241,6 +243,16 @@ async fn tools_reach_the_app() {
             "move_download",
             json!({ "id": 7, "to": "top" }),
             json!({ "type": "move", "id": 7, "to": "top" }),
+        ),
+        (
+            "rename_download",
+            json!({ "id": 7, "name": "b.zip" }),
+            json!({ "type": "rename", "id": 7, "name": "b.zip" }),
+        ),
+        (
+            "relocate_download",
+            json!({ "id": 7, "dir": "D:\\Downloads\\iso" }),
+            json!({ "type": "relocate", "id": 7, "dir": "D:\\Downloads\\iso" }),
         ),
         (
             "set_when_done",

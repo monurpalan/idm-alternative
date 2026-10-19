@@ -139,7 +139,9 @@ export interface Settings {
 export type ManagerEvent =
 	| { type: 'added'; data: Task }
 	| { type: 'updated'; data: Task }
-	| { type: 'removed'; data: TaskId };
+	| { type: 'removed'; data: TaskId }
+	/** Files being copied to another drive; an `updated` follows when they are in place. */
+	| { type: 'moving'; data: { id: TaskId; copied: number; total: number } };
 
 export const listTasks = () => invoke<Task[]>('list_tasks');
 export type Headers = [string, string][];
@@ -376,6 +378,10 @@ export const pauseAll = () => invoke<void>('pause_all');
 export const moveTask = (id: TaskId, to: 'top' | 'up' | 'down' | 'bottom') =>
 	invoke<void>('move_task', { id, to });
 export const restartTask = (id: TaskId) => invoke<void>('restart_task', { id });
+/** A new file name; the files on disk follow (a running download pauses for a moment). */
+export const renameTask = (id: TaskId, name: string) => invoke<Task>('rename_task', { id, name });
+/** Another folder; the files on disk follow, copied and checked when it is another drive. */
+export const relocateTask = (id: TaskId, dir: string) => invoke<Task>('relocate_task', { id, dir });
 export const openFile = (id: TaskId) => invoke<void>('open_file', { id });
 export const showInFolder = (id: TaskId) => invoke<void>('show_in_folder', { id });
 export const setSpeedLimit = (id: TaskId, rate: number | null) =>

@@ -142,11 +142,15 @@ For those who want to know exactly what it does, how it was measured and how it 
   shut down, batch downloads (`photo[001-100].jpg`), clipboard monitoring, saved logins per
   site, a virus scan when a download finishes, a small progress window per download, and a
   tray icon. Interface in English and Turkish.
+- **Rename and move at any stage** (F2, "Move…"): a waiting download only changes in the list,
+  a running one pauses for a moment and goes on where it was with its partial data moved
+  along, and a finished file (or a torrent's whole folder) is moved; onto another drive it is
+  copied, checked and only then deleted. A taken name gets a number, `name (1).ext`.
 - **For AI assistants:** `shardload-mcp`, an [MCP](https://modelcontextprotocol.io) server installed
   with the app, lets any MCP client add downloads (files, chosen files out of ZIP archives,
   torrents with a choice of files, metalinks, video pages at a chosen quality), find the files
   a site links to, list downloads with their progress, wait for them to finish, pause, resume,
-  reorder and remove them, limit their speed and choose what happens when all are done. It
+  reorder, rename, move and remove them, limit their speed and choose what happens when all are done. It
   reaches the app through the same per-user pipe as the browser; nothing listens on a network port. Register it in the client
   as a stdio server whose command is `%LOCALAPPDATA%\Shardload\shardload-mcp.exe`.
 
