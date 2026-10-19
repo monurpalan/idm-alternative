@@ -972,6 +972,37 @@ const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreen
     --enable-features=NetworkServiceInProcess2 --renderer-process-limit=1 \
     --disable-background-networking --disable-component-update";
 
+/// Asks WebView2 to give memory back while the window is minimized (`low`), and to work as
+/// usual again once it is shown. What is on screen does not change.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn memory_target(window: &tauri::WebviewWindow, low: bool) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+        ICoreWebView2_19,
+    };
+    use windows_core::Interface;
+    let level = if low {
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+    } else {
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL
+    };
+    window
+        .with_webview(move |w| {
+            // SAFETY: COM calls on the WebView's own thread, where `with_webview` runs this.
+            let set = unsafe {
+                w.controller()
+                    .CoreWebView2()
+                    .and_then(|c| c.cast::<ICoreWebView2_19>())
+                    .and_then(|c| c.SetMemoryUsageTargetLevel(level))
+            };
+            if let Err(e) = set {
+                tracing::debug!("could not set the WebView's memory target: {e}");
+            }
+        })
+        .ok();
+}
+
 /// Brings the window back, also from the tray.
 ///
 /// In the tray the window does not exist (its WebView would keep 160 MB for nothing), so it
@@ -1888,6 +1919,12 @@ fn main() {
                 && window.label() == "main"
             {
                 lock(&window.app_handle().state::<App>().page).ready = false;
+            }
+            #[cfg(windows)]
+            if let WindowEvent::Resized(_) = event
+                && let Some(w) = window.app_handle().get_webview_window(window.label())
+            {
+                memory_target(&w, w.is_minimized().unwrap_or(false));
             }
         })
         .invoke_handler(tauri::generate_handler![
