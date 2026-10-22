@@ -24,6 +24,9 @@ pub struct Metalink {
     pub checksum: Option<String>,
     /// HTTP(S) addresses of the file, the preferred first.
     pub urls: Vec<String>,
+    /// Hashes of its pieces, when given (`<pieces>`): a corrupt piece is then downloaded
+    /// again alone.
+    pub pieces: Option<crate::pieces::Pieces>,
 }
 
 /// Whether `url` names a metalink file (by its extension).
@@ -58,6 +61,10 @@ pub fn parse(xml: &str) -> Result<Metalink> {
     let mut hashes: Vec<(String, String)> = Vec::new();
     let mut urls: Vec<(u64, String)> = Vec::new();
     let mut in_pieces = false;
+    // `<pieces length type>`: the piece length, the algorithm, and the hashes so far.
+    let mut piece_length = 0u64;
+    let mut piece_type = String::new();
+    let mut piece_hashes: Vec<String> = Vec::new();
     // The element whose text is being read, its attribute of interest, and the text so far.
     let mut current: Option<(String, Option<String>)> = None;
     let mut text = String::new();
@@ -79,8 +86,18 @@ pub fn parse(xml: &str) -> Result<Metalink> {
                             name = attr("name").unwrap_or_default();
                         }
                     }
-                    "pieces" => in_pieces = true,
-                    "hash" if !in_pieces => current = Some((tag, attr("type"))),
+                    "pieces" => {
+                        in_pieces = true;
+                        if files == 1 {
+                            piece_length = attr("length").and_then(|l| l.parse().ok()).unwrap_or(0);
+                            piece_type = attr("type")
+                                .unwrap_or_default()
+                                .to_ascii_lowercase()
+                                .replace('-', "");
+                        }
+                    }
+                    "hash" if in_pieces => current = Some(("piece".into(), None)),
+                    "hash" => current = Some((tag, attr("type"))),
                     // Metalink 4 ranks by `priority` (1 first), 3 by `preference` (100 first).
                     "url" => {
                         let rank = attr("priority")
@@ -116,6 +133,13 @@ pub fn parse(xml: &str) -> Result<Metalink> {
                     in_pieces = false;
                 }
                 if files <= 1
+                    && in_pieces
+                    && tag == "hash"
+                    && current.as_ref().is_some_and(|(open, _)| open == "piece")
+                {
+                    current = None;
+                    piece_hashes.push(format!("{piece_type}:{}", text.trim()));
+                } else if files <= 1
                     && let Some((open, attr)) = current.take()
                     && open == tag
                 {
@@ -170,11 +194,22 @@ pub fn parse(xml: &str) -> Result<Metalink> {
             .find(|(kind, _)| kind == want)
             .map(|(kind, digest)| format!("{kind}:{digest}"))
     });
+    // Usable only when every hash reads as one (a known algorithm, the right length).
+    let pieces = (piece_length > 0
+        && !piece_hashes.is_empty()
+        && piece_hashes
+            .iter()
+            .all(|h| h.parse::<crate::Checksum>().is_ok()))
+    .then_some(crate::pieces::Pieces {
+        length: piece_length,
+        hashes: piece_hashes,
+    });
     Ok(Metalink {
         name: crate::name::sanitize(&name),
         size,
         checksum,
         urls: ordered,
+        pieces,
     })
 }
 
@@ -215,7 +250,19 @@ mod tests {
                 "https://two.example.org/a.iso?x=1&y=2"
             ]
         );
-        assert!(m.checksum.expect("sum").parse::<crate::Checksum>().is_ok());
+        assert!(
+            m.checksum
+                .clone()
+                .expect("sum")
+                .parse::<crate::Checksum>()
+                .is_ok()
+        );
+        let pieces = m.pieces.expect("pieces");
+        assert_eq!(pieces.length, 4_194_304);
+        assert_eq!(
+            pieces.hashes,
+            ["sha1:a05ee91664b6deb91df466028746a8bd81e065d8"]
+        );
     }
 
     #[test]

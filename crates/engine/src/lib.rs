@@ -24,6 +24,7 @@ mod hls;
 mod limit;
 pub mod metalink;
 pub mod name;
+mod pieces;
 mod place;
 mod relink;
 mod remote;
@@ -42,6 +43,7 @@ pub use download::{
 pub use error::{Error, Result};
 pub use hls::{Clip, RecordRequest, StreamRequest, download_hls, record_hls};
 pub use limit::Limiter;
+pub use pieces::Pieces;
 pub use place::{Conflict, target, target_avoiding};
 pub use relink::patch_url;
 pub use remote::{Browser, basic_auth};

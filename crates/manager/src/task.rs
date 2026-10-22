@@ -294,6 +294,10 @@ pub struct Task {
     pub final_url: Option<String>,
     /// Added together with others (see [`Group`]).
     pub group_id: Option<i64>,
+    /// Hashes of the file's pieces (from a metalink): a corrupt piece is downloaded again
+    /// alone. Not sent to the UI.
+    #[serde(skip)]
+    pub pieces: Option<shardload_engine::Pieces>,
 }
 
 /// Downloads added together: a playlist, a channel, a batch, the files of a site.
@@ -345,6 +349,8 @@ pub struct NewTask {
     pub mirrors: Vec<String>,
     /// One of a group added together (see [`crate::Manager::new_group`]).
     pub group: Option<i64>,
+    /// Hashes of the file's pieces (a metalink's are taken by themselves).
+    pub pieces: Option<shardload_engine::Pieces>,
 }
 
 /// Live progress of a running download, sent about four times a second.

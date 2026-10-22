@@ -43,6 +43,7 @@ Sizes and rates accept `K`, `M`, `G` suffixes (binary units). Flags accept `1/0`
 | `cd` | — | `Content-Disposition` filename (ASCII fallback + `filename*` UTF-8) |
 | `latency_ms` | `0` | Delay before response headers |
 | `only_ua` | — | `403` unless the `User-Agent` contains this (a site that only serves some browsers) |
+| `corrupt_at` | — | The first response to send the byte at this offset sends it flipped (later ones are clean) |
 
 `If-Range` is honoured: a validator that no longer matches turns a range request into `200`
 with the whole file, as RFC 9110 requires.

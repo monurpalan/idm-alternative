@@ -125,6 +125,9 @@ pub struct Scenario {
     /// Requests whose `User-Agent` does not contain this get `403`, like a site that only
     /// serves some browsers.
     pub only_ua: Option<String>,
+    /// The first response to send the byte at this offset sends it flipped, like a flaky
+    /// mirror or a bad line; later ones are clean.
+    pub corrupt_at: Option<Size>,
 }
 
 impl Default for Scenario {
@@ -151,6 +154,7 @@ impl Default for Scenario {
             auth: None,
             latency_ms: 0,
             only_ua: None,
+            corrupt_at: None,
         }
     }
 }

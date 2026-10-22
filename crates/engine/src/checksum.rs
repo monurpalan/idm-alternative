@@ -114,7 +114,7 @@ fn hex(b: &[u8]) -> String {
     b.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-enum Hasher {
+pub(crate) enum Hasher {
     Md5(Md5),
     Sha1(Sha1),
     Sha256(Sha256),
@@ -122,7 +122,7 @@ enum Hasher {
 }
 
 impl Hasher {
-    fn new(a: Algorithm) -> Self {
+    pub(crate) fn new(a: Algorithm) -> Self {
         match a {
             Algorithm::Md5 => Hasher::Md5(Md5::new()),
             Algorithm::Sha1 => Hasher::Sha1(Sha1::new()),
@@ -131,7 +131,7 @@ impl Hasher {
         }
     }
 
-    fn update(&mut self, data: &[u8]) {
+    pub(crate) fn update(&mut self, data: &[u8]) {
         match self {
             Hasher::Md5(h) => h.update(data),
             Hasher::Sha1(h) => h.update(data),
@@ -140,7 +140,7 @@ impl Hasher {
         }
     }
 
-    fn finish(self) -> Vec<u8> {
+    pub(crate) fn finish(self) -> Vec<u8> {
         match self {
             Hasher::Md5(h) => h.finalize().to_vec(),
             Hasher::Sha1(h) => h.finalize().to_vec(),

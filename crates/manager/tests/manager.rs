@@ -780,3 +780,54 @@ async fn history_follows_redirects_renames_and_restarts() {
     );
     m.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_metalinks_piece_hashes_repair_a_corrupt_piece() {
+    use sha2::{Digest, Sha256};
+    let size = 6 * MB;
+    let hex = |b: &[u8]| -> String { b.iter().map(|b| format!("{b:02x}")).collect() };
+    let mut whole = vec![0u8; size as usize];
+    shardload_testserver::content::fill(31, 0, &mut whole);
+    let pieces: String = whole
+        .chunks(MB as usize)
+        .map(|p| format!("<hash>{}</hash>", hex(&Sha256::digest(p))))
+        .collect();
+    let file = "piece.bin?size=6M&seed=31&corrupt_at=2500000";
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("addr"));
+    let meta4 = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<metalink xmlns="urn:ietf:params:xml:ns:metalink">
+  <file name="piece.bin">
+    <size>{size}</size>
+    <hash type="sha-256">{whole}</hash>
+    <pieces length="{MB}" type="sha-256">{pieces}</pieces>
+    <url priority="1">{base}/file/{file}</url>
+  </file>
+</metalink>"#,
+        whole = hex(&Sha256::digest(&whole)),
+        file = file.replace('&', "&amp;")
+    );
+    let app = shardload_testserver::router().merge(axum::Router::new().route(
+        "/piece.meta4",
+        axum::routing::get(move || async move { meta4 }),
+    ));
+    tokio::spawn(async move { axum::serve(listener, app).await });
+
+    let w = WorkDir::new("pieces");
+    let m = Manager::open(&w.db(), w.config(3)).await.expect("open");
+    let task = m
+        .add(new_task(format!("{base}/piece.meta4")))
+        .await
+        .expect("add");
+    let done = wait_done(&m, task.id).await;
+    assert_file(&done, 31, size);
+    // The corrupt byte reached the file (the first response to send it was the download's),
+    // so the whole-file hash matching means the piece was mended: by downloading it again,
+    // not the file. The name probe before the download adds a little.
+    let sent = bytes_sent(&base).await;
+    assert!(sent < size + 3 * MB, "sent {sent}");
+    m.close().await;
+}

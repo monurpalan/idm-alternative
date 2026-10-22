@@ -308,3 +308,85 @@ async fn a_server_that_refuses_is_asked_no_more() {
         .collect();
     assert!(extra.is_empty(), "{urls:?}");
 }
+
+/// The SHA-256 of every `piece` bytes of the test server's content.
+fn piece_hashes(seed: u64, size: u64, piece: u64) -> shardload_engine::Pieces {
+    let mut hashes = Vec::new();
+    let mut at = 0;
+    while at < size {
+        let mut buf = vec![0u8; piece.min(size - at) as usize];
+        fill(seed, at, &mut buf);
+        let digest: String = Sha256::digest(&buf)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        hashes.push(format!("sha256:{digest}"));
+        at += piece;
+    }
+    shardload_engine::Pieces {
+        length: piece,
+        hashes,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_corrupt_piece_is_downloaded_again_alone() {
+    let base = start().await;
+    let dir = workdir("pieces");
+    let out = dir.join("f.bin");
+    let size = 8 * MB;
+    // One byte in the sixth MiB comes corrupt the first time.
+    let url = format!(
+        "{base}/file/f.bin?size={size}&seed=21&corrupt_at={}",
+        5 * MB + 12345
+    );
+    let o = Options {
+        pieces: Some(piece_hashes(21, size, MB)),
+        ..opts(4)
+    };
+    get(&request(url, &out), &o).await.expect("download");
+    assert_verified(&out, 21, size);
+    // The file, then the one piece again: not the whole file twice. (A connection moved to
+    // another range on a busy machine may add a little.)
+    let sent = common::bytes_sent(&base).await;
+    assert!((size + MB..size + 2 * MB).contains(&sent), "sent {sent}");
+
+    // Without piece hashes the same corruption is only caught by the whole-file checksum.
+    let out = dir.join("g.bin");
+    let url = format!(
+        "{base}/file/g.bin?size={size}&seed=21&corrupt_at={}",
+        5 * MB + 12345
+    );
+    let mut whole = vec![0u8; size as usize];
+    fill(21, 0, &mut whole);
+    let digest: String = Sha256::digest(&whole)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let o = Options {
+        checksum: Some(format!("sha256:{digest}").parse().expect("checksum")),
+        ..opts(4)
+    };
+    match get(&request(url, &out), &o).await {
+        Err(Error::ChecksumMismatch { .. }) => {}
+        other => panic!("{other:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pieces_that_stay_corrupt_fail_the_download() {
+    let base = start().await;
+    let dir = workdir("pieces-bad");
+    let out = dir.join("f.bin");
+    let size = 4 * MB;
+    let url = format!("{base}/file/f.bin?size={size}&seed=22");
+    // Hashes of other content: every piece is "corrupt", and stays so.
+    let o = Options {
+        pieces: Some(piece_hashes(99, size, MB)),
+        ..opts(4)
+    };
+    match get(&request(url, &out), &o).await {
+        Err(Error::State(m)) => assert!(m.contains("still corrupt"), "{m}"),
+        other => panic!("{other:?}"),
+    }
+}

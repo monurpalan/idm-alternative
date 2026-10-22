@@ -36,6 +36,8 @@ pub(crate) struct UrlState {
     peak_active: AtomicU32,
     /// Requests turned away by `max_conns`.
     refused: AtomicU64,
+    /// `corrupt_at`: a response has been corrupted already.
+    corrupted: std::sync::atomic::AtomicBool,
     pub(crate) bytes_sent: AtomicU64,
     /// `total_rate`: when the URL's first byte went out, and the bytes paced since.
     paced_from: Mutex<Option<Instant>>,
@@ -346,7 +348,12 @@ async fn serve_file(
         String::from("full")
     };
     guard.expected = end - start;
+    let corrupt = sc
+        .corrupt_at
+        .map(|c| c.0)
+        .filter(|c| (start..end).contains(c));
     let body = BodyState {
+        corrupt,
         guard,
         seed: sc.seed,
         pos: start,
@@ -484,6 +491,8 @@ impl Drop for ConnGuard {
 }
 
 struct BodyState {
+    /// The byte to flip at this offset (`corrupt_at`), unless another response sent it first.
+    corrupt: Option<u64>,
     guard: ConnGuard,
     seed: u64,
     pos: u64,
@@ -527,6 +536,12 @@ impl BodyState {
 
             let mut buf = vec![0u8; len as usize];
             content::fill(s.seed, s.pos, &mut buf);
+            // Only the first response to send that byte: one cut off before it does not count.
+            if let Some(at) = s.corrupt.filter(|at| (s.pos..s.pos + len).contains(at))
+                && !s.guard.url.corrupted.swap(true, Ordering::Relaxed)
+            {
+                buf[(at - s.pos) as usize] ^= 0xff;
+            }
             s.pos += len;
             s.guard.sent += len;
             // Counted live (not on completion) so `/_stats` can be sampled mid-download.

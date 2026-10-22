@@ -32,6 +32,7 @@ pub(crate) struct Insert<'a> {
     pub stream: Option<&'a Stream>,
     pub mirrors: &'a [String],
     pub group: Option<i64>,
+    pub pieces: Option<&'a shardload_engine::Pieces>,
 }
 
 impl Db {
@@ -82,8 +83,8 @@ impl Db {
         let id = sqlx::query(
             "INSERT INTO tasks (url, headers, dir, name, status, category, connections,
                                 speed_limit, checksum, added_at, stream, mirrors, group_id,
-                                queue_pos)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                pieces, queue_pos)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                      (SELECT COALESCE(MAX(queue_pos), 0) + 1 FROM tasks))",
         )
         .bind(t.url)
@@ -103,6 +104,7 @@ impl Db {
                 .transpose()?,
         )
         .bind(t.group)
+        .bind(t.pieces.map(serde_json::to_string).transpose()?)
         .execute(&self.pool)
         .await?
         .last_insert_rowid();
@@ -665,6 +667,10 @@ fn task(r: &SqliteRow) -> Result<Task> {
             .unwrap_or_default(),
         final_url: r.try_get("final_url")?,
         group_id: r.try_get("group_id")?,
+        pieces: r
+            .try_get::<Option<String>, _>("pieces")?
+            .map(|s| serde_json::from_str(&s))
+            .transpose()?,
     })
 }
 

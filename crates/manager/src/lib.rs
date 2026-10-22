@@ -602,6 +602,7 @@ impl Manager {
             new.mirrors = urls.chain(std::mem::take(&mut new.mirrors)).collect();
             new.name = new.name.or(Some(m.name));
             new.checksum = new.checksum.or(m.checksum);
+            new.pieces = new.pieces.or(m.pieces);
         }
         if let Some(c) = &new.checksum {
             c.parse::<Checksum>().map_err(Error::BadChecksum)?;
@@ -647,6 +648,7 @@ impl Manager {
                 stream: new.stream.as_ref(),
                 mirrors: &new.mirrors,
                 group: new.group,
+                pieces: new.pieces.as_ref(),
             })
             .await?;
         let task = self.get(id).await?;
@@ -2136,6 +2138,7 @@ impl Inner {
             .transpose()
             .map_err(Error::BadChecksum)?;
         opts.checksum_from = task.checksum_from.clone();
+        opts.pieces = task.pieces.clone();
 
         let page_format = task.stream.as_ref().and_then(|s| s.ytdlp.clone());
         if page_format.is_some() && ytdlp.is_none() {

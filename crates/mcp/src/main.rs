@@ -201,7 +201,7 @@ impl Downloads {
     }
 
     #[tool(
-        description = "Add a download to Shardload and start it (unless start is false): a direct file link, some files out of a ZIP archive (archive_entries), a magnet link or .torrent file (optionally only some of its files), a .meta4 metalink, or a page of a video site with video_height or audio_only. Returns the new download with its id."
+        description = "Add a download to Shardload and start it (unless start is false): a direct file link, some files out of a ZIP archive (archive_entries), a magnet link or .torrent file (optionally only some of its files), a .meta4 metalink (its mirrors are used together, and with piece hashes a corrupt piece is downloaded again alone), or a page of a video site with video_height or audio_only. Returns the new download with its id."
     )]
     async fn add_download(
         &self,

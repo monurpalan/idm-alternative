@@ -111,6 +111,9 @@ pub struct Options {
     /// Where the download notes what it learned about the server (see [`Learned`]); each
     /// clone of the options shares it.
     pub learn: Learning,
+    /// Hashes of the file's pieces: once all is downloaded each piece is checked, and the
+    /// corrupt ones are downloaded again on their own (before `checksum` is checked).
+    pub pieces: Option<crate::pieces::Pieces>,
 }
 
 /// What a download found out about a server, for starting the next download from it right
@@ -169,6 +172,7 @@ impl Default for Options {
             checksum_from: None,
             find_checksum: true,
             learn: Learning::default(),
+            pieces: None,
         }
     }
 }
@@ -288,6 +292,13 @@ pub async fn download(
         };
         match job.run(progress, cancel).await {
             Ok((size, resumed_from)) => {
+                if let Some(pieces) = &opts.pieces {
+                    let urls: Vec<String> = std::iter::once(current.url.clone())
+                        .chain(current.mirrors.iter().cloned())
+                        .collect();
+                    crate::pieces::repair(&http, &urls, &part, size, pieces, progress, cancel)
+                        .await?;
+                }
                 let (checksum, checksum_from) = match &opts.checksum {
                     Some(c) => (Some(c.clone()), opts.checksum_from.clone()),
                     None => {
