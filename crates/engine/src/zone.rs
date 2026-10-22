@@ -113,6 +113,7 @@ fn read(_path: &Path) -> Option<FileMark> {
 }
 
 /// `HostUrl` and `ReferrerUrl` of a `Zone.Identifier`.
+#[cfg(any(windows, test))]
 pub(crate) fn parse_zone_identifier(text: &str) -> FileMark {
     let value = |key: &str| {
         text.lines().find_map(|l| {
