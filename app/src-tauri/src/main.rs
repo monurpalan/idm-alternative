@@ -1950,21 +1950,42 @@ async fn tool_add(handle: &AppHandle, add: shardload_bridge::AddDownload) -> Cmd
     let app = handle.state::<App>();
     let mut name = add.name.filter(|n| !n.trim().is_empty());
     let mut stream = None;
+    let clip_asked = add.clip_start.is_some() || add.clip_end.is_some();
+    if clip_asked && add.video_height.is_none() && add.audio_only != Some(true) {
+        return Err(
+            "clip_start and clip_end are for video pages: give video_height or audio_only too"
+                .into(),
+        );
+    }
     if add.video_height.is_some() || add.audio_only == Some(true) {
         let height = if add.audio_only == Some(true) {
             None
         } else {
             add.video_height
         };
-        if name.is_none() {
-            // The page's title, as the media dialog does.
+        let mut length = None;
+        if name.is_none() || clip_asked {
+            // The page's title, as the media dialog does, and its length for a clip.
             let info = inspect_page(handle.state::<App>(), add.url.clone(), None, None).await?;
-            name = info.title.map(|t| format!("{t}.mp4"));
+            length = info.duration;
+            name = name.or(info.title.map(|t| format!("{t}.mp4")));
         } else if tools::installed(&app.data, tools::Tool::Ytdlp).is_none() {
             return Err("yt-dlp is not set up".into());
         }
+        let clip = match clip_asked {
+            true => Some(shardload_manager::clip::from_times(
+                add.clip_start.as_deref().unwrap_or("0"),
+                add.clip_end
+                    .as_deref()
+                    .ok_or("give clip_end too: where the clip stops")?,
+                add.exact_cut == Some(true),
+                length,
+            )?),
+            false => None,
+        };
         stream = Some(shardload_manager::Stream {
             ytdlp: Some(shardload_manager::ytdlp::selector(height)),
+            clip,
             ..Default::default()
         });
     } else if let Some(files) = add.torrent_files {

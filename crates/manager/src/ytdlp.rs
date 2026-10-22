@@ -428,11 +428,14 @@ pub(crate) fn parse_progress(line: &str) -> Option<(u64, Option<u64>, f64)> {
 
 /// Downloads `url` in `format` to `<dir>/<stem>.<ext>` and returns the file written. yt-dlp
 /// downloads video and audio one after the other and joins them; progress covers both.
+/// With `clip`, only that part, cut at keyframes forced at its ends (needs ffmpeg).
 /// Cancelling stops yt-dlp; running again continues its partial files.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     tools: &Tools,
     url: &str,
     format: &str,
+    clip: Option<&crate::clip::Clip>,
     output_stem: &Path,
     headers: &[(String, String)],
     progress: &watch::Sender<Progress>,
@@ -456,6 +459,13 @@ pub async fn run(
         "-o".into(),
         format!("{}.%(ext)s", output_stem.display()),
     ];
+    if let Some(c) = clip {
+        args.extend([
+            "--download-sections".into(),
+            crate::clip::section(c),
+            "--force-keyframes-at-cuts".into(),
+        ]);
+    }
     args.extend(base_args(tools, url, headers, cookies.as_deref()));
     let mut child = command(&tools.ytdlp)
         .args(&args)

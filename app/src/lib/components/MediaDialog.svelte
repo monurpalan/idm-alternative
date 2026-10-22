@@ -2,7 +2,8 @@
 	// A stream the extension found: pick the quality, audio and subtitles.
 
 	import { onMount } from 'svelte';
-	import { addTask, inspectMedia, tools, type CapturedMedia, type StreamInfo } from '../api.ts';
+	import { addTask, inspectMedia, tools, type CapturedMedia, type Clip, type StreamInfo } from '../api.ts';
+	import ClipFields from './ClipFields.svelte';
 	import { duration } from '../format.ts';
 	import { msg, t } from '../i18n.svelte.ts';
 	import { Button, Checkbox, Dialog, Field, Input, Section, Select, Text } from './ui/index.ts';
@@ -28,6 +29,8 @@
 	let ffmpeg = $state(true);
 	let busy = $state(false);
 	let dialog: { close(): void } | undefined = $state();
+	let clip = $state<Clip | null>(null);
+	let clipProblem = $state<string | null>(null);
 
 	/** Why the stream cannot be downloaded, if it cannot. */
 	const blocked = $derived.by(() => {
@@ -54,7 +57,8 @@
 					dash: info.format === 'dash' ? video : null,
 					subtitles: info.subtitles
 						.filter((s) => s.id && subtitles.has(s.id))
-						.map((s) => ({ id: s.id!, language: s.language }))
+						.map((s) => ({ id: s.id!, language: s.language })),
+					clip
 				}
 			});
 			dialog?.close();
@@ -167,6 +171,9 @@
 		<Field label={t('Save as')}>
 			<Input bind:value={name} placeholder={t('Name from the address')} />
 		</Field>
+		{#if !info.live}
+			<ClipFields length={info.duration} bind:clip bind:problem={clipProblem} />
+		{/if}
 	{/if}
 
 	{#if info && !ffmpeg && info.audio.length}
@@ -178,6 +185,8 @@
 
 	{#snippet actions()}
 		<Button onclick={() => dialog?.close()}>{t('Close')}</Button>
-		<Button variant="primary" disabled={!!blocked || busy} onclick={download}>{t('Download')}</Button>
+		<Button variant="primary" disabled={!!blocked || busy || !!clipProblem} onclick={download}
+			>{t('Download')}</Button
+		>
 	{/snippet}
 </Dialog>

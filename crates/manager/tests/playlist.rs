@@ -124,3 +124,92 @@ async fn downloads_added_together_share_a_group() {
     m.close().await;
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// The first program `name` on PATH.
+fn on_path(name: &str) -> Option<PathBuf> {
+    let exe = if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_owned()
+    };
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|d| d.join(&exe))
+        .find(|p| p.is_file())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "network: YouTube; needs ffmpeg and ffprobe on PATH"]
+async fn a_clip_of_a_youtube_video() {
+    use shardload_manager::clip::Clip;
+    use shardload_manager::{Status, Stream};
+    let ffmpeg = on_path("ffmpeg").expect("ffmpeg on PATH");
+    let dir = std::env::temp_dir().join(format!("shardload-yt-clip-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).expect("dir");
+    let t = tools();
+    let m = Manager::open(
+        &dir.join("list.db"),
+        Config {
+            dir: dir.join("downloads"),
+            ytdlp: Some(t.ytdlp),
+            deno: t.deno,
+            ffmpeg: Some(ffmpeg),
+            ..Config::default()
+        },
+    )
+    .await
+    .expect("open");
+    let task = m
+        .add(NewTask {
+            url: "https://www.youtube.com/watch?v=jNQXAC9IVRw".into(),
+            name: Some("Me at the zoo.mp4".into()),
+            start: true,
+            stream: Some(Stream {
+                ytdlp: Some(shardload_manager::ytdlp::selector(Some(360))),
+                clip: Some(Clip {
+                    start: 5.0,
+                    end: 12.0,
+                    exact: false,
+                }),
+                ..Stream::default()
+            }),
+            ..NewTask::default()
+        })
+        .await
+        .expect("add");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+    let done = loop {
+        let t = m.get(task.id).await.expect("get");
+        if matches!(t.status, Status::Done | Status::Error) {
+            break t;
+        }
+        assert!(std::time::Instant::now() < deadline, "timed out");
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    };
+    assert_eq!(done.status, Status::Done, "{:?}", done.error);
+    let path = done.path.expect("path");
+    assert!(
+        path.to_string_lossy().contains("Me at the zoo (0.05-0.12)"),
+        "{}",
+        path.display()
+    );
+    let probe = std::process::Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "csv=p=0",
+        ])
+        .arg(&path)
+        .output()
+        .expect("ffprobe");
+    let seconds: f64 = String::from_utf8_lossy(&probe.stdout)
+        .trim()
+        .parse()
+        .expect("duration");
+    assert!((6.0..=8.0).contains(&seconds), "{seconds} s");
+    m.close().await;
+    std::fs::remove_dir_all(&dir).ok();
+}

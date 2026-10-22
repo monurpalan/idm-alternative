@@ -8,13 +8,15 @@ use crate::dash::iso_duration;
 use crate::{Error, resolve};
 
 /// A piece of media: a whole resource, or `[start, end)` of it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Piece {
     pub url: String,
     pub range: Option<(u64, u64)>,
+    /// How long it plays, in seconds, when the manifest says.
+    pub duration: Option<f64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DashTrack {
     pub init: Option<Piece>,
     pub segments: Vec<Piece>,
@@ -135,11 +137,12 @@ pub fn dash_track(url: &str, text: &str, rep_id: &str) -> Result<DashTrack, Erro
         let start_number: u64 = attr(&templates, "startNumber")
             .and_then(|n| n.parse().ok())
             .unwrap_or(1);
-        let piece = |t: &str, number, time| Piece {
+        let piece = |t: &str, number, time, ticks: Option<f64>| Piece {
             url: resolve(&base, &fill(t, rep_id, bandwidth, number, time)),
             range: None,
+            duration: ticks.map(|d| d / timescale as f64),
         };
-        let init = attr(&templates, "initialization").map(|i| piece(i, 0, 0));
+        let init = attr(&templates, "initialization").map(|i| piece(i, 0, 0, None));
 
         let mut segments = Vec::new();
         if let Some(timeline) = templates.iter().find_map(|t| child(*t, "SegmentTimeline")) {
@@ -169,7 +172,7 @@ pub fn dash_track(url: &str, text: &str, rep_id: &str) -> Result<DashTrack, Erro
                     time + d * (r as u64 + 1)
                 };
                 while time < until {
-                    segments.push(piece(media, number, time));
+                    segments.push(piece(media, number, time, Some(d as f64)));
                     time += d;
                     number += 1;
                 }
@@ -184,7 +187,7 @@ pub fn dash_track(url: &str, text: &str, rep_id: &str) -> Result<DashTrack, Erro
             let count = (total * timescale as f64 / seg).ceil() as u64;
             let mut time = 0u64;
             for i in 0..count {
-                segments.push(piece(media, start_number + i, time));
+                segments.push(piece(media, start_number + i, time, Some(seg)));
                 time += seg as u64;
             }
         }
@@ -204,13 +207,24 @@ pub fn dash_track(url: &str, text: &str, rep_id: &str) -> Result<DashTrack, Erro
                 .attribute("sourceURL")
                 .map_or_else(|| base.clone(), |s| resolve(&base, s)),
             range: i.attribute("range").and_then(byte_range),
+            duration: None,
         });
+        let timescale: f64 = list
+            .attribute("timescale")
+            .and_then(|t| t.parse().ok())
+            .filter(|t: &f64| *t > 0.0)
+            .unwrap_or(1.0);
+        let each = list
+            .attribute("duration")
+            .and_then(|d| d.parse::<f64>().ok())
+            .map(|d| d / timescale);
         let segments: Vec<Piece> = children(list, "SegmentURL")
             .map(|s| Piece {
                 url: s
                     .attribute("media")
                     .map_or_else(|| base.clone(), |m| resolve(&base, m)),
                 range: s.attribute("mediaRange").and_then(byte_range),
+                duration: each,
             })
             .collect();
         if segments.is_empty() {
@@ -229,6 +243,7 @@ pub fn dash_track(url: &str, text: &str, rep_id: &str) -> Result<DashTrack, Erro
         segments: vec![Piece {
             url: base,
             range: None,
+            duration,
         }],
         single: true,
     })
@@ -326,7 +341,8 @@ mod tests {
             l.init,
             Some(Piece {
                 url: "https://h/a/file.mp4".into(),
-                range: Some((0, 100))
+                range: Some((0, 100)),
+                duration: None
             })
         );
         assert_eq!(l.segments[0].range, Some((100, 200)));

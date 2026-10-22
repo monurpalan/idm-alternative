@@ -127,5 +127,16 @@ export default {
 	'Folder name': 'Klasör adı',
 	'Name of the list': 'Listenin adı',
 	'This video is in a playlist: show the whole list…':
-		'Bu video bir oynatma listesinde: tüm listeyi göster…'
+		'Bu video bir oynatma listesinde: tüm listeyi göster…',
+
+	// Clips
+	'Write the times as m:ss or h:mm:ss': 'Zamanları dd:ss ya da sa:dd:ss olarak yazın',
+	'The end must come after the start': 'Bitiş başlangıçtan sonra olmalı',
+	'The video is only {time} long': 'Video yalnızca {time} uzunluğunda',
+	'Only a part': 'Yalnız bir bölümü',
+	From: 'Başlangıç',
+	To: 'Bitiş',
+	'Cut at the exact frame (slower: re-encodes)': 'Tam karede kes (daha yavaş: yeniden kodlar)',
+	'Only the needed part is downloaded; the file name gets the range.':
+		'Yalnız gereken kısım indirilir; aralık dosya adına eklenir.'
 } satisfies Record<string, string>;

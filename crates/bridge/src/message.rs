@@ -184,6 +184,11 @@ pub struct AddDownload {
     /// A playlist or a channel (`url`): the numbers, from 1, of the videos to download in
     /// `inspect_video`'s list; each becomes a download of its own, in one group.
     pub playlist_items: Option<Vec<usize>>,
+    /// A video page: only the part from `clip_start` to `clip_end` (`m:ss`, `h:mm:ss` or seconds).
+    pub clip_start: Option<String>,
+    pub clip_end: Option<String>,
+    /// With `clip_start`/`clip_end`: cut at exactly those times (re-encodes) rather than at keyframes.
+    pub exact_cut: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

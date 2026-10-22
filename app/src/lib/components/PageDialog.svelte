@@ -13,10 +13,12 @@
 		tools,
 		ytdlpSelector,
 		type CapturedMedia,
+		type Clip,
 		type PageInfo,
 		type Previous,
 		type TaskId
 	} from '../api.ts';
+	import ClipFields from './ClipFields.svelte';
 	import PreviousNotice from './PreviousNotice.svelte';
 	import { duration } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
@@ -41,6 +43,8 @@
 	let name = $state('');
 	let busy = $state(false);
 	let dialog: { close(): void } | undefined = $state();
+	let clip = $state<Clip | null>(null);
+	let clipProblem = $state<string | null>(null);
 
 	const list = $derived(info?.playlist ?? null);
 	/** Per video of the list: chosen, and downloaded before (or on the list). */
@@ -120,7 +124,7 @@
 					start: true,
 					login: null,
 					headers: media.headers,
-					stream: { audio: null, ytdlp: ytdlpSelector(choice || null) }
+					stream: { audio: null, ytdlp: ytdlpSelector(choice || null), clip }
 				});
 			}
 			dialog?.close();
@@ -211,6 +215,7 @@
 		<Field label={t('Save as')}>
 			<Input bind:value={name} placeholder={t('Title of the page')} />
 		</Field>
+		<ClipFields length={info.duration} bind:clip bind:problem={clipProblem} />
 		{#if info.in_playlist}
 			<div>
 				<Button variant="link" onclick={() => load(true)}>{t('This video is in a playlist: show the whole list…')}</Button>
@@ -232,7 +237,7 @@
 				>{t('Download {n}', { n: count })}</Button
 			>
 		{:else}
-			<Button variant="primary" disabled={!info || busy} onclick={download}
+			<Button variant="primary" disabled={!info || busy || !!clipProblem} onclick={download}
 				>{previous ? t('Download anyway') : t('Download')}</Button
 			>
 		{/if}

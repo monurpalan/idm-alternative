@@ -232,6 +232,8 @@ export const addTask = (request: {
 		dash?: string | null;
 		/** Saved next to the video as `<name>.<language>.vtt`. */
 		subtitles?: { id: string; language: string | null }[];
+		/** Only this part of the video; needs ffmpeg (set up by itself). */
+		clip?: Clip | null;
 		/** A torrent: indices of the files to download, all when null. */
 		torrent?: { files: number[] | null } | null;
 		/** Files out of a ZIP archive (`url`), by name, into a folder named after it. */
@@ -264,6 +266,13 @@ export function isVideoPage(url: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+/** A part of a video, in seconds; `exact` cuts at those frames (re-encoding). */
+export interface Clip {
+	start: number;
+	end: number;
+	exact: boolean;
 }
 
 /** A magnet link, or a `.torrent` file on the web or on disk. */

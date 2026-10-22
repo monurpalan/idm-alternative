@@ -43,7 +43,7 @@ impl Status {
 }
 
 /// A stream download: the task's URL is the video playlist (HLS); this says what goes with it.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, serde::Deserialize)]
 pub struct Stream {
     /// A separate audio playlist, joined with the video.
     pub audio: Option<String>,
@@ -64,6 +64,9 @@ pub struct Stream {
     /// Some files out of a ZIP archive (the task's URL is the archive): which, and where.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archive: Option<ArchiveChoice>,
+    /// Only this part of the video (a page or a stream); needs ffmpeg.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<crate::clip::Clip>,
 }
 
 /// The files picked out of a ZIP archive on the server.

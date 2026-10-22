@@ -30,6 +30,21 @@ pub struct StreamRequest {
     /// Joins the tracks into `output`; without it a single track's segments are joined as
     /// they are (`.ts`), and a separate audio track is an error.
     pub ffmpeg: Option<PathBuf>,
+    /// Only this part of the stream: only the segments it falls in are downloaded, then
+    /// ffmpeg (needed) cuts it out.
+    pub clip: Option<Clip>,
+}
+
+/// A part of a stream to keep, in seconds from its start.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Clip {
+    pub start: f64,
+    pub end: f64,
+    /// Cut at exactly these times, which re-encodes the video; otherwise the cut is copied
+    /// from the keyframe at or before `start` (fast, no quality lost, may begin a moment
+    /// early).
+    #[serde(default)]
+    pub exact: bool,
 }
 
 /// Playlists larger than this are not playlists.
@@ -43,6 +58,8 @@ pub(crate) struct Segment {
     /// `[start, end)` within `url` (`EXT-X-BYTERANGE`).
     pub range: Option<(u64, u64)>,
     pub key: Option<Key>,
+    /// Seconds it plays (`EXTINF`), when known.
+    pub duration: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -161,6 +178,7 @@ pub(crate) fn parse_playlist(url: &str, text: &str) -> Result<Playlist> {
     let mut last_end: HashMap<String, u64> = HashMap::new();
     let mut ended = false;
     let mut in_segment = false;
+    let mut duration: Option<f64> = None;
     for line in &lines {
         if let Some(n) = line.strip_prefix("#EXT-X-MEDIA-SEQUENCE:") {
             sequence = n.trim().parse().unwrap_or(0);
@@ -185,13 +203,19 @@ pub(crate) fn parse_playlist(url: &str, text: &str) -> Result<Playlist> {
                 url: resolve(url, uri),
                 range,
                 key: None,
+                duration: None,
             });
         } else if let Some(r) = line.strip_prefix("#EXT-X-BYTERANGE:") {
             // (offset, length); an offset of MAX means "where the previous range of this
             // URI ended", resolved once the URI is known.
             range = parse_range_spec(r).map(|(len, off)| (off.unwrap_or(u64::MAX), len));
-        } else if line.starts_with("#EXTINF:") {
+        } else if let Some(info) = line.strip_prefix("#EXTINF:") {
             in_segment = true;
+            duration = info
+                .split(',')
+                .next()
+                .and_then(|d| d.trim().parse::<f64>().ok())
+                .filter(|d| d.is_finite() && *d >= 0.0);
         } else if *line == "#EXT-X-ENDLIST" {
             ended = true;
         } else if !line.starts_with('#') && in_segment {
@@ -216,6 +240,7 @@ pub(crate) fn parse_playlist(url: &str, text: &str) -> Result<Playlist> {
                 url: seg_url,
                 range: byte_range,
                 key: k,
+                duration: duration.take(),
             });
             sequence += 1;
             in_segment = false;
@@ -381,7 +406,15 @@ impl Run {
 }
 
 /// One track's files in order: the init segment (if any), then the media segments.
-fn track_files(dir: &Path, track: &str, playlist: &MediaPlaylist) -> Vec<(Segment, PathBuf)> {
+/// The segment files of a track, the init segment first; with `clip`, only the segments the
+/// clip falls in (named by their place in the whole track, so a resumed clip finds them).
+fn track_files(
+    dir: &Path,
+    track: &str,
+    playlist: &MediaPlaylist,
+    clip: Option<Clip>,
+) -> Vec<(Segment, PathBuf)> {
+    let kept = clip.map(|c| window(playlist, c).0);
     playlist
         .init
         .iter()
@@ -391,9 +424,39 @@ fn track_files(dir: &Path, track: &str, playlist: &MediaPlaylist) -> Vec<(Segmen
                 .segments
                 .iter()
                 .enumerate()
+                .filter(|(i, _)| kept.as_ref().is_none_or(|k| k.contains(i)))
                 .map(|(i, s)| (s.clone(), dir.join(format!("{track}-{i:06}.seg")))),
         )
         .collect()
+}
+
+/// The segments `clip` falls in, and when the first of them starts. Without every segment's
+/// length the whole track is kept, starting at 0.
+fn window(playlist: &MediaPlaylist, clip: Clip) -> (Vec<usize>, f64) {
+    let all = || ((0..playlist.segments.len()).collect(), 0.0);
+    let Some(lengths) = playlist
+        .segments
+        .iter()
+        .map(|s| s.duration)
+        .collect::<Option<Vec<f64>>>()
+    else {
+        return all();
+    };
+    let mut kept = Vec::new();
+    let mut first = None;
+    let mut t = 0.0;
+    for (i, d) in lengths.into_iter().enumerate() {
+        if t < clip.end && t + d > clip.start {
+            kept.push(i);
+            first.get_or_insert(t);
+        }
+        t += d;
+    }
+    match first {
+        Some(at) => (kept, at),
+        // The clip is past the end: the last segment, so the cut says so.
+        None => all(),
+    }
 }
 
 /// Downloads an HLS stream to `req.output`. Interrupted, it keeps the finished segments,
@@ -421,6 +484,9 @@ pub async fn download_hls(
             "this stream has separate audio: ffmpeg is needed to join it".into(),
         ));
     }
+    if req.clip.is_some() && req.ffmpeg.is_none() {
+        return Err(Error::State("cutting a clip needs ffmpeg".into()));
+    }
 
     let mut tracks = vec![("video", Source::Segments(video))];
     if let Some(a) = audio {
@@ -431,6 +497,7 @@ pub async fn download_hls(
         &req.output,
         tracks,
         req.ffmpeg.as_deref(),
+        req.clip,
         opts,
         progress,
         cancel,
@@ -452,12 +519,14 @@ pub(crate) enum Source {
 
 /// Downloads the segments of `tracks` into `<output>.shardload-hls/`, joins each track, and puts
 /// the first (video) and the second (audio, if any) into `output`, with ffmpeg when given.
+/// With `clip` (and ffmpeg), only the segments it falls in, and the result cut to it.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn segmented(
     http: Http,
     output: &Path,
     tracks: Vec<(&'static str, Source)>,
     ffmpeg: Option<&Path>,
+    clip: Option<Clip>,
     opts: &Options,
     progress: Option<&watch::Sender<Progress>>,
     cancel: &CancellationToken,
@@ -468,7 +537,7 @@ pub(crate) async fn segmented(
     let mut files = Vec::new();
     for (name, source) in &tracks {
         if let Source::Segments(p) = source {
-            files.extend(track_files(&dir, name, p));
+            files.extend(track_files(&dir, name, p, clip));
         }
     }
     let total = files.len();
@@ -561,16 +630,18 @@ pub(crate) async fn segmented(
         return Err(Error::Cancelled);
     }
 
-    // Join each track, then put them together.
+    // Join each track, then put them together. Each track's joined file starts where its
+    // first segment does, which with a clip is somewhat before the clip.
     let mut joined = Vec::new();
     for (name, source) in &tracks {
         joined.push(match source {
             Source::Segments(p) => {
                 let path = dir.join(format!("{name}.joined"));
-                join(&track_files(&dir, name, p), &path).await?;
-                path
+                join(&track_files(&dir, name, p, clip), &path).await?;
+                let starts_at = clip.map_or(0.0, |c| window(p, c).1);
+                (path, starts_at)
             }
-            Source::Joined(path) => path.clone(),
+            Source::Joined(path) => (path.clone(), 0.0),
         });
     }
     match ffmpeg {
@@ -578,15 +649,9 @@ pub(crate) async fn segmented(
             if let Some(p) = progress {
                 p.send_modify(|p| p.phase = Phase::Verifying);
             }
-            mux(
-                ffmpeg,
-                &joined[0],
-                joined.get(1).map(PathBuf::as_path),
-                output,
-            )
-            .await?;
+            mux(ffmpeg, &joined[0], joined.get(1), output, clip).await?;
         }
-        None => tokio::fs::rename(&joined[0], output).await?,
+        None => tokio::fs::rename(&joined[0].0, output).await?,
     }
     tokio::fs::remove_dir_all(&run.dir).await.ok();
     let size = tokio::fs::metadata(output).await?.len();
@@ -617,20 +682,46 @@ async fn join(files: &[(Segment, PathBuf)], out: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Puts the joined tracks into `out` without re-encoding.
-async fn mux(ffmpeg: &Path, video: &Path, audio: Option<&Path>, out: &Path) -> Result<()> {
+/// Puts the joined tracks into `out`, each given with the time it starts at in the stream:
+/// copied as they are, or with `clip` only that part of them (re-encoded when exact).
+async fn mux(
+    ffmpeg: &Path,
+    video: &(PathBuf, f64),
+    audio: Option<&(PathBuf, f64)>,
+    out: &Path,
+    clip: Option<Clip>,
+) -> Result<()> {
     let mut cmd = tokio::process::Command::new(ffmpeg);
-    cmd.args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
-        .arg(video);
+    cmd.args(["-hide_banner", "-loglevel", "error", "-y"]);
+    let input = |cmd: &mut tokio::process::Command, (path, starts_at): &(PathBuf, f64)| {
+        if let Some(c) = clip {
+            cmd.arg("-ss").arg(seconds((c.start - starts_at).max(0.0)));
+        }
+        cmd.arg("-i").arg(path);
+    };
+    input(&mut cmd, video);
     if let Some(a) = audio {
-        cmd.arg("-i")
-            .arg(a)
-            .args(["-map", "0:v:0?", "-map", "1:a:0?"]);
+        input(&mut cmd, a);
+        cmd.args(["-map", "0:v:0?", "-map", "1:a:0?"]);
     } else {
         cmd.args(["-map", "0"]);
     }
-    // ADTS AAC from MPEG-TS needs its headers rewritten for MP4.
-    cmd.args(["-c", "copy", "-bsf:a", "aac_adtstoasc"]).arg(out);
+    if let Some(c) = clip {
+        cmd.arg("-t").arg(seconds((c.end - c.start).max(0.0)));
+    }
+    match clip {
+        Some(c) if c.exact => {
+            cmd.args([
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-b:a",
+                "192k",
+            ]);
+        }
+        // ADTS AAC from MPEG-TS needs its headers rewritten for MP4.
+        _ => {
+            cmd.args(["-c", "copy", "-bsf:a", "aac_adtstoasc"]);
+        }
+    }
+    cmd.arg(out);
     cmd.stdin(std::process::Stdio::null());
     let output = cmd.output().await?;
     if output.status.success() {
@@ -643,9 +734,68 @@ async fn mux(ffmpeg: &Path, video: &Path, audio: Option<&Path>, out: &Path) -> R
     }
 }
 
+/// `12.345` for ffmpeg.
+fn seconds(s: f64) -> String {
+    format!("{s:.3}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn timed(lengths: &[f64]) -> MediaPlaylist {
+        MediaPlaylist {
+            init: None,
+            segments: lengths
+                .iter()
+                .enumerate()
+                .map(|(i, d)| Segment {
+                    url: format!("s{i}.ts"),
+                    range: None,
+                    key: None,
+                    duration: Some(*d),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn a_clip_keeps_only_the_segments_it_falls_in() {
+        let p = timed(&[4.0; 15]); // 60 s
+        let clip = |start, end| Clip {
+            start,
+            end,
+            exact: false,
+        };
+        assert_eq!(window(&p, clip(10.0, 20.0)), (vec![2, 3, 4], 8.0));
+        assert_eq!(window(&p, clip(8.0, 12.0)), (vec![2], 8.0));
+        assert_eq!(window(&p, clip(0.0, 0.5)), (vec![0], 0.0));
+        assert_eq!(window(&p, clip(58.0, 999.0)), (vec![14], 56.0));
+        // Past the end, or lengths unknown: everything.
+        assert_eq!(window(&p, clip(100.0, 110.0)).0.len(), 15);
+        let mut unknown = timed(&[4.0, 4.0]);
+        unknown.segments[1].duration = None;
+        assert_eq!(window(&unknown, clip(5.0, 6.0)), (vec![0, 1], 0.0));
+        let files = track_files(Path::new("d"), "video", &p, Some(clip(10.0, 20.0)));
+        let names: Vec<String> = files.iter().map(|(_, f)| f.display().to_string()).collect();
+        assert_eq!(
+            names,
+            [
+                Path::new("d")
+                    .join("video-000002.seg")
+                    .display()
+                    .to_string(),
+                Path::new("d")
+                    .join("video-000003.seg")
+                    .display()
+                    .to_string(),
+                Path::new("d")
+                    .join("video-000004.seg")
+                    .display()
+                    .to_string(),
+            ]
+        );
+    }
 
     #[test]
     fn master_picks_the_best_variant_and_its_audio() {

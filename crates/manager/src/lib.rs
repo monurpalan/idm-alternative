@@ -11,6 +11,7 @@
 //!   state files.
 
 pub mod batch;
+pub mod clip;
 mod db;
 pub mod folder;
 pub mod grabber;
@@ -61,6 +62,9 @@ pub enum Error {
     /// A rename or move that cannot be done, and why.
     #[error("{0}")]
     CannotMove(String),
+    /// A clip whose times cannot be used.
+    #[error("{0}")]
+    BadClip(String),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -270,8 +274,20 @@ fn subtitle_path(video: &Path, label: &str, ext: &str) -> PathBuf {
 /// format that merges two, or a stream with its own audio.
 fn joins_tracks(stream: &Stream) -> bool {
     match &stream.ytdlp {
-        Some(format) => ytdlp::merges(format),
-        None => stream.audio.is_some() && stream.torrent.is_none() && stream.archive.is_none(),
+        Some(format) => ytdlp::merges(format) || stream.clip.is_some(),
+        None => {
+            (stream.audio.is_some() || stream.clip.is_some())
+                && stream.torrent.is_none()
+                && stream.archive.is_none()
+        }
+    }
+}
+
+/// `stem` with the clip's range after it: `film (1.05-2.30)`.
+fn clip_stem(stem: &str, stream: &Stream) -> String {
+    match &stream.clip {
+        Some(c) => format!("{stem}{}", clip::label(c)),
+        None => stem.to_owned(),
     }
 }
 
@@ -581,6 +597,9 @@ impl Manager {
         }
         if let Some(c) = &new.checksum {
             c.parse::<Checksum>().map_err(Error::BadChecksum)?;
+        }
+        if let Some(c) = new.stream.as_ref().and_then(|s| s.clip.as_ref()) {
+            clip::check(c, None).map_err(Error::BadClip)?;
         }
         let name = new.name.as_deref().map(shardload_engine::name::sanitize);
         // A guess from the URL until the server names the file.
@@ -1481,7 +1500,7 @@ impl Inner {
                     .clone()
                     .or_else(|| shardload_engine::name::from_url(&task.url))
                     .unwrap_or_else(|| "video".to_owned());
-                let stem = shardload_engine::name::split_extension(&base).0.to_owned();
+                let stem = clip_stem(shardload_engine::name::split_extension(&base).0, &stream);
                 let ext = if ffmpeg.is_some() || stream.dash.is_some() {
                     "mp4"
                 } else {
@@ -1508,7 +1527,12 @@ impl Inner {
                 path
             }
         };
-        let subtitles = stream.subtitles.clone();
+        // A clip's subtitles would not match its times.
+        let subtitles = match stream.clip {
+            Some(_) => Vec::new(),
+            None => stream.subtitles.clone(),
+        };
+        let clip = stream.clip;
         let is_dash = stream.dash.is_some();
         let video_path = path.clone();
         let (tx, rx) = watch::channel(Progress::default());
@@ -1522,6 +1546,7 @@ impl Inner {
                     output: path,
                     headers: task.headers.clone(),
                     ffmpeg,
+                    clip,
                 };
                 shardload_engine::download_dash(&req, &opts, Some(&tx), cancel).await
             }
@@ -1532,6 +1557,7 @@ impl Inner {
                     output: path,
                     headers: task.headers.clone(),
                     ffmpeg,
+                    clip,
                 };
                 shardload_engine::download_hls(&req, &opts, Some(&tx), cancel).await
             }
@@ -1790,7 +1816,10 @@ impl Inner {
             None => {
                 std::fs::create_dir_all(&task.dir).map_err(shardload_engine::Error::from)?;
                 let stem = task.name.clone().unwrap_or_else(|| "video".to_owned());
-                let stem = shardload_engine::name::split_extension(&stem).0.to_owned();
+                let stem = match &task.stream {
+                    Some(s) => clip_stem(shardload_engine::name::split_extension(&stem).0, s),
+                    None => shardload_engine::name::split_extension(&stem).0.to_owned(),
+                };
                 let name = shardload_engine::name::sanitize(&format!("{stem}.mp4"));
                 let _one_at_a_time = self.naming.lock().await;
                 let taken: std::collections::HashSet<PathBuf> =
@@ -1815,7 +1844,18 @@ impl Inner {
         let stem = path.with_extension("");
         let (tx, rx) = watch::channel(Progress::default());
         let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
-        let result = ytdlp::run(tools, &task.url, format, &stem, &task.headers, &tx, cancel).await;
+        let clip = task.stream.as_ref().and_then(|s| s.clip);
+        let result = ytdlp::run(
+            tools,
+            &task.url,
+            format,
+            clip.as_ref(),
+            &stem,
+            &task.headers,
+            &tx,
+            cancel,
+        )
+        .await;
         drop(tx);
         reporter.await.ok();
         let file = match result {
@@ -2042,7 +2082,13 @@ impl Inner {
 
         if let Some(mut format) = page_format {
             let ytdlp = ytdlp.expect("checked above");
-            let fallback = no_ffmpeg.filter(|_| ytdlp::merges(&format));
+            let fallback = no_ffmpeg.clone().filter(|_| ytdlp::merges(&format));
+            if let (Some(why), Some(_)) = (&no_ffmpeg, task.stream.as_ref().and_then(|s| s.clip)) {
+                return Err(shardload_engine::Error::State(format!(
+                    "cutting a clip needs ffmpeg, which could not be set up: {why}"
+                ))
+                .into());
+            }
             if let Some(why) = &fallback {
                 // Never two files (a silent video and its sound): one format with both.
                 format = ytdlp::single_file(&format);

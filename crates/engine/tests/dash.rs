@@ -20,6 +20,7 @@ fn request(manifest: String, video: &str, out: &std::path::Path) -> DashRequest 
         output: out.to_owned(),
         headers: Vec::new(),
         ffmpeg: None,
+        clip: None,
     }
 }
 

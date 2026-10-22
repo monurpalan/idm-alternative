@@ -85,3 +85,17 @@ export function siteFacts(m: {
 	if (m.link_lifetime !== null) facts.push(t('links last about {time}', { time: duration(m.link_lifetime) }));
 	return facts;
 }
+
+/** Seconds from `m:ss`, `h:mm:ss` or plain seconds; null for anything else. Same rules as
+ * the manager's `clip::parse_time`. */
+export function parseTime(text: string): number | null {
+	const parts = text.trim().split(':');
+	if (parts.length > 3 || parts.some((p) => !p.trim())) return null;
+	let seconds = 0;
+	for (const [i, p] of parts.entries()) {
+		const v = Number(p.trim());
+		if (!Number.isFinite(v) || v < 0 || (i > 0 && v >= 60)) return null;
+		seconds = seconds * 60 + v;
+	}
+	return seconds;
+}

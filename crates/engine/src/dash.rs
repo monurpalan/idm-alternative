@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::download::{Options, Outcome, Phase, Progress, Request, http_config};
 use crate::error::{Error, Result};
-use crate::hls::{MediaPlaylist, Segment, Source, segmented};
+use crate::hls::{Clip, MediaPlaylist, Segment, Source, segmented};
 use crate::remote::Http;
 use crate::state::sibling;
 
@@ -26,6 +26,9 @@ pub struct DashRequest {
     pub headers: Vec<(String, String)>,
     /// Puts video and audio together; needed when `audio` is set.
     pub ffmpeg: Option<PathBuf>,
+    /// Only this part: only the segments it falls in are downloaded, then ffmpeg (needed)
+    /// cuts it out. A representation that is one file is downloaded whole first.
+    pub clip: Option<Clip>,
 }
 
 const MAX_MANIFEST: usize = 16 << 20;
@@ -35,6 +38,7 @@ fn segment(p: shardload_media::Piece) -> Segment {
         url: p.url,
         range: p.range,
         key: None,
+        duration: p.duration,
     }
 }
 
@@ -64,6 +68,9 @@ pub async fn download_dash(
             ));
         }
         wanted.push(("audio", track(a)?));
+    }
+    if req.clip.is_some() && req.ffmpeg.is_none() {
+        return Err(Error::State("cutting a clip needs ffmpeg".into()));
     }
 
     let dir = sibling(&req.output, ".shardload-hls");
@@ -113,6 +120,7 @@ pub async fn download_dash(
         &req.output,
         tracks,
         req.ffmpeg.as_deref(),
+        req.clip,
         opts,
         progress,
         cancel,

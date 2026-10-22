@@ -66,6 +66,14 @@ struct AddParams {
     /// audio_only applies to each. Videos downloaded before are skipped unless
     /// allow_duplicate.
     playlist_items: Option<Vec<usize>>,
+    /// A video page (with video_height or audio_only): download only from this time, as
+    /// `m:ss`, `h:mm:ss` or seconds. Needs `clip_end`; refused past the video's length.
+    clip_start: Option<String>,
+    /// Where the clip stops, like `clip_start`. The file name gets the range, e.g.
+    /// `Title (1.05-2.30).mp4`.
+    clip_end: Option<String>,
+    /// Cut at exactly clip_start and clip_end, re-encoding; otherwise at keyframes (faster).
+    exact_cut: Option<bool>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -202,6 +210,9 @@ impl Downloads {
             archive_entries: p.archive_entries,
             allow_duplicate: p.allow_duplicate,
             playlist_items: p.playlist_items,
+            clip_start: p.clip_start,
+            clip_end: p.clip_end,
+            exact_cut: p.exact_cut,
         }))
         .await
     }

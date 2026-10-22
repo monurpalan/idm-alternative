@@ -19,6 +19,7 @@ fn request(url: String, out: &std::path::Path) -> StreamRequest {
         output: out.to_owned(),
         headers: Vec::new(),
         ffmpeg: None,
+        clip: None,
     }
 }
 
@@ -138,21 +139,20 @@ async fn separate_audio_needs_ffmpeg() {
     }
 }
 
-/// Real media: a short clip made by ffmpeg, cut into an HLS stream with separate audio, then
-/// downloaded and put back together. Skipped where ffmpeg is not installed (CI).
-#[tokio::test(flavor = "multi_thread")]
-async fn joins_real_video_and_audio_with_ffmpeg() {
-    use std::process::Command;
-    if Command::new("ffmpeg").arg("-version").output().is_err() {
-        eprintln!("ffmpeg not found: skipped");
-        return;
-    }
-    let dir = workdir("hls-ffmpeg");
-    let src = dir.join("src");
-    std::fs::create_dir_all(&src).expect("dir");
-    // 8 s of test picture and tone; video and audio as separate HLS renditions.
-    let made = Command::new("ffmpeg")
-        .current_dir(&src)
+/// Whether ffmpeg (and ffprobe) can be run; the real-media tests skip without (CI).
+fn have_ffmpeg() -> bool {
+    std::process::Command::new("ffmpeg")
+        .arg("-version")
+        .output()
+        .is_ok()
+}
+
+/// `seconds` of test picture and tone made by ffmpeg into an HLS stream in `src`: video and
+/// audio as separate renditions, a segment (and a keyframe) every 2 s.
+fn make_stream(src: &std::path::Path, seconds: u32) {
+    std::fs::create_dir_all(src).expect("dir");
+    let made = std::process::Command::new("ffmpeg")
+        .current_dir(src)
         .args([
             "-hide_banner",
             "-loglevel",
@@ -161,11 +161,11 @@ async fn joins_real_video_and_audio_with_ffmpeg() {
             "-f",
             "lavfi",
             "-i",
-            "testsrc=duration=8:size=320x180:rate=25",
-            "-f",
-            "lavfi",
-            "-i",
-            "sine=frequency=440:duration=8",
+        ])
+        .arg(format!("testsrc=duration={seconds}:size=320x180:rate=25"))
+        .args(["-f", "lavfi", "-i"])
+        .arg(format!("sine=frequency=440:duration={seconds}"))
+        .args([
             "-map",
             "0:v",
             "-map",
@@ -174,6 +174,8 @@ async fn joins_real_video_and_audio_with_ffmpeg() {
             "libx264",
             "-preset",
             "ultrafast",
+            "-g",
+            "50",
             "-c:a",
             "aac",
             "-f",
@@ -192,16 +194,28 @@ async fn joins_real_video_and_audio_with_ffmpeg() {
         ])
         .status()
         .expect("run ffmpeg");
-    assert!(made.success(), "ffmpeg could not make the clip");
+    assert!(made.success(), "ffmpeg could not make the stream");
+}
 
-    // Serve the folder.
-    let root = src.clone();
+/// Serves the folder; returns its address and the names of the segments asked for.
+async fn serve_folder(
+    root: std::path::PathBuf,
+) -> (
+    std::net::SocketAddr,
+    std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+) {
+    let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = asked.clone();
     let app = axum::Router::new().route(
         "/{file}",
         axum::routing::get(
             move |axum::extract::Path(file): axum::extract::Path<String>| {
                 let root = root.clone();
+                let log = log.clone();
                 async move {
+                    if file.ends_with(".ts") {
+                        log.lock().expect("log").push(file.clone());
+                    }
                     std::fs::read(root.join(file)).map_err(|_| axum::http::StatusCode::NOT_FOUND)
                 }
             },
@@ -212,15 +226,12 @@ async fn joins_real_video_and_audio_with_ffmpeg() {
         .expect("bind");
     let addr = listener.local_addr().expect("addr");
     tokio::spawn(async move { axum::serve(listener, app).await });
+    (addr, asked)
+}
 
-    let out = dir.join("clip.mp4");
-    let req = StreamRequest {
-        ffmpeg: Some("ffmpeg".into()),
-        ..request(format!("http://{addr}/master.m3u8"), &out)
-    };
-    get(&req, &opts(4)).await.expect("download");
-
-    let probe = Command::new("ffprobe")
+/// The streams' kinds and the length of a media file, from ffprobe.
+fn probe(file: &std::path::Path) -> (String, f64) {
+    let probe = std::process::Command::new("ffprobe")
         .args([
             "-v",
             "error",
@@ -229,20 +240,99 @@ async fn joins_real_video_and_audio_with_ffmpeg() {
             "-of",
             "csv=p=0",
         ])
-        .arg(&out)
+        .arg(file)
         .output()
         .expect("ffprobe");
-    let report = String::from_utf8_lossy(&probe.stdout);
-    assert!(
-        report.contains("video") && report.contains("audio"),
-        "{report}"
-    );
-    let seconds: f64 = report
+    let report = String::from_utf8_lossy(&probe.stdout).into_owned();
+    let seconds = report
         .lines()
         .filter_map(|l| l.trim().parse().ok())
         .next()
         .expect("duration");
+    (report, seconds)
+}
+
+/// Real media: a short clip made by ffmpeg, cut into an HLS stream with separate audio, then
+/// downloaded and put back together. Skipped where ffmpeg is not installed (CI).
+#[tokio::test(flavor = "multi_thread")]
+async fn joins_real_video_and_audio_with_ffmpeg() {
+    if !have_ffmpeg() {
+        eprintln!("ffmpeg not found: skipped");
+        return;
+    }
+    let dir = workdir("hls-ffmpeg");
+    let src = dir.join("src");
+    make_stream(&src, 8);
+    let (addr, _) = serve_folder(src).await;
+
+    let out = dir.join("clip.mp4");
+    let req = StreamRequest {
+        ffmpeg: Some("ffmpeg".into()),
+        ..request(format!("http://{addr}/master.m3u8"), &out)
+    };
+    get(&req, &opts(4)).await.expect("download");
+    let (report, seconds) = probe(&out);
+    assert!(
+        report.contains("video") && report.contains("audio"),
+        "{report}"
+    );
     assert!((7.5..=8.6).contains(&seconds), "{seconds} s");
+}
+
+/// A clip of a real stream: only the segments it falls in are fetched, and the file is cut
+/// to it, by copying or, exactly, by re-encoding.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_clip_fetches_only_its_segments_and_is_cut() {
+    if !have_ffmpeg() {
+        eprintln!("ffmpeg not found: skipped");
+        return;
+    }
+    let dir = workdir("hls-clip");
+    let src = dir.join("src");
+    make_stream(&src, 30);
+    let (addr, asked) = serve_folder(src).await;
+
+    for (start, end, exact, segments) in [(10.0, 16.0, false, 3), (11.5, 14.5, true, 2)] {
+        asked.lock().expect("log").clear();
+        let out = dir.join(&format!("clip-{start}.mp4"));
+        let req = StreamRequest {
+            ffmpeg: Some("ffmpeg".into()),
+            clip: Some(shardload_engine::Clip { start, end, exact }),
+            ..request(format!("http://{addr}/master.m3u8"), &out)
+        };
+        get(&req, &opts(4)).await.expect("download");
+        let asked = asked.lock().expect("log").clone();
+        // Video and audio, about `segments` of each of the 15: the audio's segments do not
+        // end exactly where the video's do, so one more of them may touch the clip.
+        assert!(
+            (2 * segments..=2 * segments + 2).contains(&asked.len()),
+            "{asked:?}"
+        );
+        let (report, seconds) = probe(&out);
+        assert!(
+            report.contains("video") && report.contains("audio"),
+            "{report}"
+        );
+        let want = end - start;
+        assert!(
+            (seconds - want).abs() < 0.3,
+            "{start}-{end}: {seconds} s, wanted {want}"
+        );
+    }
+
+    // Without ffmpeg nothing can be cut.
+    let req = StreamRequest {
+        clip: Some(shardload_engine::Clip {
+            start: 1.0,
+            end: 2.0,
+            exact: false,
+        }),
+        ..request(format!("http://{addr}/p0.m3u8"), &dir.join("no.mp4"))
+    };
+    match get(&req, &opts(4)).await {
+        Err(Error::State(m)) => assert!(m.contains("ffmpeg"), "{m}"),
+        other => panic!("{other:?}"),
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
