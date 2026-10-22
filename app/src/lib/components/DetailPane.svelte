@@ -209,7 +209,12 @@
 			</dd>
 			<dt>{t('Speed')}</dt>
 			<dd class="num">{speed(r.speed) || '–'}{r.eta !== null ? ` · ${t('{time} left', { time: duration(r.eta) })}` : ''}</dd>
-			{#if task.error}
+			{#if task.error && task.status === 'done'}
+				<!-- Said about a finished download that went differently than asked, e.g. saved as
+				     one file without ffmpeg: worth knowing, not a failure. -->
+				<dt>{t('Note')}</dt>
+				<dd class="note" title={task.error}>{task.error}</dd>
+			{:else if task.error}
 				<dt>{t('Problem')}</dt>
 				<dd class="error" title={task.error}>{task.error}</dd>
 			{/if}
@@ -352,6 +357,9 @@
 	}
 	.error {
 		color: var(--danger);
+	}
+	.note {
+		color: var(--muted);
 	}
 	.inline {
 		display: grid;

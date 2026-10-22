@@ -27,6 +27,7 @@ export default {
 	Hide: 'Gizle',
 	'Close the details': 'Ayrıntıları kapat',
 	Problem: 'Sorun',
+	Note: 'Not',
 	Warning: 'Uyarı',
 	'A program named like a document: open it only if you trust where it came from':
 		'Belge gibi adlandırılmış bir program: yalnızca kaynağına güveniyorsanız açın',

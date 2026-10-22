@@ -1801,7 +1801,9 @@ impl Inner {
                     if e.contains("Requested format is not available") =>
                 {
                     Err(shardload_engine::Error::State(format!(
-                        "this video only comes as separate video and audio, and ffmpeg, which                          joins them, could not be set up ({why}); start the download again to                          try once more"
+                        "this video only comes as separate video and audio, and ffmpeg, which \
+                         joins them, could not be set up ({why}); start the download again to \
+                         try once more"
                     ))
                     .into())
                 }
