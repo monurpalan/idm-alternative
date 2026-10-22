@@ -5,10 +5,12 @@ import { open as pickFolder } from '@tauri-apps/plugin-dialog';
 import { SvelteSet } from 'svelte/reactivity';
 import { msg } from './i18n.svelte.ts';
 import {
+	listGroups,
 	listTasks,
 	onManagerEvent,
 	relocateTask,
 	type Category,
+	type Group,
 	type Task,
 	type TaskId,
 	type TaskProgress
@@ -131,16 +133,26 @@ class Downloads {
 	 */
 	history = new Map<TaskId, number[]>();
 	selected = new SvelteSet<TaskId>();
+	/** Groups of downloads added together, by id. */
+	groups = $state<Record<number, Group>>({});
+	/** Groups shown opened in the list; the others are folded into one row. */
+	opened = new SvelteSet<number>();
 	loaded = $state(false);
 	error = $state<string | null>(null);
 
 	async reload() {
 		try {
-			this.tasks = await listTasks();
+			const [tasks] = await Promise.all([listTasks(), this.reloadGroups()]);
+			this.tasks = tasks;
 			this.loaded = true;
 		} catch (e) {
 			this.error = String(e);
 		}
+	}
+
+	async reloadGroups() {
+		const groups = await listGroups();
+		this.groups = Object.fromEntries(groups.map((g) => [g.id, g]));
 	}
 
 	/** Starts listening; returns the function that stops it. */
@@ -150,6 +162,8 @@ class Downloads {
 				switch (e.type) {
 					case 'added':
 						if (!this.tasks.some((t) => t.id === e.data.id)) this.tasks.push(e.data);
+						if (e.data.group_id !== null && !this.groups[e.data.group_id])
+							this.reloadGroups().catch(() => {});
 						break;
 					case 'updated': {
 						const i = this.tasks.findIndex((t) => t.id === e.data.id);

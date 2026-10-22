@@ -15,7 +15,9 @@
 		search: ['M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z', 'M20 20l-4-4'],
 		open: ['M14 4h6v6', 'M20 4l-9 9', 'M18 14v6H4V6h6'],
 		'arrow-up': ['M12 19V5', 'M6 11l6-6 6 6'],
-		'arrow-down': ['M12 5v14', 'M18 13l-6 6-6-6']
+		'arrow-down': ['M12 5v14', 'M18 13l-6 6-6-6'],
+		'chevron-right': ['M9 6l6 6-6 6'],
+		'chevron-down': ['M6 9l6 6 6-6']
 	} as const;
 
 	export type IconName = keyof typeof PATHS;

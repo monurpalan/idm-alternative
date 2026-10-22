@@ -60,6 +60,20 @@ struct AddParams {
     /// size) or is already on the list. Without it such a request fails and says what was
     /// found: its id, path, date and whether the file is still there.
     allow_duplicate: Option<bool>,
+    /// A playlist or a channel page: the numbers (from 1) of the videos to download, in
+    /// inspect_video's list. Each becomes a download of its own, in one group, saved into a
+    /// folder named after the list (or after `name`); video_height (1080 when omitted) or
+    /// audio_only applies to each. Videos downloaded before are skipped unless
+    /// allow_duplicate.
+    playlist_items: Option<Vec<usize>>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+struct VideoParams {
+    url: String,
+    /// The page is one video of a playlist (`watch?v=...&list=...`): list the whole
+    /// playlist instead.
+    whole_list: Option<bool>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -187,18 +201,23 @@ impl Downloads {
             torrent_files: p.torrent_files,
             archive_entries: p.archive_entries,
             allow_duplicate: p.allow_duplicate,
+            playlist_items: p.playlist_items,
         }))
         .await
     }
 
     #[tool(
-        description = "What a page of a video site (YouTube, X, TikTok, Instagram, Twitch, ...) offers, read by yt-dlp: title, duration in seconds, the video heights available and whether audio alone is. Use one of the heights as add_download's video_height."
+        description = "What a page of a video site (YouTube, X, TikTok, Instagram, Twitch, ...) offers, read by yt-dlp: title, duration in seconds, the video heights available and whether audio alone is. Use one of the heights as add_download's video_height. A playlist or a channel (YouTube /playlist?list=..., /@name) comes as `playlist` with its videos (url, title, duration, thumbnail; a channel's newest first, at most 1000): pass their numbers from 1 as add_download's playlist_items. `in_playlist` true means the video belongs to a playlist too; whole_list lists it."
     )]
     async fn inspect_video(
         &self,
-        Parameters(p): Parameters<UrlParams>,
+        Parameters(p): Parameters<VideoParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        self.ask(Request::InspectVideo { url: p.url }).await
+        self.ask(Request::InspectVideo {
+            url: p.url,
+            whole_list: p.whole_list,
+        })
+        .await
     }
 
     #[tool(

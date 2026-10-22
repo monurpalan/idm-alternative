@@ -10,7 +10,7 @@ use sqlx::sqlite::{
 
 use crate::Result;
 use crate::sites::SiteMemory;
-use crate::task::{Category, ErrorKind, HistoryEntry, Status, Stream, Task, TaskId};
+use crate::task::{Category, ErrorKind, Group, HistoryEntry, Status, Stream, Task, TaskId};
 
 #[derive(Clone)]
 pub(crate) struct Db {
@@ -31,6 +31,7 @@ pub(crate) struct Insert<'a> {
     pub added_at: i64,
     pub stream: Option<&'a Stream>,
     pub mirrors: &'a [String],
+    pub group: Option<i64>,
 }
 
 impl Db {
@@ -80,8 +81,9 @@ impl Db {
         let headers = store_headers(t.headers)?;
         let id = sqlx::query(
             "INSERT INTO tasks (url, headers, dir, name, status, category, connections,
-                                speed_limit, checksum, added_at, stream, mirrors, queue_pos)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                speed_limit, checksum, added_at, stream, mirrors, group_id,
+                                queue_pos)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                      (SELECT COALESCE(MAX(queue_pos), 0) + 1 FROM tasks))",
         )
         .bind(t.url)
@@ -100,6 +102,7 @@ impl Db {
                 .then(|| serde_json::to_string(t.mirrors))
                 .transpose()?,
         )
+        .bind(t.group)
         .execute(&self.pool)
         .await?
         .last_insert_rowid();
@@ -453,6 +456,37 @@ impl Db {
         Ok(())
     }
 
+    pub(crate) async fn new_group(&self, name: &str, at: i64) -> Result<i64> {
+        Ok(
+            sqlx::query("INSERT INTO groups (name, added_at) VALUES (?, ?)")
+                .bind(name)
+                .bind(at)
+                .execute(&self.pool)
+                .await?
+                .last_insert_rowid(),
+        )
+    }
+
+    /// Groups that still have downloads on the list, newest first.
+    pub(crate) async fn groups(&self) -> Result<Vec<Group>> {
+        let rows = sqlx::query(
+            "SELECT g.id, g.name, g.added_at FROM groups g
+             WHERE EXISTS (SELECT 1 FROM tasks t WHERE t.group_id = g.id)
+             ORDER BY g.added_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|r| {
+                Ok(Group {
+                    id: r.try_get("id")?,
+                    name: r.try_get("name")?,
+                    added_at: r.try_get("added_at")?,
+                })
+            })
+            .collect()
+    }
+
     /// Its history entry stays, no longer tied to the list.
     pub(crate) async fn delete(&self, id: TaskId) -> Result<()> {
         sqlx::query("DELETE FROM tasks WHERE id = ?")
@@ -630,6 +664,7 @@ fn task(r: &SqliteRow) -> Result<Task> {
             .transpose()?
             .unwrap_or_default(),
         final_url: r.try_get("final_url")?,
+        group_id: r.try_get("group_id")?,
     })
 }
 

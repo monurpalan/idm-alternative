@@ -209,6 +209,9 @@ struct AddRequest {
     /// A batch: leave out the files downloaded before or on the list.
     #[serde(default)]
     skip_known: bool,
+    /// One of a group added together.
+    #[serde(default)]
+    group: Option<i64>,
 }
 
 /// An earlier download of what is about to be added: `final_url`, `name` and `size` are
@@ -309,6 +312,7 @@ async fn add_task(app: State<'_, App>, request: AddRequest) -> CmdResult<Task> {
             start: request.start,
             stream: request.stream,
             mirrors: clean_mirrors(request.mirrors),
+            group: request.group,
             ..NewTask::default()
         })
         .await
@@ -368,6 +372,18 @@ async fn add_batch(app: State<'_, App>, request: AddRequest) -> CmdResult<usize>
     }
     remember_login(&app, &request.url, request.login.as_ref()).await?;
     let headers = request_headers(request.headers, request.login.as_ref());
+    // Named after the pattern's file part: `photo[001-100].jpg`.
+    let name = request
+        .url
+        .split(['?', '#'])
+        .next()
+        .and_then(|p| p.rsplit('/').next())
+        .unwrap_or(&request.url)
+        .to_owned();
+    let group = match urls.len() {
+        0 | 1 => None,
+        _ => Some(app.manager.new_group(&name).await.map_err(msg)?.id),
+    };
     for url in &urls {
         app.manager
             .add(NewTask {
@@ -375,6 +391,7 @@ async fn add_batch(app: State<'_, App>, request: AddRequest) -> CmdResult<usize>
                 headers: headers.clone(),
                 dir: request.dir.clone(),
                 start: request.start,
+                group,
                 ..NewTask::default()
             })
             .await
@@ -883,6 +900,7 @@ async fn inspect_page(
     app: State<'_, App>,
     url: String,
     headers: Option<Vec<(String, String)>>,
+    whole_list: Option<bool>,
 ) -> CmdResult<shardload_manager::ytdlp::PageInfo> {
     let ytdlp = tools::installed(&app.data, tools::Tool::Ytdlp)
         .ok_or_else(|| "yt-dlp is not set up".to_owned())?;
@@ -896,8 +914,90 @@ async fn inspect_page(
         &url,
         &headers.unwrap_or_default(),
         &app.data.join("tools").join("scratch"),
+        whole_list.unwrap_or(false),
     )
     .await
+}
+
+/// Videos of a playlist or a channel to add, all at one quality.
+#[derive(Deserialize)]
+struct PlaylistRequest {
+    /// The list's name: the group's, and the folder's the videos go into.
+    title: String,
+    entries: Vec<PlaylistItem>,
+    /// Up to this height; `None` for audio alone.
+    height: Option<u32>,
+    #[serde(default)]
+    headers: Vec<(String, String)>,
+    start: bool,
+}
+
+#[derive(Deserialize, Clone)]
+struct PlaylistItem {
+    url: String,
+    title: Option<String>,
+}
+
+#[tauri::command]
+async fn add_playlist(app: State<'_, App>, request: PlaylistRequest) -> CmdResult<usize> {
+    Ok(add_videos(&app, request).await?.len())
+}
+
+/// Adds each video as a download of its own (through yt-dlp), in one group, into a folder
+/// named after the list inside the video (or, for audio, music) folder.
+async fn add_videos(app: &App, request: PlaylistRequest) -> CmdResult<Vec<Task>> {
+    if tools::installed(&app.data, tools::Tool::Ytdlp).is_none() {
+        return Err("yt-dlp is not set up".into());
+    }
+    let config = app.manager.config();
+    let category = match request.height {
+        Some(_) => shardload_manager::Category::Video,
+        None => shardload_manager::Category::Music,
+    };
+    let base = config
+        .category_dirs
+        .get(&category)
+        .unwrap_or(&config.dir)
+        .clone();
+    let title = shardload_engine::name::sanitize(request.title.trim());
+    let dir = if title.is_empty() {
+        base
+    } else {
+        base.join(&title)
+    };
+    let group = app.manager.new_group(&request.title).await.map_err(msg)?;
+    let mut added = Vec::new();
+    for item in request.entries {
+        let task = app
+            .manager
+            .add(NewTask {
+                url: item.url,
+                headers: request.headers.clone(),
+                dir: Some(dir.clone()),
+                name: item.title.map(|t| format!("{t}.mp4")),
+                start: request.start,
+                stream: Some(shardload_manager::Stream {
+                    ytdlp: Some(shardload_manager::ytdlp::selector(request.height)),
+                    ..Default::default()
+                }),
+                group: Some(group.id),
+                ..NewTask::default()
+            })
+            .await
+            .map_err(msg)?;
+        added.push(task);
+    }
+    Ok(added)
+}
+
+#[tauri::command]
+async fn list_groups(app: State<'_, App>) -> CmdResult<Vec<shardload_manager::Group>> {
+    app.manager.groups().await.map_err(msg)
+}
+
+#[tauri::command]
+async fn new_group(app: State<'_, App>, name: String) -> CmdResult<shardload_manager::Group> {
+    app.manager.new_group(&name).await.map_err(msg)
 }
 
 /// The first program `name` in a folder on PATH.
@@ -1656,6 +1756,15 @@ async fn bridge_reply(
                 Err(e) => Reply::error(e.to_string()),
             }
         }
+        Request::Add(add) if add.playlist_items.is_some() => {
+            match tool_add_playlist(handle, add).await {
+                Ok(data) => Reply {
+                    data: Some(data),
+                    ..Reply::ok()
+                },
+                Err(e) => Reply::error(e),
+            }
+        }
         Request::Add(add) => match tool_add(handle, add).await {
             Ok(t) => Reply {
                 data: Some(task_view(&t, None)),
@@ -1663,9 +1772,9 @@ async fn bridge_reply(
             },
             Err(e) => Reply::error(e),
         },
-        Request::InspectVideo { url } => {
+        Request::InspectVideo { url, whole_list } => {
             let app = handle.state::<App>();
-            match inspect_page(app, url, None).await {
+            match inspect_page(app, url, None, whole_list).await {
                 Ok(info) => Reply {
                     data: serde_json::to_value(info).ok(),
                     ..Reply::ok()
@@ -1849,7 +1958,7 @@ async fn tool_add(handle: &AppHandle, add: shardload_bridge::AddDownload) -> Cmd
         };
         if name.is_none() {
             // The page's title, as the media dialog does.
-            let info = inspect_page(handle.state::<App>(), add.url.clone(), None).await?;
+            let info = inspect_page(handle.state::<App>(), add.url.clone(), None, None).await?;
             name = info.title.map(|t| format!("{t}.mp4"));
         } else if tools::installed(&app.data, tools::Tool::Ytdlp).is_none() {
             return Err("yt-dlp is not set up".into());
@@ -1925,6 +2034,80 @@ async fn tool_add(handle: &AppHandle, add: shardload_bridge::AddDownload) -> Cmd
         })
         .await
         .map_err(msg)
+}
+
+/// Videos of a playlist or a channel added by a local tool: `playlist_items` are their
+/// numbers in inspect_video's list (from 1). Ones downloaded before are left out unless
+/// `allow_duplicate`. Answers `{group, added, skipped}`.
+async fn tool_add_playlist(
+    handle: &AppHandle,
+    add: shardload_bridge::AddDownload,
+) -> CmdResult<serde_json::Value> {
+    let app = handle.state::<App>();
+    let wanted = add.playlist_items.unwrap_or_default();
+    if wanted.is_empty() {
+        return Err("playlist_items is empty".into());
+    }
+    let info = inspect_page(handle.state::<App>(), add.url.clone(), None, Some(true)).await?;
+    let list = info
+        .playlist
+        .ok_or("this page is not a playlist or a channel; leave out playlist_items")?;
+    let mut entries = Vec::new();
+    let mut skipped = Vec::new();
+    for n in wanted {
+        let entry = n
+            .checked_sub(1)
+            .and_then(|i| list.entries.get(i))
+            .ok_or_else(|| {
+                format!(
+                    "the list has {} videos; {n} is not one of them",
+                    list.entries.len()
+                )
+            })?;
+        let known = app
+            .manager
+            .find_previous(&entry.url, None, None, None)
+            .await
+            .map_err(msg)?
+            .is_some();
+        if known && add.allow_duplicate != Some(true) {
+            skipped.push(entry.url.clone());
+        } else {
+            entries.push(PlaylistItem {
+                url: entry.url.clone(),
+                title: entry.title.clone(),
+            });
+        }
+    }
+    let title = add
+        .name
+        .filter(|n| !n.trim().is_empty())
+        .or(list.title)
+        .unwrap_or_else(|| "Playlist".into());
+    let height = match add.audio_only {
+        Some(true) => None,
+        _ => Some(add.video_height.unwrap_or(1080)),
+    };
+    let added = if entries.is_empty() {
+        Vec::new()
+    } else {
+        add_videos(
+            &app,
+            PlaylistRequest {
+                title: title.clone(),
+                entries,
+                height,
+                headers: Vec::new(),
+                start: add.start.unwrap_or(true),
+            },
+        )
+        .await?
+    };
+    Ok(serde_json::json!({
+        "group": title,
+        "added": added.iter().map(|t| task_view(t, None)).collect::<Vec<_>>(),
+        "skipped_downloaded_before": skipped,
+    }))
 }
 
 /// Why a tool's download was not added: what was found, and how to add it anyway.
@@ -2332,6 +2515,9 @@ fn main() {
             set_login,
             batch_preview,
             add_batch,
+            add_playlist,
+            list_groups,
+            new_group,
             find_previous,
             known_links,
             open_previous,

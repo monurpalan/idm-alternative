@@ -20,6 +20,7 @@
 		onCountdown,
 		type WhenDone,
 		installUpdate,
+		isVideoPage,
 		type AppUpdate,
 		onCapturedLinks,
 		onCapturedMedia,
@@ -306,6 +307,21 @@
 		reveal = id;
 	}
 
+	/** A pasted or dropped link: a page of a video site opens its own window (qualities, or a
+	 * playlist's videos), anything else "New download". */
+	function offer(url: string) {
+		if (isVideoPage(url)) {
+			pageMedia = {
+				page: url,
+				title: null,
+				items: [{ url, kind: 'page', size: null, mime: null }],
+				headers: []
+			};
+		} else {
+			adding = { url };
+		}
+	}
+
 	function looksLikeUrl(s: string): boolean {
 		return /^(https?|ftp):\/\/\S+$/i.test(s.trim());
 	}
@@ -343,7 +359,7 @@
 		const text = e.clipboardData?.getData('text/plain') ?? '';
 		if (looksLikeUrl(text)) {
 			e.preventDefault();
-			adding = { url: text.trim() };
+			offer(text.trim());
 		}
 	}
 
@@ -353,7 +369,7 @@
 			e.dataTransfer?.getData('text/uri-list').split('\n').find((l) => l && !l.startsWith('#')) ||
 			e.dataTransfer?.getData('text/plain') ||
 			'';
-		if (looksLikeUrl(text)) adding = { url: text.trim() };
+		if (looksLikeUrl(text)) offer(text.trim());
 	}
 </script>
 

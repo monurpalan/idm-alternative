@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, Icon, Progress } from './ui/index.ts';
-	import type { Task, TaskId } from '../api.ts';
+	import type { Group, Task, TaskId } from '../api.ts';
 	import { downloads, row, type Row, type SortKey } from '../downloads.svelte.ts';
 	import { bytes, duration, percent, speed } from '../format.ts';
 	import { msg, t } from '../i18n.svelte.ts';
@@ -44,6 +44,71 @@
 		return pos;
 	});
 
+	/** A download, or the row of downloads added together (a playlist, a batch), which folds
+	 * them into one until opened. */
+	type ListRow =
+		| { kind: 'task'; task: Task; member: boolean }
+		| { kind: 'group'; group: Group; tasks: Task[]; open: boolean };
+
+	// A group's downloads stay together where its first one is; a group of one is a plain row.
+	const rows = $derived.by(() => {
+		const members = new Map<number, Task[]>();
+		for (const t of tasks) {
+			if (t.group_id === null || !downloads.groups[t.group_id]) continue;
+			const list = members.get(t.group_id) ?? [];
+			list.push(t);
+			members.set(t.group_id, list);
+		}
+		const out: ListRow[] = [];
+		const placed = new Set<number>();
+		for (const t of tasks) {
+			const list = t.group_id === null ? undefined : members.get(t.group_id);
+			if (!list || list.length < 2) {
+				out.push({ kind: 'task', task: t, member: false });
+				continue;
+			}
+			const id = t.group_id!;
+			if (placed.has(id)) continue;
+			placed.add(id);
+			const open = downloads.opened.has(id);
+			out.push({ kind: 'group', group: downloads.groups[id], tasks: list, open });
+			if (open) for (const m of list) out.push({ kind: 'task', task: m, member: true });
+		}
+		return out;
+	});
+
+	/** A group's downloads summed up like one download. */
+	function total(group: Task[]) {
+		const rs = group.map((t) => row(t, downloads.live[t.id]));
+		const known = rs.every((r) => r.size !== null);
+		const size = known ? rs.reduce((s, r) => s + (r.size ?? 0), 0) : null;
+		const received = rs.reduce((s, r) => s + r.received, 0);
+		const speed = rs.reduce((s, r) => s + r.speed, 0);
+		const done = group.filter((t) => t.status === 'done').length;
+		const failed = group.filter((t) => t.status === 'error').length;
+		return {
+			size,
+			received,
+			speed,
+			fraction: size ? Math.min(1, received / size) : done / group.length,
+			eta: size && speed > 0 ? (size - received) / speed : null,
+			done,
+			failed,
+			running: group.some((t) => t.status === 'downloading')
+		};
+	}
+
+	function selectGroup(e: MouseEvent, group: Task[]) {
+		if (!e.ctrlKey && !e.metaKey) downloads.selected.clear();
+		for (const t of group) downloads.selected.add(t.id);
+		anchor = group[0].id;
+	}
+
+	function toggle(id: number) {
+		if (downloads.opened.has(id)) downloads.opened.delete(id);
+		else downloads.opened.add(id);
+	}
+
 	// Only the rows in view (and a few around them) are in the page; empty rows above and below
 	// keep the scroll height. A long list otherwise costs the WebView ~0.1 MB per row.
 	const OVERSCAN = 8;
@@ -54,9 +119,9 @@
 	let rowHeight = $state(40);
 	const first = $derived(Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN));
 	const last = $derived(
-		Math.min(tasks.length, Math.ceil((scrollTop + viewHeight) / rowHeight) + OVERSCAN)
+		Math.min(rows.length, Math.ceil((scrollTop + viewHeight) / rowHeight) + OVERSCAN)
 	);
-	const shown = $derived(tasks.slice(first, last));
+	const shown = $derived(rows.slice(first, last));
 
 	$effect(() => {
 		void shown;
@@ -66,7 +131,13 @@
 
 	$effect(() => {
 		if (reveal === null) return;
-		const i = tasks.findIndex((t) => t.id === reveal);
+		const task = tasks.find((t) => t.id === reveal);
+		// In a folded group: opened first, and this runs again.
+		if (task?.group_id != null && rows.some((r) => r.kind === 'group' && r.group.id === task.group_id && !r.open)) {
+			downloads.opened.add(task.group_id);
+			return;
+		}
+		const i = rows.findIndex((r) => r.kind === 'task' && r.task.id === reveal);
 		if (i < 0) return;
 		const top = i * rowHeight;
 		if (top < scroller.scrollTop || top + rowHeight > scroller.scrollTop + viewHeight) {
@@ -194,10 +265,64 @@
 			{#if first > 0}
 				<tr class="pad" style:height="{first * rowHeight}px"><td colspan="7"></td></tr>
 			{/if}
-			{#each shown as t (t.id)}
+			{#each shown as item (item.kind === 'task' ? `t${item.task.id}` : `g${item.group.id}`)}
+				{#if item.kind === 'group'}
+					{@const g = total(item.tasks)}
+					<tr
+						class="group"
+						class:s-downloading={g.running}
+						class:s-done={g.done === item.tasks.length}
+						class:s-error={g.failed > 0 && !g.running}
+						class:selected={item.tasks.every((t) => downloads.selected.has(t.id))}
+						onclick={(e) => selectGroup(e, item.tasks)}
+						ondblclick={() => toggle(item.group.id)}
+						oncontextmenu={(e) => {
+							if (!item.tasks.every((t) => downloads.selected.has(t.id))) selectGroup(e, item.tasks);
+							e.preventDefault();
+							oncontext(e, item.tasks[0]);
+						}}
+					>
+						<td class="numeric">
+							<Button
+								variant="ghost"
+								icon={item.open ? 'chevron-down' : 'chevron-right'}
+								label={item.open ? t('Fold the group') : t('Show the group')}
+								onclick={(e) => {
+									e.stopPropagation();
+									toggle(item.group.id);
+								}}
+							/>
+						</td>
+						<td class="name" title={item.group.name}>
+							<span class="kind">{item.tasks.length}</span>
+							{item.group.name}
+						</td>
+						<td class="numeric">{bytes(g.size)}</td>
+						<td>
+							<Progress
+								value={g.fraction}
+								state={g.done === item.tasks.length
+									? 'done'
+									: g.failed > 0 && !g.running
+										? 'error'
+										: g.running
+											? 'running'
+											: 'stopped'}
+								text={percent(g.fraction)}
+							/>
+						</td>
+						<td class="numeric">{speed(g.speed)}</td>
+						<td class="numeric">{duration(g.eta)}</td>
+						<td class="status">
+							<span class="marker"></span>{t('{done} of {n} done', { done: g.done, n: item.tasks.length })}
+						</td>
+					</tr>
+				{:else}
+				{@const t = item.task}
 				{@const r = row(t, downloads.live[t.id])}
 				<tr
 					class:selected={downloads.selected.has(t.id)}
+					class:member={item.member}
 					class="s-{t.status}"
 					onclick={(e) => select(e, t)}
 					ondblclick={() => onopen(t)}
@@ -228,9 +353,10 @@
 						<span class="marker"></span>{statusText(r)}
 					</td>
 				</tr>
+				{/if}
 			{/each}
-			{#if last < tasks.length}
-				<tr class="pad" style:height="{(tasks.length - last) * rowHeight}px"><td colspan="7"></td></tr>
+			{#if last < rows.length}
+				<tr class="pad" style:height="{(rows.length - last) * rowHeight}px"><td colspan="7"></td></tr>
 			{/if}
 		</tbody>
 	</table>
@@ -318,6 +444,13 @@
 	}
 	.name {
 		font-weight: 500;
+	}
+	/* A download inside an opened group sits under the group's row. */
+	.member .name {
+		padding-left: var(--space-6);
+	}
+	.group .name {
+		font-weight: 600;
 	}
 	.kind {
 		display: inline-block;

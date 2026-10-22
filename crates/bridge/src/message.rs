@@ -55,6 +55,9 @@ pub enum Request {
     /// What a page of a video site offers (read by yt-dlp): title, duration, heights.
     InspectVideo {
         url: String,
+        /// A video of a playlist (`watch?v=…&list=…`) is read as the whole playlist.
+        #[serde(default)]
+        whole_list: Option<bool>,
     },
     /// A torrent's name and files, for choosing `torrent_files`.
     InspectTorrent {
@@ -178,6 +181,9 @@ pub struct AddDownload {
     /// Add it even when it was downloaded before or is on the list already; otherwise such
     /// a request is refused with what was found.
     pub allow_duplicate: Option<bool>,
+    /// A playlist or a channel (`url`): the numbers, from 1, of the videos to download in
+    /// `inspect_video`'s list; each becomes a download of its own, in one group.
+    pub playlist_items: Option<Vec<usize>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

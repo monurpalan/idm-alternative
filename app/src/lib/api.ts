@@ -33,7 +33,20 @@ export interface Task {
 	queue_pos: number;
 	/** Where `url` led after redirects. */
 	final_url: string | null;
+	/** Added together with others: a playlist, a batch, the files of a site. */
+	group_id: number | null;
 }
+
+/** Downloads added together; the list folds them into one row. */
+export interface Group {
+	id: number;
+	name: string;
+	added_at: number;
+}
+
+export const listGroups = () => invoke<Group[]>('list_groups');
+/** A group for downloads about to be added together (give its id to `addTask`). */
+export const newGroup = (name: string) => invoke<Group>('new_group', { name });
 
 export interface TaskProgress {
 	id: TaskId;
@@ -226,7 +239,32 @@ export const addTask = (request: {
 	} | null;
 	/** Other addresses of the same file. */
 	mirrors?: string[];
+	/** One of a group added together (see `newGroup`). */
+	group?: number | null;
 }) => invoke<Task>('add_task', { request });
+
+/** Video sites whose pages yt-dlp reads (a pasted link opens the page window). */
+const VIDEO_SITES = [
+	'youtube.com',
+	'youtu.be',
+	'vimeo.com',
+	'dailymotion.com',
+	'twitch.tv',
+	'tiktok.com',
+	'instagram.com',
+	'x.com',
+	'twitter.com'
+];
+
+/** A page of a video site rather than a file: a watch page, a playlist, a channel… */
+export function isVideoPage(url: string): boolean {
+	try {
+		const host = new URL(url.trim()).hostname.replace(/^(www|m|music)\./, '');
+		return VIDEO_SITES.some((s) => host === s || host.endsWith(`.${s}`));
+	} catch {
+		return false;
+	}
+}
 
 /** A magnet link, or a `.torrent` file on the web or on disk. */
 export const isTorrent = (url: string) => {
@@ -290,10 +328,32 @@ export interface PageInfo {
 	duration: number | null;
 	heights: number[];
 	audio_only: boolean;
+	/** A playlist or a channel: its videos. */
+	playlist: Playlist | null;
+	/** A video of a playlist: reading it with `wholeList` gives the playlist. */
+	in_playlist: boolean;
 }
 
-export const inspectPage = (url: string, headers: Headers) =>
-	invoke<PageInfo>('inspect_page', { url, headers });
+export interface Playlist {
+	title: string | null;
+	uploader: string | null;
+	/** A channel's videos, newest first. */
+	channel: boolean;
+	entries: { url: string; title: string | null; duration: number | null; thumbnail: string | null }[];
+}
+
+export const inspectPage = (url: string, headers: Headers, wholeList = false) =>
+	invoke<PageInfo>('inspect_page', { url, headers, wholeList });
+
+/** Adds videos of a playlist, each a download of its own, in one group and into a folder
+ * named after the list; `height` null for audio alone. Returns how many. */
+export const addPlaylist = (request: {
+	title: string;
+	entries: { url: string; title: string | null }[];
+	height: number | null;
+	headers: Headers;
+	start: boolean;
+}) => invoke<number>('add_playlist', { request });
 
 /** yt-dlp's format selector for a choice; the same as `shardload_manager::ytdlp::selector`. */
 export function ytdlpSelector(height: number | null): string {

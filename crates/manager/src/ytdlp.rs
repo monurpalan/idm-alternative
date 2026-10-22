@@ -28,7 +28,38 @@ pub struct PageInfo {
     pub heights: Vec<u32>,
     /// A format with audio alone exists.
     pub audio_only: bool,
+    /// The page is a playlist or a channel: its videos, without their formats (each is read
+    /// when its download starts).
+    pub playlist: Option<Playlist>,
+    /// The page is one video of a playlist (`watch?v=…&list=…`): reading it again with the
+    /// whole list gives the playlist.
+    pub in_playlist: bool,
 }
+
+/// A playlist or a channel's videos (a channel's newest first).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Playlist {
+    pub title: Option<String>,
+    /// Who made it: the channel's or the playlist owner's name.
+    pub uploader: Option<String>,
+    /// A channel's videos rather than a playlist.
+    pub channel: bool,
+    pub entries: Vec<PlaylistEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct PlaylistEntry {
+    /// The video's own page.
+    pub url: String,
+    pub title: Option<String>,
+    /// Seconds.
+    pub duration: Option<f64>,
+    /// A small picture of it, when the site gives one.
+    pub thumbnail: Option<String>,
+}
+
+/// At most this many videos are listed from a playlist or a channel.
+pub const MAX_ENTRIES: usize = 1000;
 
 /// The yt-dlp format selector for a choice: a height (best video up to it with the best
 /// audio), or audio alone.
@@ -113,20 +144,33 @@ pub(crate) fn cookie_file(cookie_header: &str, url: &str) -> Option<String> {
     Some(out)
 }
 
-/// The arguments common to reading and downloading: tools, cookies and headers.
+/// The arguments common to reading and downloading: tools, cookies and headers. A page that
+/// is both a video and a playlist is taken as the video, unless `whole_list`.
 fn base_args(
     tools: &Tools,
     url: &str,
     headers: &[(String, String)],
     cookies: Option<&Path>,
 ) -> Vec<String> {
+    list_args(tools, url, headers, cookies, false)
+}
+
+fn list_args(
+    tools: &Tools,
+    url: &str,
+    headers: &[(String, String)],
+    cookies: Option<&Path>,
+    whole_list: bool,
+) -> Vec<String> {
     let mut args = vec![
         "--encoding".to_owned(),
         "utf-8".to_owned(),
-        "--no-playlist".to_owned(),
         "--no-warnings".to_owned(),
         "--ignore-config".to_owned(),
     ];
+    if !whole_list {
+        args.push("--no-playlist".into());
+    }
     if let Some(deno) = &tools.deno {
         args.push("--js-runtimes".into());
         args.push(format!("deno:{}", deno.display()));
@@ -197,18 +241,62 @@ fn error_text(stderr: &[u8]) -> String {
         .to_owned()
 }
 
-/// What `url` offers, read with `yt-dlp -J`. `scratch` is a folder for the cookie file.
+/// A YouTube channel's own page (`/@name`, `/channel/…`, `/c/…`, `/user/…`) lists its tabs;
+/// its videos are on `/videos`, newest first.
+fn channel_videos(url: &str) -> Option<String> {
+    let mut u = url::Url::parse(url).ok()?;
+    let host = u
+        .host_str()?
+        .trim_start_matches("www.")
+        .trim_start_matches("m.");
+    if host != "youtube.com" {
+        return None;
+    }
+    let parts: Vec<String> = u
+        .path_segments()?
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect();
+    let root = match parts.as_slice() {
+        [handle] => handle.starts_with('@'),
+        [kind, _] => matches!(kind.as_str(), "channel" | "c" | "user"),
+        _ => false,
+    };
+    if !root {
+        return None;
+    }
+    u.set_path(&format!("/{}/videos", parts.join("/")));
+    Some(u.to_string())
+}
+
+/// What `url` offers, read with `yt-dlp -J`: a video's qualities, or a playlist's or a
+/// channel's videos (listed flat, without reading each). With `whole_list`, a video of a
+/// playlist is read as its playlist. `scratch` is a folder for the cookie file.
 pub async fn inspect(
     tools: &Tools,
     url: &str,
     headers: &[(String, String)],
     scratch: &Path,
+    whole_list: bool,
 ) -> Result<PageInfo, String> {
     std::fs::create_dir_all(scratch).ok();
+    let channel = channel_videos(url);
+    let url = channel.as_deref().unwrap_or(url);
     let cookie_path = scratch.join(format!("cookies-{}.txt", std::process::id()));
     let cookies = write_cookies(&cookie_path, url, headers);
-    let mut args = vec!["-J".to_owned()];
-    args.extend(base_args(tools, url, headers, cookies.as_deref()));
+    let mut args = vec![
+        "-J".to_owned(),
+        "--flat-playlist".to_owned(),
+        "-I".to_owned(),
+        format!(":{MAX_ENTRIES}"),
+    ];
+    args.extend(list_args(
+        tools,
+        url,
+        headers,
+        cookies.as_deref(),
+        whole_list,
+    ));
     let out = command(&tools.ytdlp).args(&args).output().await;
     if let Some(c) = cookies {
         std::fs::remove_file(c).ok();
@@ -219,7 +307,78 @@ pub async fn inspect(
     }
     let v: serde_json::Value = serde_json::from_slice(&out.stdout)
         .map_err(|e| format!("yt-dlp answered something unexpected: {e}"))?;
-    Ok(page_info(&v))
+    let mut info = page_info(&v);
+    if let Some(p) = info.playlist.as_mut() {
+        p.channel |= channel.is_some();
+    }
+    info.in_playlist = info.playlist.is_none() && !whole_list && in_playlist(url);
+    Ok(info)
+}
+
+/// A video page that names a playlist too (`watch?v=…&list=…`).
+fn in_playlist(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|u| {
+        let keys: Vec<String> = u.query_pairs().map(|(k, _)| k.into_owned()).collect();
+        keys.iter().any(|k| k == "list") && keys.iter().any(|k| k == "v")
+    })
+}
+
+/// A playlist's videos, from yt-dlp's flat listing.
+fn playlist(v: &serde_json::Value) -> Option<Playlist> {
+    if v["_type"].as_str() != Some("playlist") {
+        return None;
+    }
+    let entries = v["entries"]
+        .as_array()
+        .map(|e| e.iter().filter_map(entry).collect())
+        .unwrap_or_default();
+    let uploader = v["uploader"]
+        .as_str()
+        .or_else(|| v["channel"].as_str())
+        .map(str::to_owned);
+    Some(Playlist {
+        title: v["title"].as_str().map(str::to_owned),
+        uploader,
+        // A channel's list is the channel itself.
+        channel: v["channel_id"].as_str().is_some() && v["channel_id"] == v["id"],
+        entries,
+    })
+}
+
+fn entry(e: &serde_json::Value) -> Option<PlaylistEntry> {
+    // A channel's own page lists its tabs as playlists: not videos.
+    if e["_type"].as_str() == Some("playlist") {
+        return None;
+    }
+    let url = e["url"]
+        .as_str()
+        .or_else(|| e["webpage_url"].as_str())
+        .filter(|u| u.starts_with("http"))
+        .map(str::to_owned)
+        .or_else(|| {
+            // YouTube's flat entries may give only the id.
+            let id = e["id"].as_str()?;
+            (e["ie_key"].as_str() == Some("Youtube"))
+                .then(|| format!("https://www.youtube.com/watch?v={id}"))
+        })?;
+    let thumbnail = e["thumbnails"]
+        .as_array()
+        .and_then(|t| {
+            // The smallest that is not tiny: the list is for choosing, not watching.
+            t.iter()
+                .filter(|t| t["width"].as_u64().is_none_or(|w| w >= 120))
+                .min_by_key(|t| t["width"].as_u64().unwrap_or(u64::MAX))
+                .or_else(|| t.last())
+        })
+        .and_then(|t| t["url"].as_str())
+        .or_else(|| e["thumbnail"].as_str())
+        .map(str::to_owned);
+    Some(PlaylistEntry {
+        url,
+        title: e["title"].as_str().map(str::to_owned),
+        duration: e["duration"].as_f64(),
+        thumbnail,
+    })
 }
 
 fn page_info(v: &serde_json::Value) -> PageInfo {
@@ -234,15 +393,26 @@ fn page_info(v: &serde_json::Value) -> PageInfo {
     let audio_only = formats.iter().any(|f| {
         f["vcodec"].as_str() == Some("none") && f["acodec"].as_str().is_some_and(|c| c != "none")
     });
+    let playlist = playlist(v);
     PageInfo {
         title: v["title"]
             .as_str()
             .map(|t| tidy_title(t, v["description"].as_str())),
         duration: v["duration"].as_f64(),
-        heights,
-        audio_only,
+        // A list's videos are read one by one as they download: any height may come.
+        heights: if playlist.is_some() {
+            LIST_HEIGHTS.to_vec()
+        } else {
+            heights
+        },
+        audio_only: audio_only || playlist.is_some(),
+        playlist,
+        in_playlist: false,
     }
 }
+
+/// Heights offered for a whole list; each video gets the best it has up to the one chosen.
+const LIST_HEIGHTS: [u32; 6] = [2160, 1440, 1080, 720, 480, 360];
 
 /// One progress line from our `--progress-template`: downloaded, total, estimated total,
 /// speed (`NA` when unknown).
@@ -506,8 +676,90 @@ mod tests {
                 title: Some("Klip".into()),
                 duration: Some(12.5),
                 heights: vec![1080, 360],
-                audio_only: true
+                audio_only: true,
+                playlist: None,
+                in_playlist: false,
             }
         );
+    }
+
+    /// Trimmed from `yt-dlp -J --flat-playlist` on a YouTube playlist (2026-10).
+    const PLAYLIST: &str = r#"{
+        "_type": "playlist", "id": "PLx", "title": "Lectures", "uploader": "MIT",
+        "channel_id": "UCabc", "playlist_count": 3,
+        "entries": [
+            {"_type": "url", "ie_key": "Youtube", "id": "a1", "url": "https://www.youtube.com/watch?v=a1",
+             "title": "Lecture 1", "duration": 3021.0,
+             "thumbnails": [{"url": "https://i.ytimg.com/vi/a1/hq1.jpg", "width": 168},
+                            {"url": "https://i.ytimg.com/vi/a1/hq2.jpg", "width": 336},
+                            {"url": "https://i.ytimg.com/vi/a1/tiny.jpg", "width": 64}]},
+            {"_type": "url", "ie_key": "Youtube", "id": "a2", "title": "[Private video]",
+             "duration": null, "thumbnails": []},
+            {"_type": "url", "ie_key": "Generic", "id": "x", "title": "No address"}
+        ]
+    }"#;
+
+    /// A channel's videos tab, as listed: the channel is its own uploader.
+    const CHANNEL: &str = r#"{
+        "_type": "playlist", "id": "UCabc", "title": "MIT - Videos", "channel": "MIT",
+        "channel_id": "UCabc",
+        "entries": [
+            {"_type": "url", "ie_key": "Youtube", "id": "n1", "url": "https://www.youtube.com/watch?v=n1",
+             "title": "Newest", "duration": 61, "thumbnail": "https://i.ytimg.com/vi/n1/default.jpg"},
+            {"_type": "playlist", "id": "UCabc", "title": "MIT - Shorts", "url": "https://www.youtube.com/@mit/shorts"}
+        ]
+    }"#;
+
+    #[test]
+    fn playlists_from_json() {
+        let v: serde_json::Value = serde_json::from_str(PLAYLIST).expect("json");
+        let info = page_info(&v);
+        let p = info.playlist.expect("a playlist");
+        assert_eq!(p.title.as_deref(), Some("Lectures"));
+        assert_eq!(p.uploader.as_deref(), Some("MIT"));
+        assert!(!p.channel);
+        assert_eq!(p.entries.len(), 2, "the one without an address is left out");
+        assert_eq!(p.entries[0].url, "https://www.youtube.com/watch?v=a1");
+        assert_eq!(p.entries[0].duration, Some(3021.0));
+        assert_eq!(
+            p.entries[0].thumbnail.as_deref(),
+            Some("https://i.ytimg.com/vi/a1/hq1.jpg")
+        );
+        assert_eq!(p.entries[1].url, "https://www.youtube.com/watch?v=a2");
+        assert_eq!(p.entries[1].thumbnail, None);
+        assert!(info.audio_only);
+        assert_eq!(info.heights[0], 2160);
+
+        let v: serde_json::Value = serde_json::from_str(CHANNEL).expect("json");
+        let p = page_info(&v).playlist.expect("a channel");
+        assert!(p.channel);
+        assert_eq!(p.uploader.as_deref(), Some("MIT"));
+        assert_eq!(p.entries.len(), 1, "tabs are not videos");
+        assert_eq!(
+            p.entries[0].thumbnail.as_deref(),
+            Some("https://i.ytimg.com/vi/n1/default.jpg")
+        );
+    }
+
+    #[test]
+    fn channel_and_playlist_addresses() {
+        for (url, want) in [
+            (
+                "https://www.youtube.com/@mit",
+                Some("https://www.youtube.com/@mit/videos"),
+            ),
+            (
+                "https://youtube.com/channel/UCabc",
+                Some("https://youtube.com/channel/UCabc/videos"),
+            ),
+            ("https://www.youtube.com/@mit/shorts", None),
+            ("https://www.youtube.com/watch?v=a1", None),
+            ("https://vimeo.com/@someone", None),
+        ] {
+            assert_eq!(channel_videos(url).as_deref(), want, "{url}");
+        }
+        assert!(in_playlist("https://www.youtube.com/watch?v=a1&list=PLx"));
+        assert!(!in_playlist("https://www.youtube.com/playlist?list=PLx"));
+        assert!(!in_playlist("https://www.youtube.com/watch?v=a1"));
     }
 }

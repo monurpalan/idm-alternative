@@ -110,5 +110,22 @@ export default {
 		'Aynı ad ve boyutta bir dosya {date} tarihinde indirildi.',
 	'You downloaded this on {date}.': 'Bunu {date} tarihinde indirdiniz.',
 	'The file is no longer where it was saved.': 'Dosya artık kaydedildiği yerde değil.',
-	'Go to it': 'Ona git'
+	'Go to it': 'Ona git',
+
+	// Playlists and channels
+	Links: 'Bağlantılar',
+	Playlist: 'Oynatma listesi',
+	'Channel, newest first': 'Kanal, en yeniler önce',
+	'{n} videos': '{n} video',
+	'Filter by name': 'Ada göre süz',
+	'How many from the top': 'Baştan kaç tane',
+	Newest: 'En yeni',
+	First: 'İlk',
+	'downloaded before': 'daha önce indirildi',
+	'No videos match.': 'Eşleşen video yok.',
+	'Quality, for each': 'Kalite, her biri için',
+	'Folder name': 'Klasör adı',
+	'Name of the list': 'Listenin adı',
+	'This video is in a playlist: show the whole list…':
+		'Bu video bir oynatma listesinde: tüm listeyi göster…'
 } satisfies Record<string, string>;

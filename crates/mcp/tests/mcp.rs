@@ -192,7 +192,8 @@ async fn tools_reach_the_app() {
         json!({
             "type": "add", "url": "https://x/b.zip", "dir": null, "name": "b.zip", "start": null,
             "mirrors": [], "checksum": null, "video_height": null, "audio_only": null,
-            "torrent_files": null, "archive_entries": null, "allow_duplicate": null
+            "torrent_files": null, "archive_entries": null, "allow_duplicate": null,
+            "playlist_items": null
         })
     );
     // Adding again what was downloaded before is on the caller's word.
@@ -232,7 +233,22 @@ async fn tools_reach_the_app() {
         (
             "inspect_video",
             json!({ "url": "https://v/1" }),
-            json!({ "type": "inspect_video", "url": "https://v/1" }),
+            json!({ "type": "inspect_video", "url": "https://v/1", "whole_list": null }),
+        ),
+        (
+            "inspect_video",
+            json!({ "url": "https://v/1&list=2", "whole_list": true }),
+            json!({ "type": "inspect_video", "url": "https://v/1&list=2", "whole_list": true }),
+        ),
+        (
+            "add_download",
+            json!({ "url": "https://www.youtube.com/@mit", "playlist_items": [1, 2, 3], "audio_only": true }),
+            json!({
+                "type": "add", "url": "https://www.youtube.com/@mit", "dir": null, "name": null,
+                "start": null, "mirrors": [], "checksum": null, "video_height": null,
+                "audio_only": true, "torrent_files": null, "archive_entries": null,
+                "allow_duplicate": null, "playlist_items": [1, 2, 3]
+            }),
         ),
         (
             "inspect_torrent",

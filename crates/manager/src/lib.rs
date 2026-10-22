@@ -39,8 +39,8 @@ use tokio::task::JoinHandle;
 use db::{Db, Insert};
 pub use sites::SiteMemory;
 pub use task::{
-    ArchiveChoice, Category, ErrorKind, HistoryEntry, NewTask, Status, Stream, Subtitle, Task,
-    TaskId, TaskProgress, TorrentChoice,
+    ArchiveChoice, Category, ErrorKind, Group, HistoryEntry, NewTask, Status, Stream, Subtitle,
+    Task, TaskId, TaskProgress, TorrentChoice,
 };
 pub use torrent::{TorrentConfig, TorrentFile, TorrentInfo};
 
@@ -619,6 +619,7 @@ impl Manager {
                 added_at: now_ms(),
                 stream: new.stream.as_ref(),
                 mirrors: &new.mirrors,
+                group: new.group,
             })
             .await?;
         let task = self.get(id).await?;
@@ -682,6 +683,25 @@ impl Manager {
             Some((h, matched)) => Some(Previous::of(h, matched, db).await),
             None => None,
         })
+    }
+
+    /// A group for downloads about to be added together; give its id as
+    /// [`NewTask::group`].
+    pub async fn new_group(&self, name: &str) -> Result<Group> {
+        let name = name.trim();
+        let name = if name.is_empty() { "Downloads" } else { name };
+        let added_at = now_ms();
+        let id = self.inner.db.new_group(name, added_at).await?;
+        Ok(Group {
+            id,
+            name: name.to_owned(),
+            added_at,
+        })
+    }
+
+    /// Groups that still have downloads on the list, newest first.
+    pub async fn groups(&self) -> Result<Vec<Group>> {
+        self.inner.db.groups().await
     }
 
     /// Finished downloads, newest first, also those no longer on the list.

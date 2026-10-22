@@ -271,6 +271,17 @@ pub struct Task {
     pub mirrors: Vec<String>,
     /// Where `url` led after redirects, learned on the first start.
     pub final_url: Option<String>,
+    /// Added together with others (see [`Group`]).
+    pub group_id: Option<i64>,
+}
+
+/// Downloads added together: a playlist, a channel, a batch, the files of a site.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Group {
+    pub id: i64,
+    pub name: String,
+    /// Unix milliseconds.
+    pub added_at: i64,
 }
 
 /// A finished download as the history keeps it, also after it left the list.
@@ -311,6 +322,8 @@ pub struct NewTask {
     pub stream: Option<Stream>,
     /// Other addresses of the same file (mirrors).
     pub mirrors: Vec<String>,
+    /// One of a group added together (see [`crate::Manager::new_group`]).
+    pub group: Option<i64>,
 }
 
 /// Live progress of a running download, sent about four times a second.

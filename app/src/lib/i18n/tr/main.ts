@@ -74,5 +74,8 @@ export default {
 	'Link expired': 'Bağlantı eskidi',
 	'No downloads here': 'Burada indirme yok',
 	'Paste a link with Ctrl+V, drop one on the window, or choose New download.':
-		'Ctrl+V ile bir bağlantı yapıştırın, pencereye bırakın ya da Yeni indirme’yi seçin.'
+		'Ctrl+V ile bir bağlantı yapıştırın, pencereye bırakın ya da Yeni indirme’yi seçin.',
+	'Fold the group': 'Grubu katla',
+	'Show the group': 'Grubu aç',
+	'{done} of {n} done': '{done}/{n} bitti'
 } satisfies Record<string, string>;

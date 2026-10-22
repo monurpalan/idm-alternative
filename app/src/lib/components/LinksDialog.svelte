@@ -2,7 +2,7 @@
 	// "Download all links": the links of a page, to pick from. Filtering by type keeps a page
 	// of hundreds of links manageable.
 
-	import { addTask, knownLinks } from '../api.ts';
+	import { addTask, knownLinks, newGroup } from '../api.ts';
 	import { nameFromUrl } from '../downloads.svelte.ts';
 	import { t } from '../i18n.svelte.ts';
 	import { Button, Checkbox, Dialog, Input, Text } from './ui/index.ts';
@@ -74,8 +74,20 @@
 					return;
 				}
 			}
-			for (const i of picked.filter((i) => !(skip && known?.includes(i.url)))) {
-				await addTask({ url: i.url, name: null, dir: null, start: true, login: null, headers });
+			const adding = picked.filter((i) => !(skip && known?.includes(i.url)));
+			// Added together: one group, named after the page they came from.
+			let group: number | null = null;
+			if (adding.length > 1) {
+				let site = referrer ?? '';
+				try {
+					site = referrer ? new URL(referrer).hostname + new URL(referrer).pathname : '';
+				} catch {
+					// not an address: keep it as it is
+				}
+				group = (await newGroup(site.replace(/\/$/, '') || t('Links'))).id;
+			}
+			for (const i of adding) {
+				await addTask({ url: i.url, name: null, dir: null, start: true, login: null, headers, group });
 			}
 			onerror(null);
 			dialog?.close();
