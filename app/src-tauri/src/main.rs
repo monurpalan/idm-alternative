@@ -2341,7 +2341,7 @@ mod tests {
     fn dates() {
         assert_eq!(utc_date(0), "1970-01-01");
         assert_eq!(utc_date(951_782_400_000), "2000-02-29");
-        assert_eq!(utc_date(1_791_072_000_000), "2026-10-03");
+        assert_eq!(utc_date(1_790_985_600_000), "2026-10-03");
         assert_eq!(utc_date(-86_400_000), "1969-12-31");
     }
 
