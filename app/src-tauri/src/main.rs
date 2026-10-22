@@ -203,6 +203,75 @@ struct AddRequest {
     /// Other addresses of the same file.
     #[serde(default)]
     mirrors: Vec<String>,
+    /// A batch: leave out the files downloaded before or on the list.
+    #[serde(default)]
+    skip_known: bool,
+}
+
+/// An earlier download of what is about to be added: `final_url`, `name` and `size` are
+/// what the server said when asked.
+#[tauri::command]
+async fn find_previous(
+    app: State<'_, App>,
+    url: String,
+    final_url: Option<String>,
+    name: Option<String>,
+    size: Option<u64>,
+) -> CmdResult<Option<shardload_manager::Previous>> {
+    app.manager
+        .find_previous(&url, final_url.as_deref(), name.as_deref(), size)
+        .await
+        .map_err(msg)
+}
+
+/// For each link, whether it was downloaded before or is on the list (by address only).
+#[tauri::command]
+async fn known_links(app: State<'_, App>, urls: Vec<String>) -> CmdResult<Vec<bool>> {
+    let mut known = Vec::with_capacity(urls.len());
+    for url in &urls {
+        known.push(
+            app.manager
+                .find_previous(url, None, None, None)
+                .await
+                .map_err(msg)?
+                .is_some(),
+        );
+    }
+    Ok(known)
+}
+
+/// The file of a finished download in the history, looked up here so the UI never names
+/// arbitrary paths to open.
+async fn history_file(app: &App, id: i64) -> CmdResult<PathBuf> {
+    let entry = app.manager.history_entry(id).await.map_err(msg)?;
+    let path = entry
+        .ok_or_else(|| "this download is no longer in the history".to_owned())?
+        .path;
+    if !path.exists() {
+        return Err(format!("{} is no longer there", path.display()));
+    }
+    Ok(path)
+}
+
+#[tauri::command]
+async fn open_previous(handle: AppHandle, app: State<'_, App>, history: i64) -> CmdResult<()> {
+    let path = history_file(&app, history).await?;
+    handle
+        .opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(msg)
+}
+
+#[tauri::command]
+async fn show_previous(handle: AppHandle, app: State<'_, App>, history: i64) -> CmdResult<()> {
+    let path = history_file(&app, history).await?;
+    handle.opener().reveal_item_in_dir(path).map_err(msg)
+}
+
+/// Forgets the finished downloads (for "you downloaded this before"); files stay.
+#[tauri::command]
+async fn clear_history(app: State<'_, App>) -> CmdResult<()> {
+    app.manager.clear_history().await.map_err(msg)
 }
 
 #[tauri::command]
@@ -241,25 +310,39 @@ struct BatchView {
     count: usize,
     first: String,
     last: String,
+    /// How many of them were downloaded before or are on the list.
+    known: usize,
 }
 
 #[tauri::command]
-fn batch_preview(url: String) -> CmdResult<Option<BatchView>> {
+async fn batch_preview(app: State<'_, App>, url: String) -> CmdResult<Option<BatchView>> {
     if !shardload_manager::batch::is_pattern(&url) {
         return Ok(None);
     }
     let urls = shardload_manager::batch::expand(&url)?;
+    let known = known_links(app, urls.clone())
+        .await?
+        .into_iter()
+        .filter(|k| *k)
+        .count();
     Ok(Some(BatchView {
         count: urls.len(),
         first: urls.first().cloned().unwrap_or_default(),
         last: urls.last().cloned().unwrap_or_default(),
+        known,
     }))
 }
 
-/// Adds every download a batch address stands for, each named by its server.
+/// Adds every download a batch address stands for, each named by its server; with
+/// `skip_known`, not those downloaded before or on the list. Returns how many were added.
 #[tauri::command]
 async fn add_batch(app: State<'_, App>, request: AddRequest) -> CmdResult<usize> {
-    let urls = shardload_manager::batch::expand(&request.url)?;
+    let mut urls = shardload_manager::batch::expand(&request.url)?;
+    if request.skip_known {
+        let known = known_links(app.clone(), urls.clone()).await?;
+        let mut known = known.into_iter();
+        urls.retain(|_| !known.next().unwrap_or(false));
+    }
     remember_login(&app, &request.url, request.login.as_ref()).await?;
     let headers = request_headers(request.headers, request.login.as_ref());
     for url in &urls {
@@ -1702,6 +1785,29 @@ async fn tool_add(handle: &AppHandle, add: shardload_bridge::AddDownload) -> Cmd
             ));
         }
     }
+    if add.allow_duplicate != Some(true) {
+        // A plain link is asked about first, so a file of the same name and size counts too.
+        let plain = stream.is_none()
+            && !shardload_engine::metalink::is_metalink(&add.url)
+            && !shardload_manager::torrent::is_torrent(&add.url);
+        let probe = match plain {
+            true => app.manager.probe(&add.url, &[]).await.ok(),
+            false => None,
+        };
+        let previous = app
+            .manager
+            .find_previous(
+                &add.url,
+                probe.as_ref().map(|p| p.url.as_str()),
+                probe.as_ref().map(|p| p.name.as_str()),
+                probe.as_ref().and_then(|p| p.size),
+            )
+            .await
+            .map_err(msg)?;
+        if let Some(p) = previous {
+            return Err(already_downloaded(&p));
+        }
+    }
     app.manager
         .add(NewTask {
             mirrors: clean_mirrors(add.mirrors),
@@ -1715,6 +1821,43 @@ async fn tool_add(handle: &AppHandle, add: shardload_bridge::AddDownload) -> Cmd
         })
         .await
         .map_err(msg)
+}
+
+/// Why a tool's download was not added: what was found, and how to add it anyway.
+fn already_downloaded(p: &shardload_manager::Previous) -> String {
+    let found = serde_json::json!({
+        "id": p.id,
+        "status": p.status,
+        "name": p.name,
+        "path": p.path,
+        "size": p.size,
+        "finished": p.finished_at.map(utc_date),
+        "file_still_there": p.on_disk,
+        "matched": p.matched,
+    });
+    let what = if p.unfinished() {
+        "already on the list, not finished yet"
+    } else if p.on_disk {
+        "downloaded before, and the file is still there"
+    } else {
+        "downloaded before, but the file is no longer where it was saved"
+    };
+    format!("{what}; pass allow_duplicate: true to add it again. Found: {found}")
+}
+
+/// `2026-10-03` for Unix milliseconds (UTC).
+fn utc_date(ms: i64) -> String {
+    // Howard Hinnant's days-to-civil.
+    let z = ms.div_euclid(86_400_000) + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
 }
 
 /// Waits until none of `ids` is queued or downloading, or `timeout` passes, and returns
@@ -2075,6 +2218,11 @@ fn main() {
             set_login,
             batch_preview,
             add_batch,
+            find_previous,
+            known_links,
+            open_previous,
+            show_previous,
+            clear_history,
             saved_logins,
             forget_login,
             open_file,
@@ -2108,6 +2256,14 @@ mod tests {
     use super::*;
 
     const YOUTUBE: &str = "https://www.youtube.com/watch?v=9bZkp7q19f0";
+
+    #[test]
+    fn dates() {
+        assert_eq!(utc_date(0), "1970-01-01");
+        assert_eq!(utc_date(951_782_400_000), "2000-02-29");
+        assert_eq!(utc_date(1_791_072_000_000), "2026-10-03");
+        assert_eq!(utc_date(-86_400_000), "1969-12-31");
+    }
 
     /// A page through the manager and yt-dlp, the way the app adds it, at up to `height`, with
     /// ffmpeg missing. `SHARDLOAD_TOOLS` is a tools folder with yt-dlp and deno set up. Run with no

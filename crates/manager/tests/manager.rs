@@ -649,3 +649,134 @@ async fn checksum_found_next_to_the_file_is_kept_and_checked() {
     assert_eq!(t.checksum_from.as_deref(), Some("SHA256SUMS"));
     m.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn earlier_downloads_are_found_before_adding_again() {
+    use shardload_manager::Matched;
+    let base = start_server().await;
+    let w = WorkDir::new("previous");
+    let m = Manager::open(&w.db(), w.config(3)).await.expect("open");
+    let size = MB;
+    let url = format!("{base}/file/report.pdf?size={size}&seed=11");
+    assert_eq!(
+        m.find_previous(&url, None, None, None).await.expect("find"),
+        None
+    );
+
+    // Still on the list and not finished: "already on the list".
+    let task = m
+        .add(NewTask {
+            url: url.clone(),
+            start: false,
+            ..NewTask::default()
+        })
+        .await
+        .expect("add");
+    let p = m
+        .find_previous(&url, None, None, None)
+        .await
+        .expect("find")
+        .expect("found");
+    assert!(p.unfinished());
+    assert_eq!((p.id, p.matched), (Some(task.id), Matched::Url));
+
+    // Finished: found with its file, also under a #fragment, and after leaving the list.
+    m.start(task.id).await.expect("start");
+    let done = wait_done(&m, task.id).await;
+    let p = m
+        .find_previous(&format!("{url}#page=2"), None, None, None)
+        .await
+        .expect("find")
+        .expect("found");
+    assert!(!p.unfinished());
+    assert!(p.on_disk);
+    assert_eq!(p.path, done.path);
+    assert_eq!(p.finished_at, done.finished_at);
+    m.remove(task.id, false).await.expect("remove");
+    let p = m
+        .find_previous(&url, None, None, None)
+        .await
+        .expect("find")
+        .expect("still in the history");
+    assert_eq!((p.id, p.status, p.on_disk), (None, None, true));
+
+    // Another address of a file with the same name and size; not by URL alone.
+    let other = format!("{base}/file/report.pdf?size={size}&seed=11&mirror=2");
+    assert_eq!(
+        m.find_previous(&other, None, None, None)
+            .await
+            .expect("find"),
+        None
+    );
+    let p = m
+        .find_previous(&other, None, Some("Report (1).PDF"), Some(size))
+        .await
+        .expect("find")
+        .expect("found by name and size");
+    assert_eq!(p.matched, Matched::NameSize);
+    assert_eq!(
+        m.find_previous(&other, None, Some("report.pdf"), Some(size + 1))
+            .await
+            .expect("find"),
+        None
+    );
+
+    // The file was deleted: still found, but not on disk.
+    std::fs::remove_file(done.path.as_ref().expect("path")).expect("delete");
+    let p = m
+        .find_previous(&url, None, None, None)
+        .await
+        .expect("find")
+        .expect("found");
+    assert!(!p.on_disk);
+    m.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn history_follows_redirects_renames_and_restarts() {
+    let base = start_server().await;
+    let w = WorkDir::new("history");
+    let m = Manager::open(&w.db(), w.config(3)).await.expect("open");
+    let size = MB;
+    let url = format!("{base}/file/moved.bin?size={size}&seed=12&redirect=1");
+    let task = m.add(new_task(url.clone())).await.expect("add");
+    let done = wait_done(&m, task.id).await;
+    let landed = done.final_url.clone().expect("final url");
+    assert!(landed.contains("redirect=0"), "{landed}");
+    // The address it led to finds it too, and so does a new link that leads there.
+    let p = m
+        .find_previous(&landed, None, None, None)
+        .await
+        .expect("find")
+        .expect("found by where it led");
+    assert_eq!(p.id, Some(task.id));
+    let p = m
+        .find_previous(&format!("{url}&x=1"), Some(&landed), None, None)
+        .await
+        .expect("find")
+        .expect("found by the new link's end");
+    assert_eq!(p.id, Some(task.id));
+
+    let renamed = m.rename(task.id, "kept.bin").await.expect("rename");
+    let p = m
+        .find_previous(&url, None, None, None)
+        .await
+        .expect("find")
+        .expect("found");
+    assert_eq!(p.path, renamed.path);
+    assert!(p.on_disk);
+    let history = m.history().await.expect("history");
+    assert_eq!(history.len(), 1, "one entry per download");
+    assert_eq!(history[0].name, "kept.bin");
+
+    // Downloaded again: still one entry.
+    m.restart(task.id).await.expect("restart");
+    wait_done(&m, task.id).await;
+    assert_eq!(m.history().await.expect("history").len(), 1);
+    m.clear_history().await.expect("clear");
+    assert_eq!(
+        m.find_previous(&url, None, None, None).await.expect("find"),
+        None
+    );
+    m.close().await;
+}

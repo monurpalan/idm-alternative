@@ -269,6 +269,27 @@ pub struct Task {
     pub stream: Option<Stream>,
     /// Other addresses of the same file, used alongside `url`.
     pub mirrors: Vec<String>,
+    /// Where `url` led after redirects, learned on the first start.
+    pub final_url: Option<String>,
+}
+
+/// A finished download as the history keeps it, also after it left the list.
+#[derive(Debug, Clone, Serialize)]
+pub struct HistoryEntry {
+    pub id: i64,
+    /// The download, while it is on the list.
+    pub task_id: Option<TaskId>,
+    pub url: String,
+    pub final_url: Option<String>,
+    /// The page it was downloaded from (the referrer), if known.
+    pub page: Option<String>,
+    pub name: String,
+    pub path: PathBuf,
+    pub size: Option<u64>,
+    /// `algorithm:hex` the file was checked against.
+    pub checksum: Option<String>,
+    /// Unix milliseconds.
+    pub finished_at: i64,
 }
 
 /// What to download; everything else has defaults from [`crate::Config`].

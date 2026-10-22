@@ -91,5 +91,9 @@ export default {
 		'Henüz yok. Bir sunucu parola istediğinde “Hatırla”yı işaretleyin.',
 	'Take downloads from the browser extension (Chrome, Edge, Brave, Vivaldi, Opera and Firefox)':
 		'Tarayıcı eklentisinden gelen indirmeleri al (Chrome, Edge, Brave, Vivaldi, Opera ve Firefox)',
-	'Look for a new version once a day': 'Yeni sürümü günde bir kez denetle'
+	'Look for a new version once a day': 'Yeni sürümü günde bir kez denetle',
+	'Finished downloads are remembered, to tell you when you add one again.':
+		'Biten indirmeler hatırlanır; birini yeniden eklediğinizde söylenir.',
+	Forgotten: 'Unutuldu',
+	'Forget them': 'Unut'
 } satisfies Record<string, string>;

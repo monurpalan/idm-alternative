@@ -9,6 +9,7 @@
 		importSettings,
 		openLogs,
 		forgetLogin,
+		clearHistory,
 		savedLogins,
 		type SavedLogin,
 		installTool,
@@ -56,6 +57,16 @@
 	let installing = $state<ToolId | null>(null);
 	let toolError = $state<string | null>(null);
 	let logins = $state<SavedLogin[]>([]);
+	let historyCleared = $state(false);
+
+	async function forgetHistory() {
+		try {
+			await clearHistory();
+			historyCleared = true;
+		} catch (e) {
+			error = String(e);
+		}
+	}
 
 	async function forget(site: string) {
 		await forgetLogin(site).catch((e) => (error = String(e)));
@@ -208,6 +219,15 @@
 					<Field label={t('Speed limit for all (KB/s)')}>
 						<Input inputmode="numeric" bind:value={limitKb} placeholder={t('none')} />
 					</Field>
+				</div>
+				<div class="row3">
+					<Text variant="muted" inline>
+						{t('Finished downloads are remembered, to tell you when you add one again.')}
+					</Text>
+					<span></span>
+					<Button onclick={forgetHistory} disabled={historyCleared}
+						>{historyCleared ? t('Forgotten') : t('Forget them')}</Button
+					>
 				</div>
 			{:else if tab === 'connection'}
 				<div class="grid">

@@ -9,7 +9,7 @@ use sqlx::sqlite::{
 };
 
 use crate::Result;
-use crate::task::{Category, ErrorKind, Status, Stream, Task, TaskId};
+use crate::task::{Category, ErrorKind, HistoryEntry, Status, Stream, Task, TaskId};
 
 #[derive(Clone)]
 pub(crate) struct Db {
@@ -216,6 +216,14 @@ impl Db {
             .bind(id)
             .execute(&self.pool)
             .await?;
+        if let (Some(name), Some(path)) = (name, path) {
+            sqlx::query("UPDATE history SET name = ?, path = ? WHERE task_id = ?")
+                .bind(name)
+                .bind(path.to_string_lossy())
+                .bind(id)
+                .execute(&self.pool)
+                .await?;
+        }
         Ok(())
     }
 
@@ -388,15 +396,131 @@ impl Db {
         .bind(id)
         .execute(&self.pool)
         .await?;
+        // Its file is gone; the history gets it again when it finishes.
+        sqlx::query("DELETE FROM history WHERE task_id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
+    /// Its history entry stays, no longer tied to the list.
     pub(crate) async fn delete(&self, id: TaskId) -> Result<()> {
         sqlx::query("DELETE FROM tasks WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
+        sqlx::query("UPDATE history SET task_id = NULL WHERE task_id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
+    }
+
+    /// The address after redirects, learned on the first start.
+    pub(crate) async fn set_final_url(&self, id: TaskId, url: &str) -> Result<()> {
+        sqlx::query("UPDATE tasks SET final_url = ? WHERE id = ?")
+            .bind(url)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Keeps a finished download in the history, replacing what an earlier finish of the
+    /// same download left there.
+    pub(crate) async fn record_history(&self, task: &Task, page: Option<&str>) -> Result<()> {
+        let (Some(name), Some(path)) = (&task.name, &task.path) else {
+            return Ok(());
+        };
+        sqlx::query("DELETE FROM history WHERE task_id = ?")
+            .bind(task.id)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query(
+            "INSERT INTO history (task_id, url, final_url, page, name, path, size, checksum,
+                                  finished_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(task.id)
+        .bind(&task.url)
+        .bind(&task.final_url)
+        .bind(page)
+        .bind(name)
+        .bind(path.to_string_lossy())
+        .bind(task.size.map(|v| v as i64))
+        .bind(&task.checksum)
+        .bind(task.finished_at.unwrap_or_else(crate::now_ms))
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// History entries of `url` (as given, or where it led), newest first.
+    pub(crate) async fn history_of_url(&self, url: &str) -> Result<Vec<HistoryEntry>> {
+        sqlx::query(
+            "SELECT * FROM history WHERE url = ? OR final_url = ? ORDER BY finished_at DESC",
+        )
+        .bind(url)
+        .bind(url)
+        .fetch_all(&self.pool)
+        .await?
+        .iter()
+        .map(history_entry)
+        .collect()
+    }
+
+    /// History entries of files of this size, newest first.
+    pub(crate) async fn history_of_size(&self, size: u64) -> Result<Vec<HistoryEntry>> {
+        sqlx::query("SELECT * FROM history WHERE size = ? ORDER BY finished_at DESC")
+            .bind(size as i64)
+            .fetch_all(&self.pool)
+            .await?
+            .iter()
+            .map(history_entry)
+            .collect()
+    }
+
+    pub(crate) async fn history_entry(&self, id: i64) -> Result<Option<HistoryEntry>> {
+        sqlx::query("SELECT * FROM history WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?
+            .as_ref()
+            .map(history_entry)
+            .transpose()
+    }
+
+    /// The whole history, newest first.
+    pub(crate) async fn history(&self) -> Result<Vec<HistoryEntry>> {
+        sqlx::query("SELECT * FROM history ORDER BY finished_at DESC")
+            .fetch_all(&self.pool)
+            .await?
+            .iter()
+            .map(history_entry)
+            .collect()
+    }
+
+    pub(crate) async fn clear_history(&self) -> Result<()> {
+        sqlx::query("DELETE FROM history")
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Unfinished downloads on the list for `url` (as given, or where it led).
+    pub(crate) async fn unfinished_of_url(&self, url: &str) -> Result<Vec<Task>> {
+        sqlx::query(
+            "SELECT * FROM tasks WHERE status != 'done' AND (url = ? OR final_url = ?)
+             ORDER BY queue_pos",
+        )
+        .bind(url)
+        .bind(url)
+        .fetch_all(&self.pool)
+        .await?
+        .iter()
+        .map(task)
+        .collect()
     }
 }
 
@@ -456,5 +580,21 @@ fn task(r: &SqliteRow) -> Result<Task> {
             .map(|s| serde_json::from_str(&s))
             .transpose()?
             .unwrap_or_default(),
+        final_url: r.try_get("final_url")?,
+    })
+}
+
+fn history_entry(r: &SqliteRow) -> Result<HistoryEntry> {
+    Ok(HistoryEntry {
+        id: r.try_get("id")?,
+        task_id: r.try_get("task_id")?,
+        url: r.try_get("url")?,
+        final_url: r.try_get("final_url")?,
+        page: r.try_get("page")?,
+        name: r.try_get("name")?,
+        path: PathBuf::from(r.try_get::<String, _>("path")?),
+        size: r.try_get::<Option<i64>, _>("size")?.map(|v| v as u64),
+        checksum: r.try_get("checksum")?,
+        finished_at: r.try_get("finished_at")?,
     })
 }

@@ -4,18 +4,28 @@
 	import { onMount } from 'svelte';
 	import {
 		addTask,
+		findPrevious,
 		inspectPage,
 		installTool,
 		tools,
 		ytdlpSelector,
 		type CapturedMedia,
-		type PageInfo
+		type PageInfo,
+		type Previous,
+		type TaskId
 	} from '../api.ts';
+	import PreviousNotice from './PreviousNotice.svelte';
 	import { duration } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
 	import { Button, Checkbox, Dialog, Field, Input, Section, Text } from './ui/index.ts';
 
-	let { media, onclose }: { media: CapturedMedia; onclose: () => void } = $props();
+	let {
+		media,
+		onclose,
+		onshow
+	}: { media: CapturedMedia; onclose: () => void; onshow: (id: TaskId) => void } = $props();
+	/** An earlier download of this page. */
+	let previous = $state<Previous | null>(null);
 
 	const page = $derived(media.items[0]?.url ?? '');
 	let info = $state<PageInfo | null>(null);
@@ -79,7 +89,12 @@
 		}
 	}
 
-	onMount(load);
+	onMount(() => {
+		findPrevious(page)
+			.then((p) => (previous = p))
+			.catch(() => {});
+		load();
+	});
 </script>
 
 <Dialog bind:this={dialog} title={info?.title || media.title || t('Video')} {onclose}>
@@ -108,6 +123,9 @@
 			<Input bind:value={name} placeholder={t('Title of the page')} />
 		</Field>
 	{/if}
+	{#if previous}
+		<PreviousNotice {previous} {onshow} onerror={(e) => (error = e)} />
+	{/if}
 
 	{#snippet actions()}
 		<Button onclick={() => dialog?.close()}>{t('Close')}</Button>
@@ -116,7 +134,9 @@
 				{settingUp ? t('Setting up…') : t('Set up yt-dlp')}
 			</Button>
 		{:else}
-			<Button variant="primary" disabled={!info || busy} onclick={download}>{t('Download')}</Button>
+			<Button variant="primary" disabled={!info || busy} onclick={download}
+				>{previous ? t('Download anyway') : t('Download')}</Button
+			>
 		{/if}
 	{/snippet}
 </Dialog>

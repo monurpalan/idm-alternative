@@ -2,7 +2,7 @@
 	// "Download all links": the links of a page, to pick from. Filtering by type keeps a page
 	// of hundreds of links manageable.
 
-	import { addTask } from '../api.ts';
+	import { addTask, knownLinks } from '../api.ts';
 	import { nameFromUrl } from '../downloads.svelte.ts';
 	import { t } from '../i18n.svelte.ts';
 	import { Button, Checkbox, Dialog, Input, Text } from './ui/index.ts';
@@ -42,6 +42,12 @@
 		});
 	});
 
+	// Another choice is asked about afresh.
+	$effect(() => {
+		void chosen;
+		known = null;
+	});
+
 	function toggle(url: string) {
 		const next = new Set(chosen);
 		if (next.has(url)) next.delete(url);
@@ -49,11 +55,26 @@
 		chosen = next;
 	}
 
-	async function download() {
+	/** Of the chosen links, those downloaded before or on the list; asked once, on the
+	 * first "Download". */
+	let known = $state<string[] | null>(null);
+
+	/** With `skip`, leaves out the links downloaded before. */
+	async function download(skip = false) {
 		busy = true;
 		const headers: [string, string][] = referrer ? [['Referer', referrer]] : [];
 		try {
-			for (const i of items.filter((i) => chosen.has(i.url))) {
+			const picked = items.filter((i) => chosen.has(i.url));
+			if (known === null) {
+				const flags = await knownLinks(picked.map((i) => i.url));
+				const found = picked.filter((_, n) => flags[n]).map((i) => i.url);
+				if (found.length) {
+					known = found;
+					busy = false;
+					return;
+				}
+			}
+			for (const i of picked.filter((i) => !(skip && known?.includes(i.url)))) {
 				await addTask({ url: i.url, name: null, dir: null, start: true, login: null, headers });
 			}
 			onerror(null);
@@ -92,13 +113,23 @@
 	</ul>
 
 	{#snippet actions()}
-		<span class="count">
-			<Text variant="muted">{t('{n} of {total} selected', { n: chosen.size, total: items.length })}</Text>
-		</span>
-		<Button onclick={() => dialog?.close()}>{t('Cancel')}</Button>
-		<Button variant="primary" disabled={!chosen.size || busy} onclick={download}>
-			{chosen.size ? t('Download {n}', { n: chosen.size }) : t('Download')}
-		</Button>
+		{#if known}
+			<span class="count">
+				<Text>{t('{n} of the {total} were downloaded before or are on the list.', { n: known.length, total: chosen.size })}</Text>
+			</span>
+			<Button onclick={() => download(false)} disabled={busy}>{t('Download anyway')}</Button>
+			<Button variant="primary" onclick={() => download(true)} disabled={busy || known.length === chosen.size}
+				>{t('Skip them')}</Button
+			>
+		{:else}
+			<span class="count">
+				<Text variant="muted">{t('{n} of {total} selected', { n: chosen.size, total: items.length })}</Text>
+			</span>
+			<Button onclick={() => dialog?.close()}>{t('Cancel')}</Button>
+			<Button variant="primary" disabled={!chosen.size || busy} onclick={() => download()}>
+				{chosen.size ? t('Download {n}', { n: chosen.size }) : t('Download')}
+			</Button>
+		{/if}
 	{/snippet}
 </Dialog>
 

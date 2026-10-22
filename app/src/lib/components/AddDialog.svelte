@@ -13,13 +13,17 @@
 		isTorrent,
 		isZip,
 		probe,
+		findPrevious,
 		type ArchiveInfo,
 		type Batch,
 		type Headers,
 		type Login,
+		type Previous,
 		type Probe,
+		type TaskId,
 		type TorrentInfo
 	} from '../api.ts';
+	import PreviousNotice from './PreviousNotice.svelte';
 	import { bytes } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
 	import { Button, Checkbox, Dialog, Field, Input, Textarea } from './ui/index.ts';
@@ -28,7 +32,8 @@
 		url: initialUrl = '',
 		name: initialName = null,
 		headers = null,
-		onclose
+		onclose,
+		onshow
 	}: {
 		url?: string;
 		/** The name the browser chose, kept unless the user changes it. */
@@ -36,6 +41,8 @@
 		/** From the browser: cookies, referrer, user agent. */
 		headers?: Headers | null;
 		onclose: () => void;
+		/** Goes to a download on the list (one found to be the same file). */
+		onshow: (id: TaskId) => void;
 	} = $props();
 
 	let url = $state('');
@@ -64,6 +71,11 @@
 	);
 	let chosen = $state<boolean[]>([]);
 	const chosenSize = $derived(files.reduce((sum, f, i) => (chosen[i] ? sum + f.size : sum), 0));
+	/** An earlier download of the same file. */
+	let previous = $state<Previous | null>(null);
+	/** A batch: leave out the files downloaded before. */
+	let skipKnown = $state(true);
+	const batchCount = $derived(batch ? batch.count - (skipKnown ? batch.known : 0) : 0);
 	let checking = $state(false);
 	let error = $state<string | null>(null);
 	let busy = $state(false);
@@ -103,11 +115,13 @@
 		batch = null;
 		torrent = null;
 		archive = null;
+		previous = null;
 		try {
 			if (isTorrent(u)) {
-				const tor = await inspectTorrent(u);
+				const [tor, prev] = await Promise.all([inspectTorrent(u), findPrevious(u).catch(() => null)]);
 				if (asked !== u) return;
 				torrent = tor;
+				previous = prev;
 				chosen = tor.files.map(() => true);
 				name = tor.name;
 				return;
@@ -122,7 +136,11 @@
 			const p = await probe(u, login(), headers);
 			if (asked !== u) return; // the URL changed meanwhile
 			info = p;
-			if (!p.needs_login) name = initialName || p.name;
+			if (!p.needs_login) {
+				name = initialName || p.name;
+				const prev = await findPrevious(u, p.url, p.name, p.size).catch(() => null);
+				if (asked === u) previous = prev;
+			}
 		} catch (e) {
 			if (asked === u) error = String(e);
 		} finally {
@@ -158,7 +176,14 @@
 		busy = true;
 		try {
 			if (batch) {
-				await addBatch({ url: u, dir: dir || null, start, login: login(), headers });
+				await addBatch({
+					url: u,
+					dir: dir || null,
+					start,
+					login: login(),
+					headers,
+					skip_known: skipKnown
+				});
 				onclose();
 				return;
 			}
@@ -279,6 +304,16 @@
 		{/if}
 	</p>
 
+	{#if previous}
+		<PreviousNotice {previous} {onshow} onerror={(e) => (error = e)} />
+	{/if}
+
+	{#if batch?.known}
+		<Checkbox bind:checked={skipKnown}>
+			{t('Skip the {n} of {total} downloaded before or on the list', { n: batch.known, total: batch.count })}
+		</Checkbox>
+	{/if}
+
 	{#if (torrent && torrent.files.length > 1) || archive}
 		<fieldset class="files">
 			<legend>
@@ -350,9 +385,14 @@
 			disabled={busy ||
 				!url.trim() ||
 				((!!torrent || !!archive) && !chosen.some((c) => c)) ||
-				readingArchive}
+				readingArchive ||
+				(!!batch && batchCount === 0)}
 		>
-			{batch ? t('Start {n} downloads', { n: batch.count }) : t('Start download')}
+			{batch
+				? t('Start {n} downloads', { n: batchCount })
+				: previous
+					? t('Download anyway')
+					: t('Start download')}
 		</Button>
 	{/snippet}
 </Dialog>

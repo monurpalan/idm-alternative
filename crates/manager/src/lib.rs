@@ -37,8 +37,8 @@ use tokio::task::JoinHandle;
 
 use db::{Db, Insert};
 pub use task::{
-    ArchiveChoice, Category, ErrorKind, NewTask, Status, Stream, Subtitle, Task, TaskId,
-    TaskProgress, TorrentChoice,
+    ArchiveChoice, Category, ErrorKind, HistoryEntry, NewTask, Status, Stream, Subtitle, Task,
+    TaskId, TaskProgress, TorrentChoice,
 };
 pub use torrent::{TorrentConfig, TorrentFile, TorrentInfo};
 
@@ -358,6 +358,102 @@ pub fn site_of(url: &str) -> Option<String> {
     })
 }
 
+/// How an earlier download of the same file was found (see [`Manager::find_previous`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Matched {
+    /// The same address (with its query), or the address it led to.
+    Url,
+    /// Another address, but a file of the same name and size.
+    NameSize,
+}
+
+/// An earlier download of what is about to be added.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Previous {
+    pub matched: Matched,
+    /// The download, while it is on the list.
+    pub id: Option<TaskId>,
+    /// Its status on the list; not `done` means it is still to finish ("already on the list").
+    pub status: Option<Status>,
+    /// Its history entry, once finished.
+    pub history: Option<i64>,
+    pub name: Option<String>,
+    pub path: Option<PathBuf>,
+    pub size: Option<u64>,
+    /// Unix milliseconds.
+    pub finished_at: Option<i64>,
+    /// The finished file is still where it was saved, with its size.
+    pub on_disk: bool,
+}
+
+impl Previous {
+    /// Still to finish: queued, running, paused or failed.
+    pub fn unfinished(&self) -> bool {
+        self.status.is_some_and(|s| s != Status::Done)
+    }
+
+    fn listed(t: Task, matched: Matched) -> Self {
+        Self {
+            matched,
+            id: Some(t.id),
+            status: Some(t.status),
+            history: None,
+            name: t.name,
+            path: t.path,
+            size: t.size,
+            finished_at: None,
+            on_disk: false,
+        }
+    }
+
+    async fn of(h: HistoryEntry, matched: Matched, db: &Db) -> Self {
+        let status = match h.task_id {
+            Some(id) => db.get(id).await.ok().flatten().map(|t| t.status),
+            None => None,
+        };
+        Self {
+            matched,
+            id: h.task_id.filter(|_| status.is_some()),
+            status,
+            on_disk: on_disk(&h),
+            history: Some(h.id),
+            name: Some(h.name),
+            path: Some(h.path),
+            size: h.size,
+            finished_at: Some(h.finished_at),
+        }
+    }
+}
+
+/// The history entry's file is still where it was saved, with the size it had.
+fn on_disk(h: &HistoryEntry) -> bool {
+    std::fs::metadata(&h.path).is_ok_and(|m| match h.size {
+        Some(size) if m.is_file() => m.len() == size,
+        _ => true,
+    })
+}
+
+/// `Name (2).ext` → `name.ext`: the names downloads of the same file may have got.
+fn plain_name(name: &str) -> String {
+    let (stem, ext) = shardload_engine::name::split_extension(name);
+    let stem = match stem.rsplit_once(" (") {
+        Some((base, n))
+            if n.strip_suffix(')')
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) =>
+        {
+            base
+        }
+        _ => stem,
+    };
+    format!("{stem}{ext}").to_lowercase()
+}
+
+/// The address without its `#fragment`, which never reaches the server.
+fn without_fragment(url: &str) -> &str {
+    url.split_once('#').map_or(url, |(u, _)| u)
+}
+
 /// A remembered login, as shown to the user (the password stays in the list).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct SavedLogin {
@@ -529,6 +625,75 @@ impl Manager {
             self.inner.fill().await?;
         }
         Ok(task)
+    }
+
+    /// An earlier download of the same file, before adding it again: first a download of
+    /// `url` (or of `final_url`, where it led) that is still on the list unfinished, then
+    /// one in the history (which keeps finished downloads after they leave the list), then,
+    /// with `name` and `size` (known once the server was asked), a finished file of the
+    /// same name and size from another address. Among several, one whose file is still there.
+    pub async fn find_previous(
+        &self,
+        url: &str,
+        final_url: Option<&str>,
+        name: Option<&str>,
+        size: Option<u64>,
+    ) -> Result<Option<Previous>> {
+        let db = &self.inner.db;
+        let mut urls = vec![without_fragment(url)];
+        if let Some(f) = final_url
+            .map(without_fragment)
+            .filter(|f| !urls.contains(f))
+        {
+            urls.push(f);
+        }
+        for u in &urls {
+            if let Some(t) = db.unfinished_of_url(u).await?.into_iter().next() {
+                return Ok(Some(Previous::listed(t, Matched::Url)));
+            }
+        }
+        let mut found: Vec<(HistoryEntry, Matched)> = Vec::new();
+        for u in &urls {
+            for h in db.history_of_url(u).await? {
+                if !found.iter().any(|(f, _)| f.id == h.id) {
+                    found.push((h, Matched::Url));
+                }
+            }
+        }
+        if found.is_empty()
+            && let (Some(name), Some(size)) = (name, size)
+        {
+            let wanted = plain_name(name);
+            found = db
+                .history_of_size(size)
+                .await?
+                .into_iter()
+                .filter(|h| plain_name(&h.name) == wanted)
+                .map(|h| (h, Matched::NameSize))
+                .collect();
+        }
+        let best = match found.iter().position(|(h, _)| on_disk(h)) {
+            Some(i) => Some(found.swap_remove(i)),
+            None => found.into_iter().next(),
+        };
+        Ok(match best {
+            Some((h, matched)) => Some(Previous::of(h, matched, db).await),
+            None => None,
+        })
+    }
+
+    /// Finished downloads, newest first, also those no longer on the list.
+    pub async fn history(&self) -> Result<Vec<HistoryEntry>> {
+        self.inner.db.history().await
+    }
+
+    pub async fn history_entry(&self, id: i64) -> Result<Option<HistoryEntry>> {
+        self.inner.db.history_entry(id).await
+    }
+
+    /// Forgets every finished download (the list keeps its own; their files stay).
+    pub async fn clear_history(&self) -> Result<()> {
+        self.inner.db.clear_history().await
     }
 
     /// Queues a paused, failed or queued download; it starts when a slot is free.
@@ -1177,12 +1342,25 @@ impl Inner {
             }
             (Ok(outcome), _) => {
                 lock(&self.retries).remove(&id);
-                match self.db.finish(id, outcome.size, now_ms()).await {
+                let finished = match self.db.finish(id, outcome.size, now_ms()).await {
                     Ok(()) if note.is_some() => {
                         self.db.set_status(id, Status::Done, note.as_deref()).await
                     }
                     other => other,
+                };
+                if finished.is_ok()
+                    && let Ok(Some(task)) = self.db.get(id).await
+                {
+                    let page = task
+                        .headers
+                        .iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case("referer"))
+                        .map(|(_, v)| v.as_str());
+                    if let Err(e) = self.db.record_history(&task, page).await {
+                        tracing::warn!(id, "could not keep the download in the history: {e}");
+                    }
                 }
+                finished
             }
             (Err(Error::Engine(shardload_engine::Error::Cancelled)), Some(Stop::Pause)) => {
                 self.db.set_status(id, Status::Paused, None).await
@@ -1883,6 +2061,10 @@ impl Inner {
                 self.db
                     .set_target(task.id, &file_name, &path, probe.size, category)
                     .await?;
+                if probe.url != task.url {
+                    self.db.set_final_url(task.id, &probe.url).await?;
+                    task.final_url = Some(probe.url);
+                }
                 task.name = Some(file_name);
                 task.path = Some(path.clone());
                 task.size = probe.size;

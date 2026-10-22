@@ -135,6 +135,9 @@ pub struct AddDownload {
     /// A ZIP archive: names (or globs) of the files inside it to download, extracted into a
     /// folder named after it (see `inspect_archive`).
     pub archive_entries: Option<Vec<String>>,
+    /// Add it even when it was downloaded before or is on the list already; otherwise such
+    /// a request is refused with what was found.
+    pub allow_duplicate: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

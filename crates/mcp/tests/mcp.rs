@@ -190,9 +190,17 @@ async fn tools_reach_the_app() {
         json!({
             "type": "add", "url": "https://x/b.zip", "dir": null, "name": "b.zip", "start": null,
             "mirrors": [], "checksum": null, "video_height": null, "audio_only": null,
-            "torrent_files": null, "archive_entries": null
+            "torrent_files": null, "archive_entries": null, "allow_duplicate": null
         })
     );
+    // Adding again what was downloaded before is on the caller's word.
+    let (_, again) = mcp
+        .tool(
+            "add_download",
+            json!({ "url": "https://x/b.zip", "allow_duplicate": true }),
+        )
+        .await;
+    assert_eq!(again["allow_duplicate"], true);
 
     // A video page at 720p, and some files of a torrent.
     let (_, video) = mcp

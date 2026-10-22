@@ -96,5 +96,19 @@ export default {
 		'https://…   (foto[001-100].jpg numaralı toplu ekler)',
 	'Mirrors: other links to the same file, one per line':
 		'Aynalar: aynı dosyanın diğer bağlantıları, her satıra bir tane',
-	'Add mirror links…': 'Ayna bağlantısı ekle…'
+	'Add mirror links…': 'Ayna bağlantısı ekle…',
+
+	// Downloaded before
+	'Skip the {n} of {total} downloaded before or on the list':
+		'{total} dosyadan daha önce indirilen ya da listede olan {n} tanesini atla',
+	'Download anyway': 'Yine de indir',
+	'{n} of the {total} were downloaded before or are on the list.':
+		'{total} dosyanın {n} tanesi daha önce indirildi ya da listede.',
+	'Skip them': 'Onları atla',
+	'Already on the list, not finished yet.': 'Zaten listede, henüz bitmedi.',
+	'A file with the same name and size was downloaded on {date}.':
+		'Aynı ad ve boyutta bir dosya {date} tarihinde indirildi.',
+	'You downloaded this on {date}.': 'Bunu {date} tarihinde indirdiniz.',
+	'The file is no longer where it was saved.': 'Dosya artık kaydedildiği yerde değil.',
+	'Go to it': 'Ona git'
 } satisfies Record<string, string>;

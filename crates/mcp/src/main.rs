@@ -56,6 +56,10 @@ struct AddParams {
     /// fetched and extracted, into a folder named after the archive; without this the
     /// archive itself is downloaded.
     archive_entries: Option<Vec<String>>,
+    /// Add it even if it was downloaded before (same link, or a file of the same name and
+    /// size) or is already on the list. Without it such a request fails and says what was
+    /// found: its id, path, date and whether the file is still there.
+    allow_duplicate: Option<bool>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -176,6 +180,7 @@ impl Downloads {
             audio_only: p.audio_only,
             torrent_files: p.torrent_files,
             archive_entries: p.archive_entries,
+            allow_duplicate: p.allow_duplicate,
         }))
         .await
     }

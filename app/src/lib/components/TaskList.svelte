@@ -11,12 +11,15 @@
 		tasks,
 		sortKey = $bindable(),
 		sortDesc = $bindable(),
+		reveal = $bindable(null),
 		oncontext,
 		onopen
 	}: {
 		tasks: Task[];
 		sortKey: SortKey;
 		sortDesc: boolean;
+		/** A download to scroll into view; cleared once it is. */
+		reveal?: TaskId | null;
 		oncontext: (e: MouseEvent, task: Task) => void;
 		onopen: (task: Task) => void;
 	} = $props();
@@ -59,6 +62,17 @@
 		void shown;
 		const h = scroller.querySelector('tbody tr:not(.pad)')?.getBoundingClientRect().height;
 		if (h && Math.abs(h - rowHeight) > 0.01) rowHeight = h;
+	});
+
+	$effect(() => {
+		if (reveal === null) return;
+		const i = tasks.findIndex((t) => t.id === reveal);
+		if (i < 0) return;
+		const top = i * rowHeight;
+		if (top < scroller.scrollTop || top + rowHeight > scroller.scrollTop + viewHeight) {
+			scroller.scrollTop = Math.max(0, top - viewHeight / 2);
+		}
+		reveal = null;
 	});
 
 	/** Where a Shift-click range starts. */

@@ -53,3 +53,8 @@ export function date(ms: number): string {
 		? d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })
 		: d.toLocaleDateString(locale());
 }
+
+/** A day in words: "3 October 2026", Turkish "3 Ekim 2026". */
+export function day(ms: number): string {
+	return new Date(ms).toLocaleDateString(locale(), { day: 'numeric', month: 'long', year: 'numeric' });
+}

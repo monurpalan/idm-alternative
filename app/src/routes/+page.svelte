@@ -263,6 +263,21 @@
 		};
 	}
 
+	/** The download the list scrolls to. */
+	let reveal = $state<TaskId | null>(null);
+
+	/** Shows a download on the list, selected, and closes what asked for it. */
+	function goTo(id: TaskId) {
+		adding = null;
+		picking = null;
+		pageMedia = null;
+		view = 'all';
+		search = '';
+		downloads.selected.clear();
+		downloads.selected.add(id);
+		reveal = id;
+	}
+
 	function looksLikeUrl(s: string): boolean {
 		return /^(https?|ftp):\/\/\S+$/i.test(s.trim());
 	}
@@ -367,7 +382,14 @@
 		</header>
 
 		<main class:split={detailed}>
-			<TaskList tasks={visible} bind:sortKey bind:sortDesc oncontext={contextMenu} onopen={openRow} />
+			<TaskList
+				tasks={visible}
+				bind:sortKey
+				bind:sortDesc
+				bind:reveal
+				oncontext={contextMenu}
+				onopen={openRow}
+			/>
 			{#if detailed}
 				<DetailPane task={detailed} onerror={(m) => (notice = m)} onclose={() => downloads.selected.clear()} />
 			{/if}
@@ -412,6 +434,7 @@
 		name={adding.name}
 		headers={adding.headers}
 		onclose={() => (adding = null)}
+		onshow={goTo}
 	/>
 {/if}
 
@@ -431,7 +454,7 @@
 {/if}
 
 {#if pageMedia}
-	<PageDialog media={pageMedia} onclose={() => (pageMedia = null)} />
+	<PageDialog media={pageMedia} onclose={() => (pageMedia = null)} onshow={goTo} />
 {/if}
 
 {#if streaming}
