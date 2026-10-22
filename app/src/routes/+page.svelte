@@ -21,6 +21,10 @@
 		type WhenDone,
 		installUpdate,
 		isVideoPage,
+		droppedFileOrigin,
+		fileOrigin,
+		onOriginPick,
+		type Origin,
 		type AppUpdate,
 		onCapturedLinks,
 		onCapturedMedia,
@@ -50,6 +54,7 @@
 	import GrabDialog from '#lib/components/GrabDialog.svelte';
 	import MediaDialog from '#lib/components/MediaDialog.svelte';
 	import PageDialog from '#lib/components/PageDialog.svelte';
+	import OriginDialog from '#lib/components/OriginDialog.svelte';
 	import SettingsDialog from '#lib/components/SettingsDialog.svelte';
 	import Sidebar from '#lib/components/Sidebar.svelte';
 	import TaskList from '#lib/components/TaskList.svelte';
@@ -81,6 +86,8 @@
 	let pageMedia = $state<CapturedMedia | null>(null);
 	let removing = $state<TaskId[] | null>(null);
 	let renaming = $state<Task | null>(null);
+	/** "Where did this file come from?": what is known, or the dropped file's name. */
+	let tracing = $state<{ origin: Origin | null; dropped: string | null } | null>(null);
 	let menu = $state<{ x: number; y: number; items: Item[] } | null>(null);
 	let notice = $state<string | null>(null);
 	/** A passing message that is not an error. */
@@ -147,6 +154,7 @@
 				if (!adding) adding = { url, name: null, headers: null };
 			}),
 			onWhenDone((a) => (whenDone = a)),
+			onOriginPick(() => (tracing = { origin: null, dropped: null })),
 			onCountdown((c) => (countdown = c)),
 			onCapturedMedia((m) => {
 				const item = m.items[0];
@@ -278,6 +286,14 @@
 					separated: true
 				},
 				{
+					label: msg('Where did it come from?'),
+					action: () =>
+						run(
+							fileOrigin(task.path ?? '').then((origin) => (tracing = { origin, dropped: null }))
+						),
+					disabled: !one || one.status !== 'done' || !one.path
+				},
+				{
 					label: msg('Download again'),
 					action: () => run(restartTask(task.id)),
 					disabled: !one
@@ -332,7 +348,7 @@
 	}
 
 	function keydown(e: KeyboardEvent) {
-		if (adding || removing || renaming || settingsOpen || picking || streaming || pageMedia || inField(e))
+		if (adding || removing || renaming || settingsOpen || picking || streaming || pageMedia || tracing || inField(e))
 			return;
 		const ctrl = e.ctrlKey || e.metaKey;
 		if (ctrl && e.key.toLowerCase() === 'a') {
@@ -363,8 +379,32 @@
 		}
 	}
 
+	/** Files above this are looked up by name and size: hashing them in the page would
+	 * take their whole size in memory. */
+	const HASH_UP_TO = 256 << 20;
+
+	/** A file dropped on the window: where it came from, by its size and content. */
+	async function traceDropped(file: File) {
+		try {
+			let sha256: string | null = null;
+			if (file.size <= HASH_UP_TO) {
+				const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+				sha256 = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+			}
+			const origin = await droppedFileOrigin(file.size, sha256, file.name);
+			tracing = { origin, dropped: origin ? null : file.name };
+		} catch (err) {
+			notice = String(err);
+		}
+	}
+
 	function drop(e: DragEvent) {
 		e.preventDefault();
+		const file = e.dataTransfer?.files[0];
+		if (file) {
+			traceDropped(file);
+			return;
+		}
 		const text =
 			e.dataTransfer?.getData('text/uri-list').split('\n').find((l) => l && !l.startsWith('#')) ||
 			e.dataTransfer?.getData('text/plain') ||
@@ -505,6 +545,10 @@
 		onclose={() => (adding = null)}
 		onshow={goTo}
 	/>
+{/if}
+
+{#if tracing}
+	<OriginDialog origin={tracing.origin} dropped={tracing.dropped} onclose={() => (tracing = null)} />
 {/if}
 
 {#if removing}

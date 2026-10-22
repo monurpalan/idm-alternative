@@ -173,6 +173,18 @@ struct SiteParams {
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
+struct OriginParams {
+    /// Absolute path of the file.
+    path: String,
+    /// Also hash the file again and compare it with the checksum it was downloaded with,
+    /// or, without one, with the checksum its publisher posts (SHA256SUMS, GitHub).
+    check_checksum: Option<bool>,
+    /// Also ask its address whether it serves something else now (size, Last-Modified)
+    /// and, for a GitHub release asset, which release is the newest.
+    check_update: Option<bool>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
 struct WhenDoneParams {
     /// `nothing` (cancel), `exit` (close the app), `sleep`, `hibernate` or `shutdown`.
     action: String,
@@ -383,6 +395,21 @@ impl Downloads {
     )]
     async fn list_sites(&self) -> Result<CallToolResult, ErrorData> {
         self.ask(Request::Sites).await
+    }
+
+    #[tool(
+        description = "Where did this file come from? Finds a file's download in Shardload's history (by its path, or by its size and SHA-256 if it was moved or copied), or else reads the mark the browser left on it (Windows Zone.Identifier, Linux user.xdg.origin.url): address, page, date and checksum. traced says how: path, content, mark or unknown. With check_checksum it hashes the file again; with check_update it asks the address whether there is a newer version."
+    )]
+    async fn file_origin(
+        &self,
+        Parameters(p): Parameters<OriginParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.ask(Request::FileOrigin {
+            path: p.path,
+            check_checksum: p.check_checksum,
+            check_update: p.check_update,
+        })
+        .await
     }
 
     #[tool(

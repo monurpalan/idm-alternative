@@ -310,7 +310,7 @@ pub struct Group {
 }
 
 /// A finished download as the history keeps it, also after it left the list.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HistoryEntry {
     pub id: i64,
     /// The download, while it is on the list.

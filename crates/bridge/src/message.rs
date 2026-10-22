@@ -105,6 +105,16 @@ pub enum Request {
     ForgetSite {
         site: String,
     },
+    /// Where a file on disk came from: its download in the history (by path, or by size
+    /// and content), or the mark a browser left on it; optionally its checksum checked
+    /// again and its address asked whether there is something newer.
+    FileOrigin {
+        path: String,
+        #[serde(default)]
+        check_checksum: Option<bool>,
+        #[serde(default)]
+        check_update: Option<bool>,
+    },
     /// What to do once nothing is downloading or waiting any more: `nothing`, `exit`,
     /// `sleep`, `hibernate` or `shutdown`.
     WhenDone {

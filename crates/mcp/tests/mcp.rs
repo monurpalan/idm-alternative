@@ -157,6 +157,7 @@ async fn tools_reach_the_app() {
         names,
         [
             "add_download",
+            "file_origin",
             "find_site_files",
             "forget_site",
             "inspect_archive",

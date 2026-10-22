@@ -46,6 +46,7 @@ fn turkish(text: &str) -> Option<&'static str> {
         "No limit" => "Sınır yok",
         "Start all" => "Tümünü başlat",
         "Pause all" => "Tümünü duraklat",
+        "Where did a file come from?…" => "Bu dosya nereden geldi?…",
         "Quit" => "Çıkış",
         "Download" => "İndirme",
         "Download complete" => "İndirme tamamlandı",

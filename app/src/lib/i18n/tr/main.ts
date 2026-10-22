@@ -79,5 +79,40 @@ export default {
 	'Show the group': 'Grubu aç',
 	'{done} of {n} done': '{done}/{n} bitti',
 	'Rec. {time}': 'Kayıt {time}',
-	'Starts at {time}': '{time} başlar'
+	'Starts at {time}': '{time} başlar',
+
+	// Where did this file come from?
+	'Downloaded here, by Shardload.': 'Shardload buraya indirdi.',
+	'The same file as one Shardload downloaded (same size and content).':
+		'Shardload’un indirdiği bir dosyayla aynı (aynı boyut ve içerik).',
+	'Not downloaded by Shardload; the browser noted where it came from.':
+		'Shardload indirmedi; tarayıcı nereden geldiğini not etmiş.',
+	'Nothing says where this file came from.': 'Bu dosyanın nereden geldiğini söyleyen bir şey yok.',
+	'Where did this file come from?': 'Bu dosya nereden geldi?',
+	Address: 'Adres',
+	Page: 'Sayfa',
+	Checksum: 'Sağlama toplamı',
+	'There is no checksum to check it against, and the publisher posts none.':
+		'Karşılaştırılacak bir sağlama toplamı yok; yayıncı da yayımlamıyor.',
+	'The file matches its checksum ({from}).': 'Dosya sağlama toplamıyla eşleşiyor ({from}).',
+	'The file does not match its checksum ({from}): it changed or is damaged.':
+		'Dosya sağlama toplamıyla eşleşmiyor ({from}): değişmiş ya da bozulmuş.',
+	'A newer release is out: {latest} (this file is from {release}).':
+		'Daha yeni bir sürüm çıkmış: {latest} (bu dosya {release} sürümünden).',
+	'This is the newest release ({release}).': 'Bu en yeni sürüm ({release}).',
+	'The address serves a different file now ({size}).':
+		'Adres artık başka bir dosya veriyor ({size}).',
+	'The address serves the same file as when it was downloaded.':
+		'Adres, indirildiği zamanki dosyanın aynısını veriyor.',
+	'The server does not say whether it changed.': 'Sunucu değişip değişmediğini söylemiyor.',
+	'Added to the list.': 'Listeye eklendi.',
+	'Shardload has not downloaded {name}.': 'Shardload {name} dosyasını indirmedi.',
+	'Choose the file: Windows keeps the address it was downloaded from with it, and so does Linux.':
+		'Dosyayı seçin: Windows (ve Linux) indirildiği adresi dosyayla birlikte saklar.',
+	'Choose a file to see where it came from.': 'Nereden geldiğini görmek için bir dosya seçin.',
+	'Choose a file…': 'Dosya seç…',
+	'Another file…': 'Başka bir dosya…',
+	'Check the checksum': 'Sağlama toplamını denetle',
+	'Newer version?': 'Yeni sürüm var mı?',
+	'Where did it come from?': 'Nereden geldi?'
 } satisfies Record<string, string>;

@@ -15,6 +15,7 @@ pub mod clip;
 mod db;
 pub mod folder;
 pub mod grabber;
+pub mod origin;
 mod relocate;
 mod retry;
 mod secret;
@@ -455,7 +456,7 @@ fn on_disk(h: &HistoryEntry) -> bool {
 }
 
 /// `Name (2).ext` → `name.ext`: the names downloads of the same file may have got.
-fn plain_name(name: &str) -> String {
+pub(crate) fn plain_name(name: &str) -> String {
     let (stem, ext) = shardload_engine::name::split_extension(name);
     let stem = match stem.rsplit_once(" (") {
         Some((base, n))
@@ -732,6 +733,46 @@ impl Manager {
     /// Groups that still have downloads on the list, newest first.
     pub async fn groups(&self) -> Result<Vec<Group>> {
         self.inner.db.groups().await
+    }
+
+    /// Where the file at `path` came from: the download that saved it (by its path, or by
+    /// its size and SHA-256), or the mark the browser left on it.
+    pub async fn file_origin(&self, path: &Path) -> Result<origin::Origin> {
+        origin::trace(&self.inner.db, path).await
+    }
+
+    /// The download of a file known only by its `size` and its SHA-256 (hex) or `name`.
+    pub async fn find_by_content(
+        &self,
+        size: u64,
+        sha256: Option<&str>,
+        name: Option<&str>,
+    ) -> Result<Option<HistoryEntry>> {
+        origin::trace_content(&self.inner.db, size, sha256, name).await
+    }
+
+    /// The file at `path` hashed again, against the checksum `recorded` with its download,
+    /// or without one against what the publisher of `url` posts now.
+    pub async fn check_file_checksum(
+        &self,
+        path: &Path,
+        recorded: Option<&str>,
+        url: Option<&str>,
+    ) -> Result<origin::ChecksumCheck> {
+        let opts = lock(&self.inner.config).engine.clone();
+        origin::check_checksum(path, recorded, url, &opts).await
+    }
+
+    /// Asks `url` whether it serves something else now than the `size` bytes downloaded at
+    /// `downloaded_at`, and for a GitHub release asset which release is the newest.
+    pub async fn check_for_update(
+        &self,
+        url: &str,
+        size: u64,
+        downloaded_at: Option<i64>,
+    ) -> Result<origin::UpdateCheck> {
+        let opts = lock(&self.inner.config).engine.clone();
+        origin::check_update(url, size, downloaded_at, &opts).await
     }
 
     /// Finished downloads, newest first, also those no longer on the list.

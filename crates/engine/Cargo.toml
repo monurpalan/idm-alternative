@@ -29,6 +29,9 @@ crc32fast = "1.5"
 flate2 = "1.1"
 shardload-media = { version = "0.1.1", path = "../media" }
 
+[target.'cfg(unix)'.dependencies]
+xattr = "1.6"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",

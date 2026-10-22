@@ -158,10 +158,34 @@ pub(crate) async fn verify(
     cancel: &CancellationToken,
     done: Arc<AtomicU64>,
 ) -> Result<()> {
-    let path = path.to_owned();
     let algorithm = want.algorithm;
+    let got = digest(path, algorithm, cancel, done).await?;
+    if got == want.digest {
+        Ok(())
+    } else {
+        Err(Error::ChecksumMismatch {
+            expected: want.to_string(),
+            actual: format!("{}:{}", algorithm.name(), hex(&got)),
+            origin: None,
+        })
+    }
+}
+
+/// The checksum of the file at `path` (e.g. to look it up, or to check it again).
+pub async fn file_checksum(path: &Path, algorithm: Algorithm) -> Result<Checksum> {
+    let digest = digest(path, algorithm, &CancellationToken::new(), Arc::default()).await?;
+    Ok(Checksum { algorithm, digest })
+}
+
+async fn digest(
+    path: &Path,
+    algorithm: Algorithm,
+    cancel: &CancellationToken,
+    done: Arc<AtomicU64>,
+) -> Result<Vec<u8>> {
+    let path = path.to_owned();
     let cancel = cancel.clone();
-    let got = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+    tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
         let mut file = std::fs::File::open(&path)?;
         let mut hasher = Hasher::new(algorithm);
         let mut buf = vec![0u8; 1 << 20];
@@ -178,16 +202,7 @@ pub(crate) async fn verify(
         }
     })
     .await
-    .map_err(std::io::Error::other)??;
-    if got == want.digest {
-        Ok(())
-    } else {
-        Err(Error::ChecksumMismatch {
-            expected: want.to_string(),
-            actual: format!("{}:{}", algorithm.name(), hex(&got)),
-            origin: None,
-        })
-    }
+    .map_err(std::io::Error::other)?
 }
 
 #[cfg(test)]

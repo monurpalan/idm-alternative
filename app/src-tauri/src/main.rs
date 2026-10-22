@@ -274,6 +274,69 @@ async fn show_previous(handle: AppHandle, app: State<'_, App>, history: i64) -> 
     handle.opener().reveal_item_in_dir(path).map_err(msg)
 }
 
+/// Where the file at `path` came from (a file the user chose).
+#[tauri::command]
+async fn file_origin(
+    app: State<'_, App>,
+    path: PathBuf,
+) -> CmdResult<shardload_manager::origin::Origin> {
+    app.manager.file_origin(&path).await.map_err(msg)
+}
+
+/// Where a dropped file came from, known by its size and content (or name): the page gets
+/// no path for it.
+#[tauri::command]
+async fn dropped_file_origin(
+    app: State<'_, App>,
+    size: u64,
+    sha256: Option<String>,
+    name: Option<String>,
+) -> CmdResult<Option<shardload_manager::origin::Origin>> {
+    let found = app
+        .manager
+        .find_by_content(size, sha256.as_deref(), name.as_deref())
+        .await
+        .map_err(msg)?;
+    Ok(found.map(|h| shardload_manager::origin::Origin {
+        path: h.path.clone(),
+        size,
+        traced: shardload_manager::origin::Traced::Content,
+        url: Some(h.final_url.clone().unwrap_or_else(|| h.url.clone())),
+        page: h.page.clone(),
+        downloaded_at: Some(h.finished_at),
+        checksum: h.checksum.clone(),
+        history: Some(h),
+    }))
+}
+
+/// The file hashed again against its download's checksum, or the one its publisher posts.
+#[tauri::command]
+async fn check_file_checksum(
+    app: State<'_, App>,
+    path: PathBuf,
+    checksum: Option<String>,
+    url: Option<String>,
+) -> CmdResult<shardload_manager::origin::ChecksumCheck> {
+    app.manager
+        .check_file_checksum(&path, checksum.as_deref(), url.as_deref())
+        .await
+        .map_err(msg)
+}
+
+/// Whether the file's address serves something newer now.
+#[tauri::command]
+async fn check_for_update(
+    app: State<'_, App>,
+    url: String,
+    size: u64,
+    downloaded_at: Option<i64>,
+) -> CmdResult<shardload_manager::origin::UpdateCheck> {
+    app.manager
+        .check_for_update(&url, size, downloaded_at)
+        .await
+        .map_err(msg)
+}
+
 /// What downloads learned about each site, for the settings.
 #[tauri::command]
 async fn sites(app: State<'_, App>) -> CmdResult<Vec<shardload_manager::SiteMemory>> {
@@ -1441,6 +1504,8 @@ fn on_tray_menu(app: &AppHandle, id: &str) {
         tray::PAUSE_ALL => {
             tauri::async_runtime::spawn(async move { manager.pause_all().await.ok() });
         }
+        // The page asks for the file: the dialog is there.
+        tray::ORIGIN => to_page(app, "origin-pick", (), true),
         tray::QUIT => app.exit(0),
         id => {
             let Some((limit, _)) = id
@@ -1900,6 +1965,17 @@ async fn bridge_reply(
                 Err(e) => Reply::error(e.to_string()),
             }
         }
+        Request::FileOrigin {
+            path,
+            check_checksum,
+            check_update,
+        } => match tool_file_origin(handle, &path, check_checksum, check_update).await {
+            Ok(data) => Reply {
+                data: Some(data),
+                ..Reply::ok()
+            },
+            Err(e) => Reply::error(e),
+        },
         Request::ForgetSite { site } => {
             let app = handle.state::<App>();
             match app.manager.forget_site(site.trim()).await {
@@ -2155,6 +2231,55 @@ async fn tool_add_playlist(
         "group": title,
         "added": added.iter().map(|t| task_view(t, None)).collect::<Vec<_>>(),
         "skipped_downloaded_before": skipped,
+    }))
+}
+
+/// Where a file came from, for a local tool; with the checks it asked for.
+async fn tool_file_origin(
+    handle: &AppHandle,
+    path: &str,
+    check_checksum: Option<bool>,
+    check_update: Option<bool>,
+) -> CmdResult<serde_json::Value> {
+    let app = handle.state::<App>();
+    let origin = app
+        .manager
+        .file_origin(Path::new(path.trim()))
+        .await
+        .map_err(msg)?;
+    let checksum = match check_checksum {
+        Some(true) => Some(
+            app.manager
+                .check_file_checksum(
+                    &origin.path,
+                    origin.checksum.as_deref(),
+                    origin.url.as_deref(),
+                )
+                .await
+                .map_err(msg)?,
+        ),
+        _ => None,
+    };
+    let update = match (check_update, &origin.url) {
+        (Some(true), Some(url)) => Some(
+            app.manager
+                .check_for_update(url, origin.size, origin.downloaded_at)
+                .await
+                .map_err(msg)?,
+        ),
+        _ => None,
+    };
+    Ok(serde_json::json!({
+        "path": origin.path,
+        "size": origin.size,
+        "traced": origin.traced,
+        "url": origin.url,
+        "page": origin.page,
+        "downloaded": origin.downloaded_at.map(utc_date),
+        "checksum": origin.checksum,
+        "download_id": origin.history.as_ref().and_then(|h| h.task_id),
+        "checksum_check": checksum,
+        "update_check": update,
     }))
 }
 
@@ -2574,6 +2699,10 @@ fn main() {
             sites,
             site_memory,
             forget_site,
+            file_origin,
+            dropped_file_origin,
+            check_file_checksum,
+            check_for_update,
             saved_logins,
             forget_login,
             open_file,

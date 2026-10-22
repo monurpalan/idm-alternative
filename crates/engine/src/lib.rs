@@ -34,11 +34,11 @@ mod subtitles;
 mod zip;
 mod zone;
 
-pub use checksum::{Algorithm, Checksum};
+pub use checksum::{Algorithm, Checksum, file_checksum};
 pub use dash::{DashRequest, download_dash};
 pub use download::{
     Learned, Learning, Options, Outcome, Phase, Probe, Progress, Request, SegmentView, download,
-    fetch_text, probe,
+    fetch_text, find_published_checksum, github_releases, probe,
 };
 pub use error::{Error, Result};
 pub use hls::{Clip, RecordRequest, StreamRequest, download_hls, record_hls};
@@ -52,7 +52,7 @@ pub use tokio_util::sync::CancellationToken;
 pub use zip::{
     Extracted, RemoteZip, ZipEntry, method_name, safe_path, select as select_zip_entries,
 };
-pub use zone::{mark_of_the_web, zone_identifier};
+pub use zone::{FileMark, mark_of_the_web, read_mark, zone_identifier};
 
 /// Engine version, reported by the CLI and the app.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

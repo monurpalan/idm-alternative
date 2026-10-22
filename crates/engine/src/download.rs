@@ -403,6 +403,9 @@ pub struct Probe {
     pub resumable: bool,
     /// Safe file name from `Content-Disposition`, the URL or the media type.
     pub name: String,
+    /// The server's validators for the file, to tell later whether it changed.
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
 }
 
 /// Asks the server about `url` with the same client settings a download would use, reading
@@ -416,7 +419,63 @@ pub async fn probe(url: &str, headers: &[(String, String)], opts: &Options) -> R
         size: remote.size,
         resumable: remote.ranges && remote.size.is_some(),
         name: remote.name,
+        etag: remote.validators.etag,
+        last_modified: remote.validators.last_modified,
     })
+}
+
+/// Looks for a checksum the publisher posted for the file at `url` (named `name` on disk):
+/// GitHub's digest of a release asset, or a checksum file next to it. Returns it with
+/// where it was found.
+pub async fn find_published_checksum(
+    url: &str,
+    name: &str,
+    headers: &[(String, String)],
+    opts: &Options,
+) -> Result<Option<(Checksum, String)>> {
+    let http = Http::new(&http_config(headers, opts))?;
+    let names: Vec<String> = crate::name::from_url(url)
+        .into_iter()
+        .chain(std::iter::once(name.to_owned()))
+        .collect();
+    Ok(
+        crate::discover::discover(http, http_config(&[], opts), url.to_owned(), names)
+            .await
+            .map(|f| (f.checksum, f.from)),
+    )
+}
+
+/// For a GitHub release asset (`…/releases/download/<tag>/<asset>`): the release it is from
+/// and the newest release of the project, when GitHub says.
+pub async fn github_releases(url: &str, opts: &Options) -> Result<Option<(String, String)>> {
+    let Some(release) = crate::discover::github_release(url) else {
+        return Ok(None);
+    };
+    let Some(tag) = release.tag.clone() else {
+        return Ok(None);
+    };
+    let api = format!(
+        "https://api.github.com/repos/{}/{}/releases/latest",
+        release.owner, release.repo
+    );
+    let headers = [(
+        "Accept".to_owned(),
+        "application/vnd.github+json".to_owned(),
+    )];
+    let (json, _) = fetch_text(&api, &headers, opts, 4 << 20).await?;
+    let latest: serde_json::Value = serde_json::from_str(&json)
+        .map_err(|e| Error::State(format!("GitHub answered something unexpected: {e}")))?;
+    let tag = percent_decoded(&tag);
+    Ok(latest["tag_name"]
+        .as_str()
+        .map(|latest| (tag, latest.to_owned())))
+}
+
+/// `v1%2B2` → `v1+2`.
+fn percent_decoded(s: &str) -> String {
+    url::form_urlencoded::parse(format!("x={s}").as_bytes())
+        .next()
+        .map_or_else(|| s.to_owned(), |(_, v)| v.into_owned())
 }
 
 /// Hashes the finished file, reporting progress about four times a second.

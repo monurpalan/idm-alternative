@@ -1,6 +1,6 @@
 //! The tray icon. The app keeps running there when its window is closed (if the settings say
-//! so); its menu shows the window, sets a quick speed limit, starts or pauses everything, and
-//! quits.
+//! so); its menu shows the window, sets a quick speed limit, starts or pauses everything,
+//! traces a file to its download, and quits.
 
 use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -19,6 +19,7 @@ pub const LIMITS: [(Option<u64>, &str); 5] = [
 pub const SHOW: &str = "show";
 pub const START_ALL: &str = "start_all";
 pub const PAUSE_ALL: &str = "pause_all";
+pub const ORIGIN: &str = "origin";
 pub const QUIT: &str = "quit";
 /// Followed by the index into [`LIMITS`].
 pub const LIMIT_PREFIX: &str = "limit:";
@@ -69,6 +70,14 @@ pub fn build(app: &AppHandle, limit: Option<u64>, lang: &str) -> tauri::Result<T
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, START_ALL, tr("Start all"), true, None::<&str>)?,
             &MenuItem::with_id(app, PAUSE_ALL, tr("Pause all"), true, None::<&str>)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(
+                app,
+                ORIGIN,
+                tr("Where did a file come from?…"),
+                true,
+                None::<&str>,
+            )?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, QUIT, tr("Quit"), true, None::<&str>)?,
         ],
