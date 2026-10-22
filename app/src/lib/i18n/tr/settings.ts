@@ -91,6 +91,10 @@ export default {
 		'Henüz yok. Bir sunucu parola istediğinde “Hatırla”yı işaretleyin.',
 	'Take downloads from the browser extension (Chrome, Edge, Brave, Vivaldi, Opera and Firefox)':
 		'Tarayıcı eklentisinden gelen indirmeleri al (Chrome, Edge, Brave, Vivaldi, Opera ve Firefox)',
+	connected: 'bağlı',
+	'out of date': 'eski',
+	'not found': 'bulunamadı',
+	'No supported browser found': 'Desteklenen tarayıcı bulunamadı',
 	'Look for a new version once a day': 'Yeni sürümü günde bir kez denetle',
 	'Finished downloads are remembered, to tell you when you add one again.':
 		'Biten indirmeler hatırlanır; birini yeniden eklediğinizde söylenir.',

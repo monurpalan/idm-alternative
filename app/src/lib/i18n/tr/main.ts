@@ -31,6 +31,14 @@ export default {
 	'Restart and update': 'Yeniden başlat ve güncelle',
 	'Downloading…': 'İndiriliyor…',
 	Later: 'Sonra',
+	'The extension in {browser} is out of date.': '{browser} içindeki eklenti eski.',
+	'Update it so downloads keep reaching the app.':
+		'İndirmelerin uygulamaya ulaşmaya devam etmesi için eklentiyi güncelleyin.',
+	'Browser extension not found.': 'Tarayıcı eklentisi bulunamadı.',
+	'Install it to download from the browser with this app.':
+		'Tarayıcıdan bu uygulamayla indirmek için eklentiyi kurun.',
+	Install: 'Kur',
+	'Don’t show again': 'Bir daha gösterme',
 	Dismiss: 'Kapat',
 
 	// Right-click menu

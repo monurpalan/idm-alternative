@@ -53,6 +53,7 @@ for (const [name, manifest] of Object.entries(targets)) {
 		format: 'iife',
 		target: 'es2022',
 		outdir: out,
+		define: { TARGET: JSON.stringify(name) },
 		logLevel: 'warning'
 	});
 	cpSync('src/options.html', `${out}/options.html`);

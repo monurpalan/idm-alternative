@@ -25,11 +25,14 @@ mod torrent_links;
 #[path = "torrent_links_unix.rs"]
 mod torrent_links;
 
-pub use client::Client;
+pub use client::{Client, NOT_RUNNING};
 pub use frame::{MAX_FRAME, read_frame, read_json, write_frame, write_json};
-pub use message::{AddDownload, Capture, Link, MediaCapture, MediaItem, Reply, Request};
+pub use message::{
+    AddDownload, Capture, ExtensionHello, Link, MIN_EXTENSION_PROTOCOL, MediaCapture, MediaItem,
+    PROTOCOL, Reply, Request,
+};
 pub use pipe::{Conn, connect, serve};
-pub use register::{manifest_dir, register, registered_manifest, unregister};
+pub use register::{installed_browsers, manifest_dir, register, registered_manifest, unregister};
 pub use torrent_links::{
     CLASSES, register_torrent_links, torrent_links_registered, unregister_torrent_links,
 };

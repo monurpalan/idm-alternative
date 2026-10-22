@@ -85,5 +85,48 @@ async fn forward(app: &mut Client, frame: &[u8]) -> Result<Vec<u8>> {
         // asking and removing are for the user's own tools.
         return Err("not accepted from the browser".into());
     }
-    app.send(frame).await
+    if starts_app(&request) {
+        app.send(frame).await
+    } else {
+        app.send_if_running(frame).await
+    }
+}
+
+/// Whether this message starts the app when it is not running. The extension says hello
+/// whenever the browser starts; that alone must not bring back an app the user quit.
+fn starts_app(request: &Request) -> bool {
+    !matches!(request, Request::Extension(_))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_hello_leaves_a_quit_app_alone() {
+        let hello: Request = serde_json::from_str(
+            r#"{"type":"extension","version":"0.1.1","browser":"chrome","protocol":1}"#,
+        )
+        .expect("hello");
+        assert!(!starts_app(&hello));
+        assert!(starts_app(&Request::Ping));
+        let download: Request =
+            serde_json::from_str(r#"{"type":"download","url":"https://x/a.zip"}"#)
+                .expect("download");
+        assert!(starts_app(&download));
+    }
+
+    #[tokio::test]
+    async fn a_hello_to_an_app_that_is_not_running_fails_without_starting_it() {
+        let data =
+            std::env::temp_dir().join(format!("shardload-host-hello-{}", std::process::id()));
+        std::fs::create_dir_all(&data).expect("folder");
+        // No app next to the test: had the host tried to start one, the error would say it
+        // could not.
+        let mut app = Client::new(data.clone());
+        let frame = br#"{"type":"extension","version":"0.1.1","browser":"chrome","protocol":1}"#;
+        let error = forward(&mut app, frame).await.expect_err("not running");
+        assert_eq!(error, shardload_bridge::NOT_RUNNING);
+        std::fs::remove_dir_all(&data).ok();
+    }
 }

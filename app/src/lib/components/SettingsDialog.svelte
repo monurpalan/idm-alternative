@@ -3,6 +3,10 @@
 	import { open as pickFile, open as pickFolder, save as pickSaveFile } from '@tauri-apps/plugin-dialog';
 	import { Button, Checkbox, Dialog, Field, Input, Select, Text } from './ui/index.ts';
 	import {
+		BROWSER_NAMES,
+		extensionStatus,
+		onExtensions,
+		type ExtensionStatus,
 		getSettings,
 		checkUpdate,
 		exportSettings,
@@ -73,6 +77,23 @@
 		logins = await savedLogins().catch(() => logins);
 	}
 
+	/** The extension in each browser, for the line under browser integration. */
+	let extensions = $state<ExtensionStatus | null>(null);
+	const STATES = {
+		connected: msg('connected'),
+		outdated: msg('out of date'),
+		missing: msg('not found')
+	};
+	const extensionLine = $derived(
+		extensions?.browsers
+			.map((b) => {
+				const state = t(STATES[b.state]);
+				const name = BROWSER_NAMES[b.browser] ?? b.browser;
+				return b.version ? `${name}: ${state} (${b.version})` : `${name}: ${state}`;
+			})
+			.join(' · ') ?? ''
+	);
+
 	/** The result of "Check now". */
 	let updateStatus = $state<string | null>(null);
 
@@ -110,6 +131,10 @@
 				.catch(() => {});
 		refresh();
 		const unlisten = onToolsUpdated(refresh);
+		extensionStatus()
+			.then((v) => (extensions = v))
+			.catch(() => {});
+		const unlistenExtensions = onExtensions((v) => (extensions = v));
 		savedLogins()
 			.then((l) => (logins = l))
 			.catch(() => {});
@@ -121,6 +146,7 @@
 			.catch((e) => (error = String(e)));
 		return () => {
 			unlisten.then((f) => f());
+			unlistenExtensions.then((f) => f());
 		};
 	});
 
@@ -320,6 +346,13 @@
 				<Checkbox bind:checked={s.browser_integration}
 					>{t('Take downloads from the browser extension (Chrome, Edge, Brave, Vivaldi, Opera and Firefox)')}</Checkbox
 				>
+				{#if s.browser_integration && extensions}
+					<div class="indent">
+						<Text variant="caption"
+							>{extensionLine || t('No supported browser found')}</Text
+						>
+					</div>
+				{/if}
 				<Checkbox bind:checked={s.watch_clipboard}
 					>{t('Offer download links I copy (archives, programs, video, music, documents)')}</Checkbox
 				>

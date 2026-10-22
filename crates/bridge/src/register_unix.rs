@@ -19,6 +19,8 @@ const CHROMIUM_DIRS: [&str; 5] = [
     "BraveSoftware/Brave-Browser",
     "vivaldi",
 ];
+/// The browsers of [`CHROMIUM_DIRS`], as the extension names them.
+const CHROMIUM_NAMES: [&str; 5] = ["chrome", "chromium", "edge", "brave", "vivaldi"];
 
 /// Kept for the same API as on Windows, where the manifests live in the data folder; here
 /// they go straight into the browsers' folders.
@@ -39,21 +41,36 @@ fn home() -> Option<PathBuf> {
 
 /// `(browser folder, manifest path, is Firefox)` for every supported browser.
 fn targets() -> Vec<(PathBuf, PathBuf, bool)> {
+    named_targets().into_iter().map(|(_, t)| t).collect()
+}
+
+/// [`targets`] with each browser's name, as the extension names it.
+fn named_targets() -> Vec<(&'static str, (PathBuf, PathBuf, bool))> {
     let file = format!("{HOST_NAME}.json");
     let mut out = Vec::new();
     if let Some(config) = config_home() {
-        for dir in CHROMIUM_DIRS {
+        for (dir, name) in CHROMIUM_DIRS.into_iter().zip(CHROMIUM_NAMES) {
             let browser = config.join(dir);
             let manifest = browser.join("NativeMessagingHosts").join(&file);
-            out.push((browser, manifest, false));
+            out.push((name, (browser, manifest, false)));
         }
     }
     if let Some(home) = home() {
         let browser = home.join(".mozilla");
         let manifest = browser.join("native-messaging-hosts").join(&file);
-        out.push((browser, manifest, true));
+        out.push(("firefox", (browser, manifest, true)));
     }
     out
+}
+
+/// The supported browsers this user has (by their folders): `chrome`, `chromium`, `edge`,
+/// `brave`, `vivaldi`, `firefox`.
+pub fn installed_browsers() -> Vec<&'static str> {
+    named_targets()
+        .into_iter()
+        .filter(|(_, (browser, _, _))| browser.is_dir())
+        .map(|(name, _)| name)
+        .collect()
 }
 
 /// Writes our manifest, naming `host` (the host executable, or a script starting it), into

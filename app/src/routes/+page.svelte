@@ -1,8 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import {
+		BROWSER_NAMES,
+		dismissExtensionWarning,
+		extensionStatus,
 		getSettings,
+		installExtension,
 		moveTask,
+		onExtensions,
+		type ExtensionStatus,
 		onCapture,
 		onUpdate,
 		onClipboard,
@@ -86,6 +92,26 @@
 	/** What happens when all downloads finish (one shot). */
 	let whenDone = $state<WhenDone>('nothing');
 	let countdown = $state<{ action: WhenDone; seconds: number } | null>(null);
+	/** The browser extensions heard from; its warning shows under the list. */
+	let extensions = $state<ExtensionStatus | null>(null);
+	/** The extension warning was closed for this run of the app. */
+	let extensionLater = $state(false);
+	const extensionWarning = $derived(extensionLater ? null : (extensions?.warning ?? null));
+	const browserName = (b: string) => BROWSER_NAMES[b] ?? b;
+
+	function loadExtensions() {
+		extensionStatus()
+			.then((s) => (extensions = s))
+			.catch(() => {});
+	}
+
+	// The grace before "not found" runs out with the window open.
+	$effect(() => {
+		const secs = extensions?.check_in;
+		if (secs == null) return;
+		const timer = setTimeout(loadExtensions, (secs + 1) * 1000);
+		return () => clearTimeout(timer);
+	});
 
 	async function applyUpdate() {
 		updating = true;
@@ -106,8 +132,10 @@
 		getWhenDone()
 			.then((a) => (whenDone = a))
 			.catch(() => {});
+		loadExtensions();
 		const unlisten = [
 			onSettings((s) => (globalLimit = s.speed_limit)),
+			onExtensions((s) => (extensions = s)),
 			// The browser handed over a download: confirm it like IDM does.
 			onCapture((c) => (adding = { url: c.url, name: c.filename, headers: c.headers })),
 			onCapturedLinks((l) => (picking = l)),
@@ -415,6 +443,31 @@
 			<div class="message">
 				<span>{info}</span>
 				<Button variant="ghost" icon="close" onclick={() => (info = null)} label={t('Dismiss')} />
+			</div>
+		{:else if extensionWarning?.kind === 'outdated'}
+			<div class="message">
+				<span
+					>{t('The extension in {browser} is out of date.', { browser: browserName(extensionWarning.browser) })}
+					<Text variant="muted" inline>{t('Update it so downloads keep reaching the app.')}</Text></span
+				>
+				<Button variant="primary" onclick={() => run(installExtension(extensionWarning.browser))}
+					>{t('Update')}</Button
+				>
+				<Button variant="ghost" icon="close" onclick={() => (extensionLater = true)} label={t('Later')} />
+			</div>
+		{:else if extensionWarning?.kind === 'not_found'}
+			<div class="message">
+				<span
+					>{t('Browser extension not found.')}
+					<Text variant="muted" inline>{t('Install it to download from the browser with this app.')}</Text></span
+				>
+				<Button variant="primary" onclick={() => run(installExtension())}>{t('Install')}</Button>
+				<Button
+					variant="ghost"
+					onclick={() => run(dismissExtensionWarning().then((s) => (extensions = s)))}
+					>{t('Don’t show again')}</Button
+				>
+				<Button variant="ghost" icon="close" onclick={() => (extensionLater = true)} label={t('Later')} />
 			</div>
 		{/if}
 	</div>

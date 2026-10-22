@@ -12,6 +12,10 @@ import {
 } from './filter.ts';
 import { api } from './api.ts';
 import { chooseMedia, classify, remember, type MediaItem } from './media.ts';
+import { browserName, helloDue, helloMessage, type HelloTimes } from './hello.ts';
+
+/** Set by the build: which browser family this copy is for. */
+declare const TARGET: 'chromium' | 'firefox';
 
 const HOST = 'io.github.monurpalan.shardload';
 /** Alt held this recently (by any page) means "let the browser download this one". */
@@ -108,14 +112,19 @@ api.downloads.onCreated.addListener(async (item) => {
 	}
 });
 
-// Messages from content scripts: Alt key presses, and the button over videos.
+// Messages from content scripts (Alt key presses, the button over videos) and from the popup
+// (is the app there?).
 chrome.runtime.onMessage.addListener(
 	(
-		message: { alt?: boolean; videoButton?: { src: string } },
+		message: { alt?: boolean; videoButton?: { src: string }; hello?: boolean },
 		sender: chrome.runtime.MessageSender,
-		sendResponse: (reply: Reply) => void
+		sendResponse: (reply: Reply | null) => void
 	) => {
 		if (message?.alt) altDownAt = Date.now();
+		if (message?.hello) {
+			hello(true).then(sendResponse);
+			return true;
+		}
 		if (message?.videoButton && sender.tab?.id !== undefined) {
 			sendVideo(sender.tab, message.videoButton.src).then(sendResponse);
 			return true; // the reply comes later
@@ -144,7 +153,52 @@ async function sendVideo(tab: chrome.tabs.Tab, src: string): Promise<Reply> {
 const MENU_LINK = 'shardload-link';
 const MENU_PAGE = 'shardload-page';
 
+// Hello to the app: when the browser starts, when the extension is installed or updated, and
+// when the background wakes up later on (at most once an hour). An app that is not running is
+// left alone; the next wake-up tries again.
+
+const HELLO_KEY = 'hello';
+
+/** Says hello when one is due (or `fresh`); the app's reply, or `null` when none was due. */
+async function sayHello(fresh: boolean): Promise<Reply | null> {
+	if (fresh) await api.storage.session.remove(HELLO_KEY);
+	const stored = await api.storage.session.get(HELLO_KEY);
+	const last = (stored[HELLO_KEY] as HelloTimes | undefined) ?? {};
+	const now = Date.now();
+	if (!helloDue(last, now)) return null;
+	await api.storage.session.set({ [HELLO_KEY]: { ...last, tried: now } });
+	const data = navigator as Navigator & {
+		userAgentData?: { brands: { brand: string }[] };
+		brave?: unknown;
+	};
+	const browser = browserName({
+		firefox: TARGET === 'firefox',
+		brands: data.userAgentData?.brands.map((b) => b.brand) ?? [],
+		brave: data.brave !== undefined,
+		userAgent: navigator.userAgent
+	});
+	const reply = await send(helloMessage(api.runtime.getManifest().version, browser));
+	if (reply.ok) await api.storage.session.set({ [HELLO_KEY]: { ok: now, tried: now } });
+	return reply;
+}
+
+/** One hello at a time, so the events arriving together at start send one. */
+let helloQueue: Promise<Reply | null> = Promise.resolve(null);
+function hello(fresh = false): Promise<Reply | null> {
+	helloQueue = helloQueue
+		.then(() => sayHello(fresh))
+		.catch((e) => {
+			console.warn('Shardload: hello:', e);
+			return null;
+		});
+	return helloQueue;
+}
+chrome.runtime.onStartup.addListener(() => hello());
+hello();
+
 chrome.runtime.onInstalled.addListener(() => {
+	// Installed or updated: the app learns the new version now.
+	hello(true);
 	chrome.contextMenus.removeAll(() => {
 		chrome.contextMenus.create({
 			id: MENU_LINK,

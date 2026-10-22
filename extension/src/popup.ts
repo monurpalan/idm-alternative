@@ -4,6 +4,7 @@
 import { api } from './api.ts';
 import { cookieHeader } from './filter.ts';
 import { label, type MediaItem } from './media.ts';
+import { hostMissing } from './hello.ts';
 
 const HOST = 'io.github.monurpalan.shardload';
 
@@ -74,4 +75,19 @@ async function show() {
 	}
 }
 
+/**
+ * Says when the app is not installed. A hello does not start an app that is installed but not
+ * running; only a missing native host means it is not there.
+ */
+async function checkApp() {
+	const reply = (await api.runtime.sendMessage({ hello: true }).catch(() => null)) as {
+		ok: boolean;
+		error?: string;
+	} | null;
+	if (reply && !reply.ok && hostMissing(reply.error ?? '')) {
+		document.getElementById('missing')!.hidden = false;
+	}
+}
+
+checkApp();
 show();

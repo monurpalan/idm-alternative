@@ -58,8 +58,10 @@ h1 {
 	outline-offset: 2px;
 }
 
-/* Buttons: secondary by default, `.primary` for the page's main action. */
-button {
+/* Buttons: secondary by default, `.primary` for the page's main action. A link styled as
+   one is `a.button`. */
+button,
+a.button {
 	min-height: var(--space-8);
 	padding: 0 var(--space-3);
 	border: 1px solid var(--line);
@@ -70,10 +72,18 @@ button {
 	white-space: nowrap;
 	cursor: pointer;
 }
-button:hover {
+a.button {
+	display: inline-flex;
+	align-items: center;
+	box-sizing: border-box;
+	text-decoration: none;
+}
+button:hover,
+a.button:hover {
 	background: var(--hover);
 }
-button.primary {
+button.primary,
+a.button.primary {
 	border-color: var(--accent);
 	background: var(--accent);
 	color: var(--on-accent);

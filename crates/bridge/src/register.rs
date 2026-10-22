@@ -21,6 +21,8 @@ const CHROMIUM_KEYS: [&str; 5] = [
     r"Software\Vivaldi",
 ];
 const FIREFOX_KEY: &str = r"Software\Mozilla";
+/// The browsers of [`CHROMIUM_KEYS`], as the extension names them.
+const CHROMIUM_NAMES: [&str; 5] = ["chrome", "chromium", "edge", "brave", "vivaldi"];
 
 /// Where the manifests go, inside the app's data folder.
 pub fn manifest_dir(data_dir: &Path) -> PathBuf {
@@ -92,6 +94,19 @@ pub fn registered_manifest() -> Option<PathBuf> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let key = hkcu.open_subkey(host_key(CHROMIUM_KEYS[0])).ok()?;
     key.get_value::<String, _>("").ok().map(PathBuf::from)
+}
+
+/// The supported browsers this user has (by their keys), as the extension names them:
+/// `chrome`, `chromium`, `edge`, `brave`, `vivaldi`, `firefox`.
+pub fn installed_browsers() -> Vec<&'static str> {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    CHROMIUM_KEYS
+        .iter()
+        .zip(CHROMIUM_NAMES)
+        .chain([(&FIREFOX_KEY, "firefox")])
+        .filter(|(key, _)| hkcu.open_subkey(key).is_ok())
+        .map(|(_, name)| name)
+        .collect()
 }
 
 fn host_key(browser: &str) -> String {

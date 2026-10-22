@@ -13,6 +13,9 @@ pub enum Request {
     },
     /// Is anyone there? Answered with the app's version.
     Ping,
+    /// The extension saying which version it is and which browser it runs in, when the
+    /// browser starts and now and then after. Answered with the app's version.
+    Extension(ExtensionHello),
     /// The browser started a download and handed it over.
     Download(Capture),
     /// "Download all links": the links of a page, for the user to pick from.
@@ -106,8 +109,38 @@ impl Request {
     pub fn from_browser(&self) -> bool {
         matches!(
             self,
-            Self::Ping | Self::Download(_) | Self::Links { .. } | Self::Media(_)
+            Self::Ping
+                | Self::Extension(_)
+                | Self::Download(_)
+                | Self::Links { .. }
+                | Self::Media(_)
         )
+    }
+}
+
+/// The version of the messages between the extension and the app. Raised when a change
+/// means an older extension no longer works with the app.
+pub const PROTOCOL: u32 = 1;
+
+/// The oldest extension protocol the app still works with.
+pub const MIN_EXTENSION_PROTOCOL: u32 = 1;
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExtensionHello {
+    /// The extension's version, e.g. `0.1.1`.
+    pub version: String,
+    /// `chrome`, `edge`, `brave`, `opera`, `vivaldi`, `chromium` or `firefox`.
+    pub browser: String,
+    /// The [`PROTOCOL`] the extension was built with.
+    pub protocol: u32,
+}
+
+impl ExtensionHello {
+    /// Whether the app works with this extension. A different version alone does not
+    /// matter; only an older protocol than the app accepts does.
+    pub fn compatible(&self) -> bool {
+        self.protocol >= MIN_EXTENSION_PROTOCOL
     }
 }
 
@@ -342,6 +375,29 @@ mod tests {
             assert!(!r.from_browser(), "{msg}");
         }
         assert!(Request::Ping.from_browser());
+    }
+
+    #[test]
+    fn the_extension_says_hello() {
+        let r: Request = serde_json::from_str(
+            r#"{"type":"extension","version":"0.1.1","browser":"edge","protocol":1}"#,
+        )
+        .expect("hello");
+        assert!(r.from_browser());
+        let Request::Extension(hello) = r else {
+            panic!("not a hello")
+        };
+        assert_eq!(hello.browser, "edge");
+        assert!(hello.compatible());
+        // Sent by an extension from before protocols: too old.
+        let old: Request =
+            serde_json::from_str(r#"{"type":"extension","version":"0.0.9","browser":"chrome"}"#)
+                .expect("old");
+        let Request::Extension(old) = old else {
+            panic!("not a hello")
+        };
+        assert_eq!(old.protocol, 0);
+        assert!(!old.compatible());
     }
 
     #[test]

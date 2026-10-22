@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod clipboard;
+mod extensions;
 mod i18n;
 mod scan;
 mod schedule;
@@ -51,6 +52,8 @@ struct App {
     /// Listening to the clipboard while the setting is on.
     #[cfg(windows)]
     clipboard: Mutex<Option<clipboard::Watcher>>,
+    /// The browser extensions heard from.
+    extensions: Mutex<extensions::Record>,
 }
 
 /// How long "refresh in browser" waits for the user to start the download again.
@@ -700,6 +703,10 @@ async fn apply_settings(handle: &AppHandle, new: Settings) -> CmdResult<Settings
         t.show_limit(new.speed_limit);
     }
     handle.emit("settings", &new).ok();
+    if new.browser_integration != old.browser_integration {
+        let on = new.browser_integration;
+        update_extensions(handle, |r| r.integration(on, extensions::now())).await;
+    }
     Ok(new)
 }
 
@@ -1455,18 +1462,78 @@ fn scan_done(handle: &AppHandle, task: &Task) {
     });
 }
 
-/// Answers the browser extension (through the native host): pings, and downloads or link
-/// lists it hands over, which open in the window for the user to confirm.
+/// What the page shows about the browser extensions now.
+fn extension_status_now(app: &App) -> extensions::Status {
+    let integration = lock(&app.settings).browser_integration;
+    let installed = shardload_bridge::installed_browsers();
+    lock(&app.extensions).status(integration, &installed, extensions::now())
+}
+
+/// Changes the record of extensions and saves it; tells the page when what it shows changed.
+async fn update_extensions(handle: &AppHandle, change: impl FnOnce(&mut extensions::Record)) {
+    let app = handle.state::<App>();
+    let before = extension_status_now(&app);
+    let record = {
+        let mut r = lock(&app.extensions);
+        change(&mut r);
+        r.clone()
+    };
+    if let Err(e) = app.manager.save_setting(extensions::KEY, &record).await {
+        tracing::warn!("could not save the extensions heard from: {e}");
+    }
+    let after = extension_status_now(&app);
+    if (&after.browsers, &after.warning) != (&before.browsers, &before.warning) {
+        handle.emit("extensions", &after).ok();
+    }
+}
+
+/// The browser extensions heard from, and the warning about them, if any.
+#[tauri::command]
+fn extension_status(app: State<'_, App>) -> extensions::Status {
+    extension_status_now(&app)
+}
+
+/// "Don't show again" on "Browser extension not found".
+#[tauri::command]
+async fn dismiss_extension_warning(handle: AppHandle) -> extensions::Status {
+    update_extensions(&handle, |r| r.dismissed = true).await;
+    extension_status_now(&handle.state::<App>())
+}
+
+/// Opens where to get the extension: for `browser`, or for any.
+#[tauri::command]
+fn install_extension(handle: AppHandle, browser: Option<String>) -> CmdResult<()> {
+    let url = extensions::install_url(browser.as_deref());
+    handle.opener().open_url(url, None::<&str>).map_err(msg)
+}
+
+/// Answers the browser extension (through the native host): pings and hellos, and downloads
+/// or link lists it hands over, which open in the window for the user to confirm.
 async fn bridge_reply(
     handle: &AppHandle,
     request: shardload_bridge::Request,
 ) -> shardload_bridge::Reply {
     use shardload_bridge::{Reply, Request};
+    if matches!(
+        request,
+        Request::Download(_) | Request::Links { .. } | Request::Media(_)
+    ) {
+        // Only the extension sends these; one too old to say hello still works.
+        update_extensions(handle, |r| r.unnamed_at = Some(extensions::now())).await;
+    }
     match request {
         Request::Ping => Reply {
             version: Some(env!("CARGO_PKG_VERSION").into()),
             ..Reply::ok()
         },
+        Request::Extension(hello) => {
+            update_extensions(handle, |r| r.heard(&hello, extensions::now())).await;
+            Reply {
+                version: Some(env!("CARGO_PKG_VERSION").into()),
+                data: Some(serde_json::json!({ "protocol": shardload_bridge::PROTOCOL })),
+                ..Reply::ok()
+            }
+        }
         Request::Download(capture) => {
             // A download waiting for a fresh link takes this one if it is the same file.
             let waiting = {
@@ -2102,6 +2169,10 @@ fn main() {
             if settings.dir.as_os_str().is_empty() {
                 settings.dir = default_dir;
             }
+            let mut seen: extensions::Record =
+                tauri::async_runtime::block_on(Manager::read_setting(&db, extensions::KEY))?
+                    .unwrap_or_default();
+            seen.integration(settings.browser_integration, extensions::now());
             // One the user installed is kept: they may want their own build.
             let path_ffmpeg = find_on_path("ffmpeg");
             let config = manager_config(&settings, path_ffmpeg.clone(), &data);
@@ -2110,6 +2181,11 @@ fn main() {
                 && let Err(e) = set_browser_integration(&data, true)
             {
                 tracing::warn!("could not register with the browsers: {e}");
+            }
+            if let Err(e) =
+                tauri::async_runtime::block_on(manager.save_setting(extensions::KEY, &seen))
+            {
+                tracing::warn!("could not save the extensions heard from: {e}");
             }
             manager.set_global_limit(settings.speed_limit);
 
@@ -2146,6 +2222,7 @@ fn main() {
                 live: Mutex::new(HashMap::new()),
                 #[cfg(windows)]
                 clipboard: Mutex::new(None),
+                extensions: Mutex::new(seen),
                 path_ffmpeg,
             });
             tauri::async_runtime::spawn(daily_checks(app.handle().clone()));
@@ -2229,6 +2306,9 @@ fn main() {
             show_in_folder,
             get_settings,
             set_settings,
+            extension_status,
+            dismiss_extension_warning,
+            install_extension,
         ])
         .build(tauri::generate_context!())
         .expect("failed to start the app");

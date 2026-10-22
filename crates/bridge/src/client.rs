@@ -12,6 +12,9 @@ const STARTUP_WAIT: Duration = Duration::from_secs(15);
 
 type Result<T> = std::result::Result<T, String>;
 
+/// The answer of [`Client::send_if_running`] when the app is not running.
+pub const NOT_RUNNING: &str = "the app is not running";
+
 pub struct Client {
     data: PathBuf,
     pipe: String,
@@ -38,12 +41,27 @@ impl Client {
 
     /// Sends one frame as it is and returns the reply's frame.
     pub async fn send(&mut self, frame: &[u8]) -> Result<Vec<u8>> {
+        self.send_with(frame, true).await
+    }
+
+    /// Like [`Client::send`], but only to an app that is running: one that is not is left
+    /// alone, and the answer is an error.
+    pub async fn send_if_running(&mut self, frame: &[u8]) -> Result<Vec<u8>> {
+        self.send_with(frame, false).await
+    }
+
+    async fn send_with(&mut self, frame: &[u8], launch: bool) -> Result<Vec<u8>> {
         // A connection kept from an earlier message may have closed (the app restarted): one
         // retry with a fresh connection.
         for attempt in 0..2 {
             let conn = match self.conn.as_mut() {
                 Some(c) => c,
-                None => self.conn.insert(open(&self.data, &self.pipe).await?),
+                None if launch => self.conn.insert(open(&self.data, &self.pipe).await?),
+                None => self.conn.insert(
+                    try_connect(&self.data, &self.pipe)
+                        .await
+                        .map_err(|_| NOT_RUNNING.to_owned())?,
+                ),
             };
             let sent = write_frame(conn, frame).await;
             let reply = match sent {

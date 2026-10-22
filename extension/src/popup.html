@@ -46,9 +46,36 @@
 			p {
 				padding: var(--space-4) var(--space-3);
 			}
+			#missing {
+				display: flex;
+				flex-direction: column;
+				gap: var(--space-2);
+				align-items: flex-start;
+				padding: var(--space-3);
+				border-bottom: 1px solid var(--line);
+			}
+			#missing[hidden] {
+				display: none;
+			}
+			#missing h1,
+			#missing p {
+				padding: 0;
+				border: 0;
+			}
 		</style>
 	</head>
 	<body>
+		<section id="missing" hidden>
+			<h1>Shardload is not installed</h1>
+			<p class="muted">Downloads stay in the browser until it is.</p>
+			<a
+				class="button primary"
+				href="https://github.com/monurpalan/idm-alternative/releases/latest/download/shardload-setup.exe"
+				target="_blank"
+				rel="noopener"
+				>Download Shardload</a
+			>
+		</section>
 		<h1>Media on this page</h1>
 		<ul id="list"></ul>
 		<p id="empty" class="muted" hidden>No video or audio found yet. Start playing it, then open this again.</p>
