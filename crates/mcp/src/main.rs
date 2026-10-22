@@ -74,6 +74,16 @@ struct AddParams {
     clip_end: Option<String>,
     /// Cut at exactly clip_start and clip_end, re-encoding; otherwise at keyframes (faster).
     exact_cut: Option<bool>,
+    /// A live broadcast's page (inspect_video says live: true), with video_height or
+    /// audio_only: record it until it ends, record_minutes pass, or it is paused (pausing a
+    /// recording finishes it). The file is an MP4 when ffmpeg is set up.
+    record: Option<bool>,
+    /// Recording: stop after this many minutes.
+    record_minutes: Option<u64>,
+    /// Recording: from the start of the broadcast (where the site keeps it) instead of now.
+    record_from_start: Option<bool>,
+    /// Recording: begin this many minutes from now; it waits in the queue until then.
+    record_in_minutes: Option<u64>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -213,6 +223,10 @@ impl Downloads {
             clip_start: p.clip_start,
             clip_end: p.clip_end,
             exact_cut: p.exact_cut,
+            record: p.record,
+            record_minutes: p.record_minutes,
+            record_from_start: p.record_from_start,
+            record_in_minutes: p.record_in_minutes,
         }))
         .await
     }

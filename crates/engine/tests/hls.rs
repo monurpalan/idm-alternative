@@ -352,3 +352,110 @@ async fn joins_hls_subtitle_segments() {
     assert!(text.find("Altyazı 0").expect("0") < text.find("Altyazı 4").expect("4"));
     assert!(text.contains("00:00:16.000 --> 00:00:18.000"));
 }
+
+fn record(url: String, out: &std::path::Path) -> shardload_engine::RecordRequest {
+    shardload_engine::RecordRequest {
+        video: url,
+        audio: None,
+        output: out.to_owned(),
+        headers: Vec::new(),
+        ffmpeg: None,
+        limit: None,
+    }
+}
+
+/// Records with progress; returns the outcome and the last progress.
+async fn record_with(
+    req: &shardload_engine::RecordRequest,
+    cancel: &CancellationToken,
+) -> (
+    shardload_engine::Result<shardload_engine::Outcome>,
+    shardload_engine::Progress,
+) {
+    let (tx, rx) = tokio::sync::watch::channel(shardload_engine::Progress::default());
+    let result = tokio::time::timeout(
+        LIMIT,
+        shardload_engine::record_hls(req, &opts(4), Some(&tx), cancel),
+    )
+    .await
+    .expect("recording hung");
+    let last = rx.borrow().clone();
+    (result, last)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn records_a_live_stream_until_it_ends() {
+    let base = start().await;
+    let dir = workdir("live-end");
+    let out = dir.join("live.ts");
+    // A segment every 200 ms, the last 5 listed, the stream ends after 8.
+    let url =
+        format!("{base}/hls/v720.m3u8?live=1&seg_ms=200&window=5&end_after=8&seed=31&seg_size=64K");
+    // A plain download refuses it.
+    match get(&request(url.clone(), &dir.join("no.ts")), &opts(4)).await {
+        Err(Error::State(m)) => assert!(m.contains("live"), "{m}"),
+        other => panic!("{other:?}"),
+    }
+    let (done, last) = record_with(&record(url, &out), &CancellationToken::new()).await;
+    let done = done.expect("record");
+    // Every segment from the first, in order: the same bytes as the track from offset 0.
+    assert_eq!(done.size, 8 * (64 << 10));
+    assert_eq!(
+        verify_file(&out, track_seed(31, "v720"), 8 * (64 << 10)).expect("verify"),
+        Verdict::Ok
+    );
+    assert_eq!(last.missed, 0);
+    assert!(!std::path::PathBuf::from(format!("{}.shardload-hls", out.display())).exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stopped_recording_keeps_what_it_has() {
+    let base = start().await;
+    let dir = workdir("live-stop");
+    let out = dir.join("live.ts");
+    let url = format!("{base}/hls/v720.m3u8?live=1&seg_ms=200&window=5&seed=32&seg_size=16K");
+    let cancel = CancellationToken::new();
+    let stop = cancel.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        stop.cancel();
+    });
+    let (done, last) = record_with(&record(url, &out), &cancel).await;
+    let done = done.expect("stopped, not failed");
+    let segments = done.size / (16 << 10);
+    assert!((3..=12).contains(&segments), "{segments} segments");
+    assert_eq!(
+        verify_file(&out, track_seed(32, "v720"), done.size).expect("verify"),
+        Verdict::Ok
+    );
+    assert!(last.recorded > 0.5, "{}", last.recorded);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_recording_stops_at_its_limit() {
+    let base = start().await;
+    let dir = workdir("live-limit");
+    let out = dir.join("live.ts");
+    let url = format!("{base}/hls/v720.m3u8?live=1&seg_ms=200&window=10&seed=33&seg_size=16K");
+    let req = shardload_engine::RecordRequest {
+        limit: Some(Duration::from_millis(1000)),
+        ..record(url, &out)
+    };
+    let (done, last) = record_with(&req, &CancellationToken::new()).await;
+    done.expect("record");
+    // 1 s of 0.2 s segments, give or take what one read of the playlist brings.
+    assert!((1.0..=3.0).contains(&last.recorded), "{}", last.recorded);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn segments_that_leave_the_window_are_counted_as_missed() {
+    let base = start().await;
+    let dir = workdir("live-slip");
+    let out = dir.join("live.ts");
+    // A new 100 ms segment ten times between two reads (every second), one listed at a time.
+    let url =
+        format!("{base}/hls/v720.m3u8?live=1&seg_ms=100&window=1&end_after=25&seed=34&seg_size=4K");
+    let (done, last) = record_with(&record(url, &out), &CancellationToken::new()).await;
+    done.expect("record");
+    assert!(last.missed >= 10, "missed {}", last.missed);
+}

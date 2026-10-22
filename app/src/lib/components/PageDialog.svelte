@@ -16,9 +16,11 @@
 		type Clip,
 		type PageInfo,
 		type Previous,
+		type Recording,
 		type TaskId
 	} from '../api.ts';
 	import ClipFields from './ClipFields.svelte';
+	import RecordFields from './RecordFields.svelte';
 	import PreviousNotice from './PreviousNotice.svelte';
 	import { duration } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
@@ -45,6 +47,8 @@
 	let dialog: { close(): void } | undefined = $state();
 	let clip = $state<Clip | null>(null);
 	let clipProblem = $state<string | null>(null);
+	let record = $state<Recording>({ limit: null, from_start: false, start_at: null });
+	let recordProblem = $state<string | null>(null);
 
 	const list = $derived(info?.playlist ?? null);
 	/** Per video of the list: chosen, and downloaded before (or on the list). */
@@ -124,7 +128,12 @@
 					start: true,
 					login: null,
 					headers: media.headers,
-					stream: { audio: null, ytdlp: ytdlpSelector(choice || null), clip }
+					stream: {
+						audio: null,
+						ytdlp: ytdlpSelector(choice || null),
+						clip: info?.live ? null : clip,
+						record: info?.live ? record : null
+					}
 				});
 			}
 			dialog?.close();
@@ -215,7 +224,11 @@
 		<Field label={t('Save as')}>
 			<Input bind:value={name} placeholder={t('Title of the page')} />
 		</Field>
-		<ClipFields length={info.duration} bind:clip bind:problem={clipProblem} />
+		{#if info.live}
+			<RecordFields fromStartOffered bind:record bind:problem={recordProblem} />
+		{:else}
+			<ClipFields length={info.duration} bind:clip bind:problem={clipProblem} />
+		{/if}
 		{#if info.in_playlist}
 			<div>
 				<Button variant="link" onclick={() => load(true)}>{t('This video is in a playlist: show the whole list…')}</Button>
@@ -237,8 +250,11 @@
 				>{t('Download {n}', { n: count })}</Button
 			>
 		{:else}
-			<Button variant="primary" disabled={!info || busy || !!clipProblem} onclick={download}
-				>{previous ? t('Download anyway') : t('Download')}</Button
+			<Button
+				variant="primary"
+				disabled={!info || busy || !!(info?.live ? recordProblem : clipProblem)}
+				onclick={download}
+				>{info?.live ? t('Record') : previous ? t('Download anyway') : t('Download')}</Button
 			>
 		{/if}
 	{/snippet}

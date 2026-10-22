@@ -77,5 +77,7 @@ export default {
 		'Ctrl+V ile bir bağlantı yapıştırın, pencereye bırakın ya da Yeni indirme’yi seçin.',
 	'Fold the group': 'Grubu katla',
 	'Show the group': 'Grubu aç',
-	'{done} of {n} done': '{done}/{n} bitti'
+	'{done} of {n} done': '{done}/{n} bitti',
+	'Rec. {time}': 'Kayıt {time}',
+	'Starts at {time}': '{time} başlar'
 } satisfies Record<string, string>;

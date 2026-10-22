@@ -68,11 +68,18 @@ pub(crate) struct Key {
     pub iv: [u8; 16],
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct MediaPlaylist {
     /// fMP4 initialisation segment (`EXT-X-MAP`), joined first.
     pub init: Option<Segment>,
     pub segments: Vec<Segment>,
+    /// The media sequence number of the first segment (`EXT-X-MEDIA-SEQUENCE`).
+    pub sequence: u64,
+    /// `#EXT-X-ENDLIST`: no segment comes after these. A live stream's playlist has none.
+    pub ended: bool,
+    /// `EXT-X-TARGETDURATION`: the longest segment, in seconds; how often a live stream's
+    /// playlist is read again.
+    pub target: Option<f64>,
 }
 
 /// What a playlist is: segments, or (a master playlist) the best variant to follow.
@@ -120,6 +127,19 @@ fn hex_iv(s: &str) -> Option<[u8; 16]> {
 }
 
 pub(crate) fn parse_playlist(url: &str, text: &str) -> Result<Playlist> {
+    let p = parse_any(url, text)?;
+    if let Playlist::Media(m) = &p
+        && !m.ended
+    {
+        return Err(Error::State(
+            "this is a live stream (the playlist has no end): record it instead".into(),
+        ));
+    }
+    Ok(p)
+}
+
+/// A playlist, a live one too.
+pub(crate) fn parse_any(url: &str, text: &str) -> Result<Playlist> {
     let lines: Vec<&str> = text
         .lines()
         .map(|l| l.trim().trim_start_matches('\u{feff}'))
@@ -179,9 +199,13 @@ pub(crate) fn parse_playlist(url: &str, text: &str) -> Result<Playlist> {
     let mut ended = false;
     let mut in_segment = false;
     let mut duration: Option<f64> = None;
+    let mut first_sequence = None;
+    let mut target = None;
     for line in &lines {
         if let Some(n) = line.strip_prefix("#EXT-X-MEDIA-SEQUENCE:") {
             sequence = n.trim().parse().unwrap_or(0);
+        } else if let Some(n) = line.strip_prefix("#EXT-X-TARGETDURATION:") {
+            target = n.trim().parse::<f64>().ok().filter(|t| *t > 0.0);
         } else if let Some(a) = line.strip_prefix("#EXT-X-KEY:") {
             key = match attr(a, "METHOD") {
                 None | Some("NONE") => None,
@@ -236,6 +260,7 @@ pub(crate) fn parse_playlist(url: &str, text: &str) -> Result<Playlist> {
                 // Without an IV attribute, the segment's sequence number (RFC 8216 §5.2).
                 iv: iv.unwrap_or_else(|| u128::from(sequence).to_be_bytes()),
             });
+            first_sequence.get_or_insert(sequence);
             segments.push(Segment {
                 url: seg_url,
                 range: byte_range,
@@ -246,15 +271,17 @@ pub(crate) fn parse_playlist(url: &str, text: &str) -> Result<Playlist> {
             in_segment = false;
         }
     }
-    if segments.is_empty() {
+    // A live stream may list nothing yet; it fills in.
+    if segments.is_empty() && ended {
         return Err(Error::State("the playlist has no segments".into()));
     }
-    if !ended {
-        return Err(Error::State(
-            "live streams cannot be downloaded yet (the playlist has no end)".into(),
-        ));
-    }
-    Ok(Playlist::Media(MediaPlaylist { init, segments }))
+    Ok(Playlist::Media(MediaPlaylist {
+        init,
+        segments,
+        sequence: first_sequence.unwrap_or(sequence),
+        ended,
+        target,
+    }))
 }
 
 /// `length[@offset]`.
@@ -739,6 +766,279 @@ fn seconds(s: f64) -> String {
     format!("{s:.3}")
 }
 
+/// What to record: a live HLS stream (a master playlist, whose best variant is taken, or a
+/// media playlist), an optional separate audio playlist, and where the recording goes.
+#[derive(Debug, Clone)]
+pub struct RecordRequest {
+    pub video: String,
+    pub audio: Option<String>,
+    pub output: PathBuf,
+    pub headers: Vec<(String, String)>,
+    /// Puts the recording into an MP4 (and joins separate audio); without it the video
+    /// track's segments are joined as they are (`.ts`).
+    pub ffmpeg: Option<PathBuf>,
+    /// Stop once this much has been recorded.
+    pub limit: Option<Duration>,
+}
+
+/// Consecutive failed reads of a live playlist after which the recording stops.
+const LIVE_READ_FAILURES: u32 = 5;
+/// How often a live playlist is read when it does not say (no target duration).
+const LIVE_REFRESH: Duration = Duration::from_secs(2);
+
+/// One track of a recording: its playlist, the file its segments are appended to, and the
+/// next segment wanted.
+struct LiveTrack {
+    name: &'static str,
+    url: String,
+    file: PathBuf,
+    next: Option<u64>,
+    /// Seconds recorded.
+    recorded: f64,
+    ended: bool,
+}
+
+/// Records a live HLS stream to `req.output`: the playlist is read again every target
+/// duration and each new segment (by media sequence number) is appended. Segments that left
+/// the playlist's window before they were read are lost; how many is logged and reported
+/// as [`Progress::missed`]. It ends when the stream does (`#EXT-X-ENDLIST`), when
+/// `req.limit` is recorded, when `cancel` fires (the user stopped it: what was recorded is
+/// kept), or when the playlist cannot be read several times in a row. Then ffmpeg puts it
+/// into the output.
+pub async fn record_hls(
+    req: &RecordRequest,
+    opts: &Options,
+    progress: Option<&watch::Sender<Progress>>,
+    cancel: &CancellationToken,
+) -> Result<Outcome> {
+    let started = Instant::now();
+    let _lock = crate::place::Lock::acquire(&req.output)?;
+    let http = Http::new(&http_config(&req.headers, opts))?;
+    if let Some(p) = progress {
+        p.send_modify(|p| p.phase = Phase::Probing);
+    }
+    let (text, final_url) = http.text(&req.video, MAX_PLAYLIST).await?;
+    let (video_url, master_audio) = match parse_any(&final_url, &text)? {
+        Playlist::Best { video, audio } => (video, audio),
+        Playlist::Media(_) => (final_url, None),
+    };
+    let audio_url = req.audio.clone().or(master_audio);
+    if audio_url.is_some() && req.ffmpeg.is_none() {
+        return Err(Error::State(
+            "this stream has separate audio: ffmpeg is needed to join it".into(),
+        ));
+    }
+    let dir = sibling(&req.output, ".shardload-hls");
+    // A recording cannot go on where it stopped: the stream has moved on.
+    tokio::fs::remove_dir_all(&dir).await.ok();
+    tokio::fs::create_dir_all(&dir).await?;
+    let mut tracks = vec![LiveTrack {
+        name: "video",
+        url: video_url,
+        file: dir.join("video.joined"),
+        next: None,
+        recorded: 0.0,
+        ended: false,
+    }];
+    if let Some(url) = audio_url {
+        tracks.push(LiveTrack {
+            name: "audio",
+            url,
+            file: dir.join("audio.joined"),
+            next: None,
+            recorded: 0.0,
+            ended: false,
+        });
+    }
+    let run = Run {
+        http,
+        dir: dir.clone(),
+        keys: Mutex::new(HashMap::new()),
+        received: AtomicU64::new(0),
+        done: AtomicUsize::new(0),
+        active: AtomicUsize::new(0),
+        opts: opts.clone(),
+        cancel: cancel.child_token(),
+    };
+
+    let mut failures = 0u32;
+    let mut missed = 0u64;
+    let mut last = (Instant::now(), 0u64);
+    let mut speed = 0.0;
+    let mut stopped = false;
+    'record: loop {
+        let mut wait = LIVE_REFRESH;
+        for t in tracks.iter_mut().filter(|t| !t.ended) {
+            let media = match run.http.text(&t.url, MAX_PLAYLIST).await {
+                Ok((text, url)) => parse_any(&url, &text),
+                Err(e) => Err(e),
+            };
+            let media = match media {
+                Ok(Playlist::Media(m)) => {
+                    failures = 0;
+                    m
+                }
+                Ok(Playlist::Best { .. }) => {
+                    return Err(Error::State("a master playlist names another".into()));
+                }
+                Err(e) => {
+                    failures += 1;
+                    tracing::warn!(
+                        track = t.name,
+                        failures,
+                        "could not read the live playlist: {e}"
+                    );
+                    if failures >= LIVE_READ_FAILURES {
+                        if tracks.iter().all(|t| t.recorded == 0.0) {
+                            return Err(e);
+                        }
+                        break 'record;
+                    }
+                    continue;
+                }
+            };
+            if let Some(target) = media.target {
+                wait = wait.min(Duration::from_secs_f64(target));
+            }
+            if t.next.is_none()
+                && let Some(init) = &media.init
+                && append(&run, init, &t.file, t.name).await.is_err()
+            {
+                stopped = true;
+                break 'record;
+            }
+            for (i, seg) in media.segments.iter().enumerate() {
+                let seq = media.sequence + i as u64;
+                if t.next.is_some_and(|n| seq < n) {
+                    continue;
+                }
+                if let Some(n) = t.next.filter(|n| seq > *n) {
+                    missed += seq - n;
+                    tracing::warn!(
+                        track = t.name,
+                        lost = seq - n,
+                        "segments left the live playlist before they were read"
+                    );
+                }
+                match append(&run, seg, &t.file, t.name).await {
+                    Ok(()) => {}
+                    Err(Error::Cancelled) => {
+                        stopped = true;
+                        break 'record;
+                    }
+                    Err(e) => {
+                        tracing::warn!(track = t.name, "a live segment failed: {e}");
+                        missed += 1;
+                    }
+                }
+                t.next = Some(seq + 1);
+                t.recorded += seg.duration.unwrap_or(0.0);
+            }
+            t.ended = media.ended;
+        }
+        let recorded = tracks[0].recorded;
+        if let Some(p) = progress {
+            let received = run.received.load(Ordering::Relaxed);
+            let dt = last.0.elapsed().as_secs_f64().max(1e-3);
+            let now = received.saturating_sub(last.1) as f64 / dt;
+            speed = if speed == 0.0 {
+                now
+            } else {
+                speed * 0.7 + now * 0.3
+            };
+            last = (Instant::now(), received);
+            p.send_modify(|p| {
+                p.phase = Phase::Recording;
+                p.size = None;
+                p.received = received;
+                p.speed = speed;
+                p.connections = 1;
+                p.recorded = recorded;
+                p.missed = missed;
+                p.segments.clear();
+            });
+        }
+        if tracks.iter().all(|t| t.ended) || req.limit.is_some_and(|l| recorded >= l.as_secs_f64())
+        {
+            break;
+        }
+        tokio::select! {
+            () = tokio::time::sleep(wait) => {}
+            () = cancel.cancelled() => {
+                stopped = true;
+                break;
+            }
+        }
+    }
+    if stopped {
+        tracing::info!("recording stopped");
+    }
+    if !tracks[0].file.exists() {
+        tokio::fs::remove_dir_all(&dir).await.ok();
+        return Err(Error::State("nothing was recorded".into()));
+    }
+    if let Some(p) = progress {
+        p.send_modify(|p| p.phase = Phase::Verifying);
+    }
+    let joined: Vec<(PathBuf, f64)> = tracks
+        .iter()
+        .filter(|t| t.file.exists())
+        .map(|t| (t.file.clone(), 0.0))
+        .collect();
+    match &req.ffmpeg {
+        Some(ffmpeg) => {
+            if let Err(e) = mux(ffmpeg, &joined[0], joined.get(1), &req.output, None).await {
+                // A recording cannot be made again: keep the video as it came.
+                let kept = req.output.with_extension("ts");
+                tokio::fs::rename(&joined[0].0, &kept).await?;
+                tokio::fs::remove_dir_all(&dir).await.ok();
+                return Err(Error::State(format!(
+                    "{e}; the recording is kept as it came, in {}",
+                    kept.display()
+                )));
+            }
+        }
+        None => tokio::fs::rename(&joined[0].0, &req.output).await?,
+    }
+    tokio::fs::remove_dir_all(&dir).await.ok();
+    let size = tokio::fs::metadata(&req.output).await?.len();
+    if let Some(p) = progress {
+        p.send_modify(|p| {
+            p.phase = Phase::Done;
+            p.size = Some(size);
+            p.received = size;
+        });
+    }
+    if opts.mark_of_the_web {
+        crate::mark_of_the_web(&req.output, &req.video, &req.headers);
+    }
+    Ok(Outcome {
+        size,
+        resumed_from: 0,
+        elapsed: started.elapsed(),
+        checksum: None,
+        checksum_from: None,
+    })
+}
+
+/// Downloads one segment of a live track and appends it to the track's file.
+async fn append(run: &Run, seg: &Segment, file: &Path, track: &str) -> Result<()> {
+    use tokio::io::AsyncWriteExt;
+    let part = run.dir.join(format!("{track}-live.seg"));
+    run.fetch(seg, &part, 0).await?;
+    let mut out = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file)
+        .await?;
+    let mut src = tokio::fs::File::open(&part).await?;
+    tokio::io::copy(&mut src, &mut out).await?;
+    out.flush().await?;
+    drop(src);
+    tokio::fs::remove_file(&part).await.ok();
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -756,6 +1056,8 @@ mod tests {
                     duration: Some(*d),
                 })
                 .collect(),
+            ended: true,
+            ..MediaPlaylist::default()
         }
     }
 

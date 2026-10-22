@@ -6,8 +6,9 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 export type TaskId = number;
 export type Status = 'queued' | 'downloading' | 'paused' | 'done' | 'error';
 export type Category = 'general' | 'compressed' | 'documents' | 'music' | 'programs' | 'video';
-/** `settingup`: ffmpeg is being set up first; the sizes are its download's. */
-export type Phase = 'probing' | 'settingup' | 'downloading' | 'verifying' | 'done';
+/** `settingup`: ffmpeg is being set up first; the sizes are its download's. `recording`: a
+ * live stream, with no size, until it ends or is stopped. */
+export type Phase = 'probing' | 'settingup' | 'downloading' | 'verifying' | 'recording' | 'done';
 
 export interface Task {
 	id: TaskId;
@@ -35,6 +36,18 @@ export interface Task {
 	final_url: string | null;
 	/** Added together with others: a playlist, a batch, the files of a site. */
 	group_id: number | null;
+	/** How a stream, a page or a torrent is downloaded; only what the list shows is typed. */
+	stream: { record?: Recording | null } | null;
+}
+
+/** How a live stream is recorded. */
+export interface Recording {
+	/** Stop after this many seconds. */
+	limit: number | null;
+	/** From the start of the broadcast (sites yt-dlp knows that keep it). */
+	from_start: boolean;
+	/** Start then (Unix milliseconds), not at once. */
+	start_at: number | null;
 }
 
 /** Downloads added together; the list folds them into one row. */
@@ -58,6 +71,8 @@ export interface TaskProgress {
 	verified: number;
 	/** While verifying: where the checksum was found, when the user gave none. */
 	checksum_from: string | null;
+	/** While recording a live stream: seconds recorded. */
+	recorded: number;
 	/** `[start, end, received, active]` per segment. */
 	segments: [number, number, number, boolean][];
 }
@@ -234,6 +249,8 @@ export const addTask = (request: {
 		subtitles?: { id: string; language: string | null }[];
 		/** Only this part of the video; needs ffmpeg (set up by itself). */
 		clip?: Clip | null;
+		/** A live stream: recorded. */
+		record?: Recording | null;
 		/** A torrent: indices of the files to download, all when null. */
 		torrent?: { files: number[] | null } | null;
 		/** Files out of a ZIP archive (`url`), by name, into a folder named after it. */
@@ -341,6 +358,8 @@ export interface PageInfo {
 	playlist: Playlist | null;
 	/** A video of a playlist: reading it with `wholeList` gives the playlist. */
 	in_playlist: boolean;
+	/** A live broadcast now: it is recorded. */
+	live: boolean;
 }
 
 export interface Playlist {

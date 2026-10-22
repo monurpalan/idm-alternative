@@ -40,8 +40,8 @@ use tokio::task::JoinHandle;
 use db::{Db, Insert};
 pub use sites::SiteMemory;
 pub use task::{
-    ArchiveChoice, Category, ErrorKind, Group, HistoryEntry, NewTask, Status, Stream, Subtitle,
-    Task, TaskId, TaskProgress, TorrentChoice,
+    ArchiveChoice, Category, ErrorKind, Group, HistoryEntry, NewTask, Recording, Status, Stream,
+    Subtitle, Task, TaskId, TaskProgress, TorrentChoice,
 };
 pub use torrent::{TorrentConfig, TorrentFile, TorrentInfo};
 
@@ -230,6 +230,8 @@ struct Inner {
     /// Said about a download that went differently than asked (saved as a single file
     /// without ffmpeg); kept with it once it is done.
     notes: Mutex<HashMap<TaskId, String>>,
+    /// Queued recordings that start at a set time (Unix milliseconds), not before.
+    later: Mutex<HashMap<TaskId, i64>>,
 }
 
 struct Retry {
@@ -514,7 +516,13 @@ impl Manager {
             moving: Mutex::new(HashSet::new()),
             closed: AtomicBool::new(false),
             notes: Mutex::new(HashMap::new()),
+            later: Mutex::new(HashMap::new()),
         });
+        for t in inner.db.list().await? {
+            if t.status == Status::Queued {
+                inner.start_later(&t);
+            }
+        }
         inner.fill().await?;
         Ok(Self { inner })
     }
@@ -644,6 +652,7 @@ impl Manager {
         let task = self.get(id).await?;
         self.inner.emit(Event::Added(task.clone()));
         if new.start {
+            self.inner.start_later(&task);
             self.inner.fill().await?;
         }
         Ok(task)
@@ -740,8 +749,9 @@ impl Manager {
     /// Queues a paused, failed or queued download; it starts when a slot is free.
     pub async fn start(&self, id: TaskId) -> Result<()> {
         let task = self.get(id).await?;
-        // Started by hand: no waiting for a scheduled retry.
+        // Started by hand: no waiting for a scheduled retry, or for its set time.
         lock(&self.inner.retries).remove(&id);
+        lock(&self.inner.later).remove(&id);
         if matches!(task.status, Status::Paused | Status::Error) {
             self.inner.set_status(id, Status::Queued, None).await?;
         }
@@ -1269,6 +1279,28 @@ impl Inner {
         let _ = self.events.send(e);
     }
 
+    /// A recording set to start later is held back until then, when the queue is filled.
+    fn start_later(self: &Arc<Self>, task: &Task) {
+        let Some(at) = task
+            .stream
+            .as_ref()
+            .and_then(|s| s.record.as_ref())
+            .and_then(|r| r.start_at)
+            .filter(|at| *at > now_ms())
+        else {
+            return;
+        };
+        lock(&self.later).insert(task.id, at);
+        let inner = Arc::clone(self);
+        let wait = Duration::from_millis((at - now_ms()).max(0) as u64);
+        tokio::spawn(async move {
+            tokio::time::sleep(wait).await;
+            if let Err(e) = inner.fill().await {
+                tracing::error!("could not start queued downloads: {e}");
+            }
+        });
+    }
+
     async fn set_status(&self, id: TaskId, status: Status, error: Option<&str>) -> Result<()> {
         self.db.set_status(id, status, error).await?;
         if let Some(task) = self.db.get(id).await? {
@@ -1315,11 +1347,14 @@ impl Inner {
         }
         let waiting: Vec<TaskId> = {
             let now = Instant::now();
+            let mut later = lock(&self.later);
+            later.retain(|_, at| *at > now_ms());
             lock(&self.retries)
                 .iter()
                 .filter(|(_, r)| r.at > now)
                 .map(|(id, _)| *id)
                 .chain(lock(&self.moving).iter().copied())
+                .chain(later.keys().copied())
                 .collect()
         };
         let queued = self.db.queued(free + waiting.len()).await?;
@@ -1537,6 +1572,28 @@ impl Inner {
         let video_path = path.clone();
         let (tx, rx) = watch::channel(Progress::default());
         let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
+        if let Some(record) = &stream.record {
+            if stream.dash.is_some() {
+                drop(tx);
+                reporter.await.ok();
+                return Err(shardload_engine::Error::State(
+                    "live DASH streams cannot be recorded yet".into(),
+                )
+                .into());
+            }
+            let req = shardload_engine::RecordRequest {
+                video: task.url.clone(),
+                audio: stream.audio,
+                output: path,
+                headers: task.headers.clone(),
+                ffmpeg,
+                limit: record.limit.map(Duration::from_secs),
+            };
+            let result = shardload_engine::record_hls(&req, &opts, Some(&tx), cancel).await;
+            drop(tx);
+            reporter.await.ok();
+            return Ok(result?);
+        }
         let result = match stream.dash {
             Some(video) => {
                 let req = shardload_engine::DashRequest {
@@ -1845,26 +1902,47 @@ impl Inner {
         let (tx, rx) = watch::channel(Progress::default());
         let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
         let clip = task.stream.as_ref().and_then(|s| s.clip);
+        let record = task.stream.as_ref().and_then(|s| s.record.clone());
+        // A recording ends at its limit like the user stopping it.
+        let stop = cancel.child_token();
+        if let Some(limit) = record.as_ref().and_then(|r| r.limit) {
+            let stop = stop.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(limit)).await;
+                stop.cancel();
+            });
+        }
         let result = ytdlp::run(
             tools,
             &task.url,
             format,
             clip.as_ref(),
+            record.as_ref(),
             &stem,
             &task.headers,
             &tx,
-            cancel,
+            &stop,
         )
         .await;
+        stop.cancel();
         drop(tx);
         reporter.await.ok();
-        let file = match result {
+        let mut file = match result {
             Ok(f) => f,
             Err(_) if cancel.is_cancelled() => {
                 return Err(shardload_engine::Error::Cancelled.into());
             }
             Err(e) => return Err(shardload_engine::Error::State(e).into()),
         };
+        // A recording is written as MPEG-TS, whatever its name: an MP4 with ffmpeg.
+        if record.is_some()
+            && let Some(ffmpeg) = &tools.ffmpeg
+        {
+            match ytdlp::remux(ffmpeg, &file, &file.with_extension("mp4")).await {
+                Ok(mp4) => file = mp4,
+                Err(e) => tracing::warn!(id = task.id, "recording kept as MPEG-TS: {e}"),
+            }
+        }
         if file != path {
             // Not merged into MP4 (audio alone, or a single file of another type).
             let name = file
@@ -1951,6 +2029,7 @@ impl Inner {
                     connections: p.connections,
                     verified: 0,
                     checksum_from: None,
+                    recorded: 0.0,
                     segments: Vec::new(),
                 }));
                 tokio::time::sleep(PROGRESS_EVERY).await;
@@ -2322,6 +2401,7 @@ async fn report(
             connections: p.connections,
             verified: p.verified,
             checksum_from: p.checksum_from,
+            recorded: p.recorded,
             segments: p.segments,
         }));
     }

@@ -8,6 +8,10 @@
 //!   content [`crate::verify_file`] checks. With `key=1` segments are AES-128-CBC encrypted
 //!   (PKCS#7, IV = segment number) with the key at `/hls/key`.
 //!
+//! With `live=1` the media playlists are a live stream's: a segment of `seg_ms` comes out
+//! every `seg_ms` from the first request (one clock per `seed`), only the last `window` are
+//! listed, and after `end_after` segments the list ends (`#EXT-X-ENDLIST`).
+//!
 //! All `/hls` requests count in `/_stats` under their path and query.
 
 use std::sync::Arc;
@@ -43,6 +47,14 @@ pub struct Params {
     pub rate: Option<Size>,
     /// Segment number that fails with 500 on its first request (retry tests).
     pub fail_once: Option<u32>,
+    /// A live stream (see the module docs).
+    pub live: u8,
+    /// Live: each segment's length, and how often a new one comes, in milliseconds.
+    pub seg_ms: u64,
+    /// Live: how many of the newest segments the playlist lists.
+    pub window: u32,
+    /// Live: the stream ends after this many segments.
+    pub end_after: Option<u32>,
 }
 
 impl Default for Params {
@@ -57,6 +69,10 @@ impl Default for Params {
             subs: 0,
             rate: None,
             fail_once: None,
+            live: 0,
+            seg_ms: 4000,
+            window: 6,
+            end_after: None,
         }
     }
 }
@@ -135,6 +151,11 @@ pub(crate) async fn media_playlist(
         return StatusCode::NOT_FOUND.into_response();
     };
     let query = uri.query().unwrap_or_default();
+    if p.live == 1 {
+        let out = live_playlist(&app, track, query, &p);
+        count(&app, &uri, out.len() as u64);
+        return playlist(out);
+    }
     let mut out = String::from(
         "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:0\n",
     );
@@ -151,6 +172,34 @@ pub(crate) async fn media_playlist(
     out.push_str("#EXT-X-ENDLIST\n");
     count(&app, &uri, out.len() as u64);
     playlist(out)
+}
+
+/// A live stream's playlist as it is now: the newest `window` of the segments out so far.
+fn live_playlist(app: &AppState, track: &str, query: &str, p: &Params) -> String {
+    let started = *app
+        .url(&format!("live-clock:{}", p.seed))
+        .first_seen
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get_or_insert_with(std::time::Instant::now);
+    let seg_ms = p.seg_ms.max(1);
+    let out_so_far = (started.elapsed().as_millis() as u64 / seg_ms + 1) as u32;
+    let n = p.end_after.map_or(out_so_far, |e| out_so_far.min(e));
+    let first = n.saturating_sub(p.window.max(1));
+    let target = seg_ms.div_ceil(1000);
+    let mut out = format!(
+        "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:{target}\n#EXT-X-MEDIA-SEQUENCE:{first}\n"
+    );
+    for i in first..n {
+        out.push_str(&format!(
+            "#EXTINF:{:.3},\n{track}/{i}.ts?{query}\n",
+            seg_ms as f64 / 1000.0
+        ));
+    }
+    if p.end_after.is_some_and(|e| n >= e) {
+        out.push_str("#EXT-X-ENDLIST\n");
+    }
+    out
 }
 
 #[derive(Deserialize)]
@@ -186,7 +235,7 @@ pub(crate) async fn segment(
     let Some(i) = file.strip_suffix(".ts").and_then(|n| n.parse::<u32>().ok()) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    if i >= p.segments {
+    if i >= p.segments && p.live != 1 {
         return StatusCode::NOT_FOUND.into_response();
     }
     let state = app.url(&uri.to_string());

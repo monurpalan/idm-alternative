@@ -34,6 +34,8 @@ pub struct PageInfo {
     /// The page is one video of a playlist (`watch?v=…&list=…`): reading it again with the
     /// whole list gives the playlist.
     pub in_playlist: bool,
+    /// A live broadcast now: it is recorded rather than downloaded.
+    pub live: bool,
 }
 
 /// A playlist or a channel's videos (a channel's newest first).
@@ -408,6 +410,7 @@ fn page_info(v: &serde_json::Value) -> PageInfo {
         audio_only: audio_only || playlist.is_some(),
         playlist,
         in_playlist: false,
+        live: v["is_live"].as_bool() == Some(true),
     }
 }
 
@@ -429,13 +432,15 @@ pub(crate) fn parse_progress(line: &str) -> Option<(u64, Option<u64>, f64)> {
 /// Downloads `url` in `format` to `<dir>/<stem>.<ext>` and returns the file written. yt-dlp
 /// downloads video and audio one after the other and joins them; progress covers both.
 /// With `clip`, only that part, cut at keyframes forced at its ends (needs ffmpeg).
-/// Cancelling stops yt-dlp; running again continues its partial files.
+/// Cancelling stops yt-dlp; running again continues its partial files. A live broadcast
+/// (`record`) is recorded as MPEG-TS until cancelled, which then keeps what was recorded.
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
     tools: &Tools,
     url: &str,
     format: &str,
     clip: Option<&crate::clip::Clip>,
+    record: Option<&crate::task::Recording>,
     output_stem: &Path,
     headers: &[(String, String)],
     progress: &watch::Sender<Progress>,
@@ -466,11 +471,22 @@ pub async fn run(
             "--force-keyframes-at-cuts".into(),
         ]);
     }
+    if let Some(r) = record {
+        // Written as it comes, in a container that stays playable when cut off.
+        args.extend(["--hls-use-mpegts".into(), "--no-part".into()]);
+        if r.from_start {
+            args.push("--live-from-start".into());
+        }
+    }
     args.extend(base_args(tools, url, headers, cookies.as_deref()));
-    let mut child = command(&tools.ytdlp)
-        .args(&args)
+    let mut cmd = command(&tools.ytdlp);
+    cmd.args(&args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    // Its own process group, so stopping it stops ffmpeg too (see `kill_tree`).
+    #[cfg(unix)]
+    cmd.process_group(0);
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("could not run yt-dlp: {e}"))?;
     let stdout = child.stdout.take().expect("piped");
@@ -517,9 +533,17 @@ pub async fn run(
                 Err(e) => break Err(e.to_string()),
             },
             () = cancel.cancelled() => {
-                child.kill().await.ok();
+                kill_tree(&mut child).await;
                 if let Some(c) = &cookies {
                     std::fs::remove_file(c).ok();
+                }
+                // A recording that was stopped: what it wrote so far.
+                if record.is_some() {
+                    return file
+                        .filter(|f| f.is_file())
+                        .or_else(|| written_file(output_stem))
+                        .filter(|f| std::fs::metadata(f).is_ok_and(|m| m.len() > 0))
+                        .ok_or_else(|| "nothing was recorded".to_owned());
                 }
                 return Err("cancelled".into());
             }
@@ -536,6 +560,52 @@ pub async fn run(
     file.filter(|f| f.is_file())
         .or_else(|| written_file(output_stem))
         .ok_or_else(|| "yt-dlp finished without saying which file it wrote".to_owned())
+}
+
+/// Stops yt-dlp and what it started (ffmpeg, which downloads a live stream or joins tracks):
+/// killing yt-dlp alone leaves them running.
+async fn kill_tree(child: &mut tokio::process::Child) {
+    if let Some(pid) = child.id() {
+        #[cfg(windows)]
+        {
+            command(Path::new("taskkill"))
+                .args(["/T", "/F", "/PID", &pid.to_string()])
+                .output()
+                .await
+                .ok();
+        }
+        #[cfg(unix)]
+        {
+            // yt-dlp leads its own process group (see `run`).
+            command(Path::new("kill"))
+                .args(["-TERM", &format!("-{pid}")])
+                .output()
+                .await
+                .ok();
+        }
+    }
+    child.kill().await.ok();
+}
+
+/// Copies a recording (MPEG-TS, whatever its name) into an MP4 at `out`, without
+/// re-encoding, and deletes the original. Returns the MP4.
+pub async fn remux(ffmpeg: &Path, recording: &Path, out: &Path) -> Result<PathBuf, String> {
+    let tmp = out.with_extension("remux.mp4");
+    let status = command(ffmpeg)
+        .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+        .arg(recording)
+        .args(["-map", "0", "-c", "copy", "-bsf:a", "aac_adtstoasc"])
+        .arg(&tmp)
+        .output()
+        .await
+        .map_err(|e| format!("could not run ffmpeg: {e}"))?;
+    if !status.status.success() {
+        std::fs::remove_file(&tmp).ok();
+        return Err(error_text(&status.stderr));
+    }
+    std::fs::remove_file(recording).ok();
+    std::fs::rename(&tmp, out).map_err(|e| e.to_string())?;
+    Ok(out.to_owned())
 }
 
 /// The file yt-dlp wrote for `<stem>.%(ext)s`, found on disk: for when the line naming it got
@@ -689,6 +759,7 @@ mod tests {
                 audio_only: true,
                 playlist: None,
                 in_playlist: false,
+                live: false,
             }
         );
     }

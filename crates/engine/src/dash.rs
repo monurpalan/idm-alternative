@@ -111,6 +111,8 @@ pub async fn download_dash(
                 Source::Segments(MediaPlaylist {
                     init: t.init.map(segment),
                     segments: t.segments.into_iter().map(segment).collect(),
+                    ended: true,
+                    ..MediaPlaylist::default()
                 }),
             ));
         }

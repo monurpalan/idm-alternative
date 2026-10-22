@@ -213,3 +213,78 @@ async fn a_clip_of_a_youtube_video() {
     m.close().await;
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "network: a YouTube live stream; needs ffmpeg and ffprobe on PATH"]
+async fn a_youtube_live_stream_is_recorded_for_its_limit() {
+    use shardload_manager::{Recording, Status, Stream};
+    let ffmpeg = on_path("ffmpeg").expect("ffmpeg on PATH");
+    let dir = std::env::temp_dir().join(format!("shardload-yt-live-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).expect("dir");
+    let t = tools();
+    let m = Manager::open(
+        &dir.join("list.db"),
+        Config {
+            dir: dir.join("downloads"),
+            ytdlp: Some(t.ytdlp),
+            deno: t.deno,
+            ffmpeg: Some(ffmpeg),
+            ..Config::default()
+        },
+    )
+    .await
+    .expect("open");
+    // Lofi Girl's around-the-clock stream.
+    let task = m
+        .add(NewTask {
+            url: "https://www.youtube.com/@LofiGirl/live".into(),
+            name: Some("lofi.mp4".into()),
+            start: true,
+            stream: Some(Stream {
+                ytdlp: Some(shardload_manager::ytdlp::selector(Some(360))),
+                record: Some(Recording {
+                    limit: Some(10),
+                    ..Recording::default()
+                }),
+                ..Stream::default()
+            }),
+            ..NewTask::default()
+        })
+        .await
+        .expect("add");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    let done = loop {
+        let t = m.get(task.id).await.expect("get");
+        if matches!(t.status, Status::Done | Status::Error) {
+            break t;
+        }
+        assert!(std::time::Instant::now() < deadline, "timed out");
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    };
+    assert_eq!(done.status, Status::Done, "{:?}", done.error);
+    let path = done.path.expect("path");
+    let probe = std::process::Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=format_name,duration",
+            "-of",
+            "csv=p=0",
+        ])
+        .arg(&path)
+        .output()
+        .expect("ffprobe");
+    let report = String::from_utf8_lossy(&probe.stdout).into_owned();
+    assert!(report.contains("mp4"), "{report}");
+    let seconds: f64 = report
+        .trim()
+        .rsplit(',')
+        .next()
+        .and_then(|s| s.parse().ok())
+        .expect("duration");
+    assert!(seconds >= 3.0, "{seconds} s");
+    m.close().await;
+    std::fs::remove_dir_all(&dir).ok();
+}

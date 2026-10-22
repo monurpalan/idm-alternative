@@ -193,7 +193,8 @@ async fn tools_reach_the_app() {
             "type": "add", "url": "https://x/b.zip", "dir": null, "name": "b.zip", "start": null,
             "mirrors": [], "checksum": null, "video_height": null, "audio_only": null,
             "torrent_files": null, "archive_entries": null, "allow_duplicate": null,
-            "playlist_items": null, "clip_start": null, "clip_end": null, "exact_cut": null
+            "playlist_items": null, "clip_start": null, "clip_end": null, "exact_cut": null, "record": null, "record_minutes": null,
+            "record_from_start": null, "record_in_minutes": null
         })
     );
     // Adding again what was downloaded before is on the caller's word.
@@ -248,7 +249,8 @@ async fn tools_reach_the_app() {
                 "start": null, "mirrors": [], "checksum": null, "video_height": null,
                 "audio_only": true, "torrent_files": null, "archive_entries": null,
                 "allow_duplicate": null, "playlist_items": [1, 2, 3], "clip_start": null, "clip_end": null,
-                "exact_cut": null
+                "exact_cut": null, "record": null, "record_minutes": null,
+            "record_from_start": null, "record_in_minutes": null
             }),
         ),
         (
@@ -259,7 +261,8 @@ async fn tools_reach_the_app() {
                 "start": null, "mirrors": [], "checksum": null, "video_height": 720,
                 "audio_only": null, "torrent_files": null, "archive_entries": null,
                 "allow_duplicate": null, "playlist_items": null, "clip_start": "1:05", "clip_end": "2:30",
-                "exact_cut": null
+                "exact_cut": null, "record": null, "record_minutes": null,
+            "record_from_start": null, "record_in_minutes": null
             }),
         ),
         (

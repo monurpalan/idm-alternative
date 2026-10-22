@@ -40,7 +40,7 @@ pub use download::{
     fetch_text, probe,
 };
 pub use error::{Error, Result};
-pub use hls::{Clip, StreamRequest, download_hls};
+pub use hls::{Clip, RecordRequest, StreamRequest, download_hls, record_hls};
 pub use limit::Limiter;
 pub use place::{Conflict, target, target_avoiding};
 pub use relink::patch_url;

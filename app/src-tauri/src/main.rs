@@ -616,11 +616,24 @@ async fn inspect_media(
     headers: Option<Vec<(String, String)>>,
 ) -> CmdResult<shardload_media::Streams> {
     let opts = app.manager.config().engine;
-    let (text, final_url) =
-        shardload_engine::fetch_text(&url, &headers.unwrap_or_default(), &opts, 8 << 20)
-            .await
-            .map_err(msg)?;
-    shardload_media::parse(&final_url, &text).map_err(msg)
+    let headers = headers.unwrap_or_default();
+    let (text, final_url) = shardload_engine::fetch_text(&url, &headers, &opts, 8 << 20)
+        .await
+        .map_err(msg)?;
+    let mut streams = shardload_media::parse(&final_url, &text).map_err(msg)?;
+    // A master playlist does not say whether it is live or how long: its first variant does.
+    if streams.format == shardload_media::Format::Hls
+        && streams.duration.is_none()
+        && !streams.live
+        && let Some(variant) = streams.video.first()
+        && let Ok((text, variant_url)) =
+            shardload_engine::fetch_text(&variant.id, &headers, &opts, 8 << 20).await
+        && let Ok(media) = shardload_media::parse(&variant_url, &text)
+    {
+        streams.live = media.live;
+        streams.duration = media.duration;
+    }
+    Ok(streams)
 }
 
 /// Continues a download from a fresh link to the same file.
@@ -1951,6 +1964,19 @@ async fn tool_add(handle: &AppHandle, add: shardload_bridge::AddDownload) -> Cmd
     let mut name = add.name.filter(|n| !n.trim().is_empty());
     let mut stream = None;
     let clip_asked = add.clip_start.is_some() || add.clip_end.is_some();
+    let record = (add.record == Some(true)).then(|| shardload_manager::Recording {
+        limit: add.record_minutes.filter(|m| *m > 0).map(|m| m * 60),
+        from_start: add.record_from_start == Some(true),
+        start_at: add.record_in_minutes.filter(|m| *m > 0).map(|m| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as i64)
+                + m as i64 * 60_000
+        }),
+    });
+    if record.is_some() && add.video_height.is_none() && add.audio_only != Some(true) {
+        return Err("record is for live video pages: give video_height or audio_only too".into());
+    }
     if clip_asked && add.video_height.is_none() && add.audio_only != Some(true) {
         return Err(
             "clip_start and clip_end are for video pages: give video_height or audio_only too"
@@ -1986,6 +2012,7 @@ async fn tool_add(handle: &AppHandle, add: shardload_bridge::AddDownload) -> Cmd
         stream = Some(shardload_manager::Stream {
             ytdlp: Some(shardload_manager::ytdlp::selector(height)),
             clip,
+            record,
             ..Default::default()
         });
     } else if let Some(files) = add.torrent_files {

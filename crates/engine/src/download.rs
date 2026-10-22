@@ -194,6 +194,8 @@ pub enum Phase {
     Downloading,
     /// Hashing the finished file; see [`Progress::verified`].
     Verifying,
+    /// Recording a live stream: no size, [`Progress::recorded`] grows until it stops.
+    Recording,
     Done,
 }
 
@@ -211,6 +213,11 @@ pub struct Progress {
     /// While [`Phase::Verifying`]: where the checksum came from, `None` when the user gave
     /// it.
     pub checksum_from: Option<String>,
+    /// While [`Phase::Recording`]: seconds of the stream recorded.
+    pub recorded: f64,
+    /// While [`Phase::Recording`]: segments lost because they left the live playlist before
+    /// they were read.
+    pub missed: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -1221,8 +1228,7 @@ fn snapshot(t: &Table, size: Option<u64>) -> Progress {
                 speed: s.speed,
             })
             .collect(),
-        verified: 0,
-        checksum_from: None,
+        ..Progress::default()
     }
 }
 

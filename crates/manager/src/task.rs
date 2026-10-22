@@ -67,6 +67,24 @@ pub struct Stream {
     /// Only this part of the video (a page or a stream); needs ffmpeg.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clip: Option<crate::clip::Clip>,
+    /// A live stream, recorded until it ends, the user stops it, or the limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record: Option<Recording>,
+}
+
+/// How a live stream is recorded.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct Recording {
+    /// Stop after this many seconds.
+    #[serde(default)]
+    pub limit: Option<u64>,
+    /// A page of a site yt-dlp knows: from the start of the broadcast rather than from now
+    /// (`--live-from-start`, where the site keeps it).
+    #[serde(default)]
+    pub from_start: bool,
+    /// Start at this time (Unix milliseconds) rather than when its turn comes.
+    #[serde(default)]
+    pub start_at: Option<i64>,
 }
 
 /// The files picked out of a ZIP archive on the server.
@@ -344,6 +362,8 @@ pub struct TaskProgress {
     pub verified: u64,
     /// While verifying: where the checksum was found, when the user gave none.
     pub checksum_from: Option<String>,
+    /// While recording a live stream: seconds recorded.
+    pub recorded: f64,
     #[serde(serialize_with = "segments")]
     pub segments: Vec<SegmentView>,
 }
@@ -354,6 +374,7 @@ fn phase_name<S: serde::Serializer>(p: &Phase, s: S) -> Result<S::Ok, S::Error> 
         Phase::SettingUp => "settingup",
         Phase::Downloading => "downloading",
         Phase::Verifying => "verifying",
+        Phase::Recording => "recording",
         Phase::Done => "done",
     })
 }

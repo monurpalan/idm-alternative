@@ -30,7 +30,7 @@ const LAST_MODIFIED_BASE: u64 = 1_767_225_600;
 /// gets its own state (connection numbering, TTL clock, validator generation).
 #[derive(Default)]
 pub(crate) struct UrlState {
-    first_seen: Mutex<Option<Instant>>,
+    pub(crate) first_seen: Mutex<Option<Instant>>,
     pub(crate) gets: AtomicU64,
     active: AtomicU32,
     peak_active: AtomicU32,

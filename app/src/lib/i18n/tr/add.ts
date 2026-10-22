@@ -75,7 +75,7 @@ export default {
 	// A stream (HLS, DASH)
 	'Read the playlist first': 'Önce oynatma listesi okunmalı',
 	'Protected streams cannot be downloaded': 'Korumalı yayınlar indirilemez',
-	'Live streams cannot be downloaded yet': 'Canlı yayınlar henüz indirilemiyor',
+	'Live DASH streams cannot be recorded yet': 'Canlı DASH yayınları henüz kaydedilemiyor',
 	'As offered': 'Sunulduğu gibi',
 	Track: 'Parça',
 	Stream: 'Yayın',
@@ -83,8 +83,6 @@ export default {
 	live: 'canlı',
 	'This stream is protected (DRM). It cannot be saved in a playable form.':
 		'Bu yayın korumalı (DRM). Oynatılabilir biçimde kaydedilemez.',
-	'A live stream: downloading records it until you stop it.':
-		'Canlı yayın: indirme, siz durdurana kadar kaydeder.',
 	Audio: 'Ses',
 	'Subtitles (saved next to the video)': 'Altyazılar (videonun yanına kaydedilir)',
 	'Name from the address': 'Adresteki ad',
@@ -138,5 +136,17 @@ export default {
 	To: 'Bitiş',
 	'Cut at the exact frame (slower: re-encodes)': 'Tam karede kes (daha yavaş: yeniden kodlar)',
 	'Only the needed part is downloaded; the file name gets the range.':
-		'Yalnız gereken kısım indirilir; aralık dosya adına eklenir.'
+		'Yalnız gereken kısım indirilir; aralık dosya adına eklenir.',
+
+	// Live recording
+	Record: 'Kaydet',
+	'Give the minutes to record': 'Kaç dakika kaydedileceğini yazın',
+	'Give the start time as HH:MM': 'Başlama saatini SS:DD olarak yazın',
+	'A live broadcast: it is recorded until it ends or you stop it (Pause).':
+		'Canlı yayın: bitene ya da siz durdurana (Duraklat) kadar kaydedilir.',
+	'From the start of the broadcast, not from now': 'Şu andan değil, yayının başından',
+	'Stop after': 'Şu kadar sonra dur',
+	Minutes: 'Dakika',
+	'Begin at': 'Şu saatte başla',
+	'Time (HH:MM)': 'Saat (SS:DD)'
 } satisfies Record<string, string>;

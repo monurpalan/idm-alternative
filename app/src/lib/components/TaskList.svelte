@@ -2,8 +2,8 @@
 	import { Button, Icon, Progress } from './ui/index.ts';
 	import type { Group, Task, TaskId } from '../api.ts';
 	import { downloads, row, type Row, type SortKey } from '../downloads.svelte.ts';
-	import { bytes, duration, percent, speed } from '../format.ts';
-	import { msg, t } from '../i18n.svelte.ts';
+	import { bytes, clock, duration, percent, speed } from '../format.ts';
+	import { locale, msg, t } from '../i18n.svelte.ts';
 
 	// Gets the tasks already filtered and in order; each row reads its own live progress, so a
 	// progress update re-renders only the rows of running downloads.
@@ -208,6 +208,8 @@
 					const v = size ? Math.floor((received / size) * 100) : 0;
 					return t('Setting up ffmpeg {v}%', { v });
 				}
+				if (r.live?.phase === 'recording')
+					return t('Rec. {time}', { time: clock(r.live.recorded) });
 				if (r.live?.phase === 'verifying') {
 					const v = r.size ? Math.floor((r.live.verified / r.size) * 100) : 0;
 					const from = r.live.checksum_from;
@@ -216,10 +218,16 @@
 						: t('Verifying {v}%', { v });
 				}
 				return r.task.path ? t('Downloading') : t('Connecting');
-			case 'queued':
+			case 'queued': {
 				if (task.error_kind === 'offline') return t('Waiting for the network');
+				const at = task.stream?.record?.start_at;
+				if (at && at > Date.now())
+					return t('Starts at {time}', {
+						time: new Date(at).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })
+					});
 				// Waiting for an automatic retry after a failure that may pass.
 				return task.error ? t('Retrying') : t('Waiting');
+			}
 			case 'paused':
 				return t('Paused');
 			case 'done':

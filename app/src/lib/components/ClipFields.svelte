@@ -3,7 +3,7 @@
 	// the video's length when it is known.
 
 	import type { Clip } from '../api.ts';
-	import { parseTime } from '../format.ts';
+	import { clock, parseTime } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
 	import { Checkbox, Field, Input, Text } from './ui/index.ts';
 
@@ -47,15 +47,6 @@
 			problem = null;
 		}
 	});
-
-	/** `1:05` or `1:02:03`. */
-	function clock(seconds: number): string {
-		const s = Math.max(0, Math.floor(seconds));
-		const two = (n: number) => String(n).padStart(2, '0');
-		return s >= 3600
-			? `${Math.floor(s / 3600)}:${two(Math.floor(s / 60) % 60)}:${two(s % 60)}`
-			: `${Math.floor(s / 60)}:${two(s % 60)}`;
-	}
 
 	function toggle() {
 		if (on && !end && length !== null) end = clock(length);

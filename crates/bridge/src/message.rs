@@ -189,6 +189,14 @@ pub struct AddDownload {
     pub clip_end: Option<String>,
     /// With `clip_start`/`clip_end`: cut at exactly those times (re-encodes) rather than at keyframes.
     pub exact_cut: Option<bool>,
+    /// A live broadcast (a video page): record it until it ends, is paused or the limit.
+    pub record: Option<bool>,
+    /// Recording: stop after this many minutes.
+    pub record_minutes: Option<u64>,
+    /// Recording: from the start of the broadcast where the site keeps it.
+    pub record_from_start: Option<bool>,
+    /// Recording: begin this many minutes from now rather than at once.
+    pub record_in_minutes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

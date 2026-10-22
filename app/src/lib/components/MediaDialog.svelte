@@ -2,8 +2,17 @@
 	// A stream the extension found: pick the quality, audio and subtitles.
 
 	import { onMount } from 'svelte';
-	import { addTask, inspectMedia, tools, type CapturedMedia, type Clip, type StreamInfo } from '../api.ts';
+	import {
+		addTask,
+		inspectMedia,
+		tools,
+		type CapturedMedia,
+		type Clip,
+		type Recording,
+		type StreamInfo
+	} from '../api.ts';
 	import ClipFields from './ClipFields.svelte';
+	import RecordFields from './RecordFields.svelte';
 	import { duration } from '../format.ts';
 	import { msg, t } from '../i18n.svelte.ts';
 	import { Button, Checkbox, Dialog, Field, Input, Section, Select, Text } from './ui/index.ts';
@@ -31,12 +40,14 @@
 	let dialog: { close(): void } | undefined = $state();
 	let clip = $state<Clip | null>(null);
 	let clipProblem = $state<string | null>(null);
+	let record = $state<Recording>({ limit: null, from_start: false, start_at: null });
+	let recordProblem = $state<string | null>(null);
 
 	/** Why the stream cannot be downloaded, if it cannot. */
 	const blocked = $derived.by(() => {
 		if (!info) return msg('Read the playlist first');
 		if (info.encryption === 'DRM') return msg('Protected streams cannot be downloaded');
-		if (info.live) return msg('Live streams cannot be downloaded yet');
+		if (info.live && info.format === 'dash') return msg('Live DASH streams cannot be recorded yet');
 		return null;
 	});
 
@@ -58,7 +69,8 @@
 					subtitles: info.subtitles
 						.filter((s) => s.id && subtitles.has(s.id))
 						.map((s) => ({ id: s.id!, language: s.language })),
-					clip
+					clip: info.live ? null : clip,
+					record: info.live ? record : null
 				}
 			});
 			dialog?.close();
@@ -131,8 +143,6 @@
 		</Text>
 		{#if info.encryption === 'DRM'}
 			<Text variant="error">{t('This stream is protected (DRM). It cannot be saved in a playable form.')}</Text>
-		{:else if info.live}
-			<Text>{t('A live stream: downloading records it until you stop it.')}</Text>
 		{/if}
 
 		<Section title={t('Quality')}>
@@ -171,7 +181,9 @@
 		<Field label={t('Save as')}>
 			<Input bind:value={name} placeholder={t('Name from the address')} />
 		</Field>
-		{#if !info.live}
+		{#if info.live}
+			<RecordFields bind:record bind:problem={recordProblem} />
+		{:else}
 			<ClipFields length={info.duration} bind:clip bind:problem={clipProblem} />
 		{/if}
 	{/if}
@@ -185,8 +197,10 @@
 
 	{#snippet actions()}
 		<Button onclick={() => dialog?.close()}>{t('Close')}</Button>
-		<Button variant="primary" disabled={!!blocked || busy || !!clipProblem} onclick={download}
-			>{t('Download')}</Button
+		<Button
+			variant="primary"
+			disabled={!!blocked || busy || !!(info?.live ? recordProblem : clipProblem)}
+			onclick={download}>{info?.live ? t('Record') : t('Download')}</Button
 		>
 	{/snippet}
 </Dialog>
