@@ -406,6 +406,10 @@ mod tests {
             r#"{"type":"rename","id":1,"name":"a.zip"}"#,
             r#"{"type":"relocate","id":1,"dir":"C:\\Users\\x\\Downloads"}"#,
             r#"{"type":"when_done","action":"sleep"}"#,
+            r#"{"type":"sites"}"#,
+            r#"{"type":"forget_site","site":"example.com"}"#,
+            r#"{"type":"file_origin","path":"C:\\Users\\x\\a.zip"}"#,
+            r#"{"type":"add","url":"https://x/list","playlist_items":[1],"record":true}"#,
         ] {
             let r: Request = serde_json::from_str(msg).expect(msg);
             assert!(!r.from_browser(), "{msg}");

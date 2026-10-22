@@ -48,6 +48,13 @@ saves videos and torrents. No ads, no trial, no account.</p>
   many more through yt-dlp, which the app sets up and keeps up to date; HLS and DASH streams with
   a choice of quality, audio track and subtitles. Video and sound always end up in one file: the
   app sets up ffmpeg to join them the first time a download needs it.
+- **Playlists, channels, clips and live streams.** A YouTube playlist or channel lists its
+  videos to pick from; only a part of a video (say 1:05–2:30) downloads just that part; a live
+  broadcast is recorded until it ends, at a set time if you like.
+- **Remembers.** Says when you add something you downloaded before, and what each site
+  allows (how many connections, which browser), so the next download starts right.
+- **Where did this file come from?** Drop a file on the window to see the page it was
+  downloaded from, check it again, or look for a newer version.
 - **Torrents.** Magnet links and `.torrent` files in the same list, with a choice of files;
   nothing keeps seeding afterwards.
 - **One file from several servers at once** (mirrors and Metalink), each checked to serve the
@@ -131,6 +138,32 @@ For those who want to know exactly what it does, how it was measured and how it 
   2026-10-18 with public pages: YouTube, X, TikTok, Instagram, Facebook, Twitch, Dailymotion,
   Bilibili, VK, Bluesky, SoundCloud, Bandcamp, Internet Archive, PeerTube, Streamable and Odysee
   worked without a login; Vimeo and Reddit asked for one.
+- **Playlists and channels:** read flat by yt-dlp (titles, lengths, thumbnails; a channel's
+  newest first), picked with All, None, the first or newest N or a name filter, all at one
+  quality, into a folder named after the list. Each video is a download of its own; the list
+  folds them into one row, as it does a batch or the files of a site.
+- **Clips:** a time range of a page or a stream. For HLS and DASH only the segments the range
+  falls in are downloaded, then ffmpeg cuts them (copying from the keyframe, or exactly by
+  re-encoding); for pages yt-dlp downloads just that section. The file name gets the range.
+- **Live streams:** an HLS playlist without an end is recorded: read again every target
+  duration, new segments appended by their sequence number (ones that left the window are
+  counted), until the stream ends, a time limit, or Pause; then put into an MP4. Live
+  broadcasts on YouTube or Twitch go through yt-dlp, optionally from their start. A recording
+  can wait for a start time.
+- **"You downloaded this before":** finished downloads are kept in a history that outlives
+  the list. Adding the same address (or where it leads, or a file of the same name and size)
+  says when, with Open and Show in folder, or "already on the list"; a batch or a page of
+  links offers to skip those.
+- **Site memory:** what a download learns about a server is kept for 30 days: connections it
+  refused beyond a number (the next download tries one more), no range support, the browser
+  identity it serves after refusing another. Shown and forgotten under Settings, Sites.
+- **Corrupt pieces mended:** with a metalink's piece hashes each piece is checked once the
+  file is complete, and only a corrupt one is downloaded again.
+- **Where a file came from:** found in the history by its path, or by size and SHA-256 if it
+  was moved or copied, or read from the mark the browser left on it (Windows' Zone.Identifier;
+  Linux's `user.xdg.origin.url`, which Shardload writes too). Its checksum can be checked
+  again, and its address asked whether there is a newer version (for a GitHub release, the
+  newest release).
 - **Site grabber:** reads a page and, to a chosen depth, the pages below it on the same site,
   and lists the files they link to (archives, documents, video, pictures) to pick from;
   nothing is downloaded to find them. Also an MCP tool (`find_site_files`).
@@ -153,11 +186,16 @@ For those who want to know exactly what it does, how it was measured and how it 
   copied, checked and only then deleted. A taken name gets a number, `name (1).ext`.
 - **For AI assistants:** `shardload-mcp`, an [MCP](https://modelcontextprotocol.io) server installed
   with the app, lets any MCP client add downloads (files, chosen files out of ZIP archives,
-  torrents with a choice of files, metalinks, video pages at a chosen quality), find the files
-  a site links to, list downloads with their progress, wait for them to finish, pause, resume,
-  reorder, rename, move and remove them, limit their speed and choose what happens when all are done. It
-  reaches the app through the same per-user pipe as the browser; nothing listens on a network port. Register it in the client
-  as a stdio server whose command is `%LOCALAPPDATA%\Shardload\shardload-mcp.exe`.
+  torrents with a choice of files, metalinks, video pages at a chosen quality, clips, videos of
+  a playlist or a channel, live broadcasts to record), find the files a site links to, list
+  downloads with their progress, wait for them to finish, pause, resume, reorder, rename, move
+  and remove them, limit their speed, see what it learned about sites, tell where a file on
+  disk came from, and choose what happens when all are done. Something downloaded before is
+  not added again unless the client says so. It reaches the app through the same per-user pipe
+  as the browser; nothing listens on a network port. Register it in the client as a stdio
+  server whose command is `%LOCALAPPDATA%\Shardload\shardload-mcp.exe`.
+
+  ![An MCP client lists a playlist, adds a clip and two files, and waits for them](docs/screenshots/mcp.gif)
 
 ### Speed tests
 

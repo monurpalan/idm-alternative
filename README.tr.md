@@ -48,6 +48,13 @@ AppImage (`chmod +x` ve çalıştırın).
 - **Video.** Sayfadaki videoların üstünde bir İndir düğmesi. YouTube, X, Instagram, TikTok,
   Twitch ve daha birçok site yt-dlp ile; uygulama onu kendisi kurar ve günceller. HLS ve DASH
   yayınlarında kalite, ses ve altyazı seçimi.
+- **Oynatma listeleri, kanallar, klipler ve canlı yayınlar.** Bir YouTube listesi ya da kanalı
+  videolarını seçmeniz için listeler; bir videonun yalnızca bir bölümü (ör. 1:05–2:30) istenirse
+  yalnız o bölüm iner; canlı yayın bitene kadar kaydedilir, isterseniz belli bir saatte başlar.
+- **Hatırlar.** Daha önce indirdiğiniz bir şeyi eklerken söyler; her sitenin neye izin
+  verdiğini (kaç bağlantı, hangi tarayıcı) öğrenir, sonraki indirme doğru başlar.
+- **Bu dosya nereden geldi?** Bir dosyayı pencereye bırakın: indirildiği sayfayı görün, yeniden
+  denetleyin ya da yeni sürümü var mı bakın.
 - **Torrent.** Magnet bağlantıları ve `.torrent` dosyaları aynı listede, dosya seçerek;
   indirme bitince arkada paylaşmaya devam etmez.
 - **Bir dosyayı aynı anda birkaç sunucudan indirir** (aynalar ve Metalink); her sunucunun aynı
@@ -62,6 +69,8 @@ AppImage (`chmod +x` ve çalıştırın).
 - **Yapay zekâ asistanları için:** uygulamayla birlikte kurulan bir
   [MCP](https://modelcontextprotocol.io) sunucusu; bir asistan sizin için indirme ekleyip
   bulabilir, izleyip yönetebilir.
+
+  ![Bir MCP istemcisi bir listeyi inceliyor, bir klip ve iki dosya ekliyor, bitmelerini bekliyor](docs/screenshots/mcp.gif)
 - **Komut satırı:** `shard`, aynı motor terminalde (şimdilik kaynaktan derleniyor, bkz.
   [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)).
 - Türkçe ve İngilizce arayüz.

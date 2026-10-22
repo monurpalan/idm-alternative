@@ -206,14 +206,14 @@ impl Downloads {
     }
 
     #[tool(
-        description = "List the downloads in Shardload with id, url, file name, path, status (queued, downloading, paused, done, error), error, size and received bytes, speed in bytes per second, place in the queue (queue_pos, lower starts first) and own speed limit."
+        description = "List the downloads in Shardload with id, url, file name, path, status (queued, downloading, paused, done, error), error (for a finished download a note, e.g. saved at a lower quality), size and received bytes, speed in bytes per second, place in the queue (queue_pos, lower starts first), own speed limit, and group_id for downloads added together (a playlist, a batch)."
     )]
     async fn list_downloads(&self) -> Result<CallToolResult, ErrorData> {
         self.ask(Request::Tasks).await
     }
 
     #[tool(
-        description = "Add a download to Shardload and start it (unless start is false): a direct file link, some files out of a ZIP archive (archive_entries), a magnet link or .torrent file (optionally only some of its files), a .meta4 metalink (its mirrors are used together, and with piece hashes a corrupt piece is downloaded again alone), or a page of a video site with video_height or audio_only. Returns the new download with its id."
+        description = "Add a download to Shardload and start it (unless start is false): a direct file link, some files out of a ZIP archive (archive_entries), a magnet link or .torrent file (optionally only some of its files), a .meta4 metalink (its mirrors are used together, and with piece hashes a corrupt piece is downloaded again alone), or a page of a video site with video_height or audio_only: only a part of it with clip_start and clip_end, some videos of a playlist or a channel with playlist_items, or a live broadcast recorded with record. Something downloaded before (or already on the list) is refused with what was found, unless allow_duplicate. Returns the new download with its id; with playlist_items, the downloads added and the ones skipped."
     )]
     async fn add_download(
         &self,
@@ -318,7 +318,9 @@ impl Downloads {
         self.ask(Request::Resume { ids: p.ids }).await
     }
 
-    #[tool(description = "Pause downloads in Shardload; they keep their progress.")]
+    #[tool(
+        description = "Pause downloads in Shardload; they keep their progress. Pausing a live recording ends it and keeps what was recorded."
+    )]
     async fn pause_downloads(
         &self,
         Parameters(p): Parameters<IdsParams>,
@@ -455,10 +457,13 @@ impl ServerHandler for Downloads {
             .with_server_info(Implementation::new("shardload", env!("CARGO_PKG_VERSION")))
             .with_instructions(
                 "Controls the Shardload download manager on this computer: add downloads \
-                 (files, chosen files out of ZIP archives, torrents, metalinks, video pages), \
-                 find the files a site links to, list \
-                 downloads and their progress, wait for them to finish, pause, resume, reorder, \
-                 rename, move and remove them, limit their speed, and choose what happens when all are done.",
+                 (files, chosen files out of ZIP archives, torrents, metalinks, video pages, \
+                 clips of videos, playlists and channels, live broadcasts to record), find the \
+                 files a site links to, list downloads and their progress, wait for them to \
+                 finish, pause, resume, reorder, rename, move and remove them, limit their speed, \
+                 see what it learned about sites, tell where a file on disk came from, and \
+                 choose what happens when all are done. It refuses to add again what was \
+                 downloaded before unless asked to.",
             )
     }
 }
