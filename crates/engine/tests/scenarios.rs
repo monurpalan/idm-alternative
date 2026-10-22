@@ -229,3 +229,39 @@ async fn completed_download_is_not_fetched_again() {
     get(&request(url, &out), &opts(4)).await.expect("second");
     assert_verified(&out, 7, 4 * MB);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn what_the_server_allows_is_learned() {
+    let base = start().await;
+    let dir = workdir("learned");
+    for (query, max, ranges) in [
+        ("&rate=4M&max_conns=3", Some(3), false),
+        ("&rate=4M&max_conns=3&refuse_status=403", Some(3), false),
+        ("&range_as_200=1&rate=16M", None, true),
+        ("&rate=8M", None, false),
+    ] {
+        let out = dir.join("f.bin");
+        let url = format!("{base}/file/f.bin?size={}&seed=7{query}", 16 * MB);
+        let o = opts(16);
+        get(&request(url, &out), &o)
+            .await
+            .unwrap_or_else(|e| panic!("{query}: {e}"));
+        let learned = o.learn.get();
+        // A refused connection may come while fewer were running, so the limit learned
+        // can be below the server's.
+        match max {
+            Some(max) => assert!(
+                learned
+                    .max_connections
+                    .is_some_and(|m| (1..=max).contains(&m)),
+                "{query}: {learned:?}"
+            ),
+            None => assert_eq!(learned.max_connections, None, "{query}"),
+        }
+        assert_eq!(learned.no_ranges, ranges, "{query}");
+        if query == "&rate=8M" {
+            assert!(learned.peak_connections > 3, "{learned:?}");
+        }
+        std::fs::remove_file(&out).ok();
+    }
+}

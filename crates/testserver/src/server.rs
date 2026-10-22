@@ -34,6 +34,8 @@ pub(crate) struct UrlState {
     pub(crate) gets: AtomicU64,
     active: AtomicU32,
     peak_active: AtomicU32,
+    /// Requests turned away by `max_conns`.
+    refused: AtomicU64,
     pub(crate) bytes_sent: AtomicU64,
     /// `total_rate`: when the URL's first byte went out, and the bytes paced since.
     paced_from: Mutex<Option<Instant>>,
@@ -81,6 +83,8 @@ struct UrlStats {
     gets: u64,
     active: u32,
     peak_active: u32,
+    /// Requests turned away by `max_conns`.
+    refused: u64,
     bytes_sent: u64,
     /// Requests that arrived over HTTP/2.
     h2_gets: u64,
@@ -98,6 +102,7 @@ async fn stats(State(app): State<Arc<AppState>>) -> axum::Json<Vec<UrlStats>> {
             gets: s.gets.load(Ordering::Relaxed),
             active: s.active.load(Ordering::Relaxed),
             peak_active: s.peak_active.load(Ordering::Relaxed),
+            refused: s.refused.load(Ordering::Relaxed),
             bytes_sent: s.bytes_sent.load(Ordering::Relaxed),
             h2_gets: s.h2_gets.load(Ordering::Relaxed),
             connections: s.peers.lock().unwrap_or_else(PoisonError::into_inner).len(),
@@ -183,6 +188,16 @@ async fn serve_file(
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
 
+    if let Some(wanted) = &sc.only_ua {
+        let ua = headers
+            .get(header::USER_AGENT)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        if !ua.contains(wanted.as_str()) {
+            return text(StatusCode::FORBIDDEN, "browser not allowed\n");
+        }
+    }
+
     if let Some(expected) = &sc.auth {
         let given = headers
             .get(header::AUTHORIZATION)
@@ -228,6 +243,7 @@ async fn serve_file(
     let active = url.active.fetch_add(1, Ordering::AcqRel) + 1;
     if sc.max_conns.is_some_and(|max| active > max) {
         url.active.fetch_sub(1, Ordering::AcqRel);
+        url.refused.fetch_add(1, Ordering::Relaxed);
         return match sc.refuse_status.and_then(|s| StatusCode::from_u16(s).ok()) {
             Some(status) if status != StatusCode::SERVICE_UNAVAILABLE => {
                 text(status, "too many connections\n")

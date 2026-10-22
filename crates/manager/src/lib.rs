@@ -17,6 +17,7 @@ pub mod grabber;
 mod relocate;
 mod retry;
 mod secret;
+pub mod sites;
 mod task;
 pub mod torrent;
 pub mod ytdlp;
@@ -36,6 +37,7 @@ use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 
 use db::{Db, Insert};
+pub use sites::SiteMemory;
 pub use task::{
     ArchiveChoice, Category, ErrorKind, HistoryEntry, NewTask, Status, Stream, Subtitle, Task,
     TaskId, TaskProgress, TorrentChoice,
@@ -1183,6 +1185,32 @@ impl Manager {
         self.inner.db.forget_login(site).await
     }
 
+    /// What downloads learned about each site (see [`sites`]), most recently seen first;
+    /// memories older than [`sites::FORGET_AFTER`] are left out (and deleted).
+    pub async fn sites(&self) -> Result<Vec<SiteMemory>> {
+        let now = now_ms();
+        let mut kept = Vec::new();
+        for m in self.inner.db.sites().await? {
+            if let Some(m) = sites::recall(&self.inner.db, &m.site, now).await? {
+                kept.push(m);
+            }
+        }
+        Ok(kept)
+    }
+
+    /// What is remembered about the site of `url`.
+    pub async fn site_memory(&self, url: &str) -> Result<Option<SiteMemory>> {
+        match site_of(url) {
+            Some(site) => sites::recall(&self.inner.db, &site, now_ms()).await,
+            None => Ok(None),
+        }
+    }
+
+    /// Forgets what downloads learned about `site`; the next one finds out again.
+    pub async fn forget_site(&self, site: &str) -> Result<()> {
+        self.inner.db.forget_site(site).await
+    }
+
     /// Stops every running download so it resumes on the next [`Manager::open`], and closes
     /// the database.
     pub async fn close(&self) {
@@ -1886,6 +1914,53 @@ impl Inner {
         }
     }
 
+    /// Asks about the task's file; when the site refuses (403) the identity the settings
+    /// give and has not said which it serves, the others are tried, and the one it serves is
+    /// remembered and used for the download.
+    async fn probe_as_allowed(
+        &self,
+        task: &Task,
+        opts: &mut Options,
+        site: Option<&str>,
+        memory: &mut Option<SiteMemory>,
+    ) -> Result<shardload_engine::Probe> {
+        let first = match probe_any(task, opts).await {
+            Ok(p) => return Ok(p),
+            Err(e) => e,
+        };
+        let refused = matches!(
+            first,
+            shardload_engine::Error::LinkExpired(403) | shardload_engine::Error::Status(403)
+        );
+        let Some(site) = site.filter(|_| refused) else {
+            return Err(first.into());
+        };
+        if memory.as_ref().is_some_and(|m| m.browser.is_some()) {
+            return Err(first.into());
+        }
+        let refused_as = opts.browser;
+        for identity in sites::IDENTITIES.into_iter().filter(|b| *b != refused_as) {
+            let mut other = opts.clone();
+            other.browser = identity;
+            if let Ok(p) = probe_any(task, &other).await {
+                let name = sites::browser_name(identity);
+                tracing::info!(
+                    site,
+                    "refused as {}, served as {name}",
+                    sites::browser_name(refused_as)
+                );
+                opts.browser = identity;
+                let m = memory.get_or_insert_with(|| SiteMemory {
+                    site: site.to_owned(),
+                    ..SiteMemory::default()
+                });
+                m.browser = Some(name.to_owned());
+                return Ok(p);
+            }
+        }
+        Err(first.into())
+    }
+
     /// Keeps `note` with the download (see [`Inner::notes`]) and shows it now.
     async fn note(&self, task: &mut Task, note: String) -> Result<()> {
         self.db
@@ -2037,12 +2112,25 @@ impl Inner {
             }
         }
 
+        // What earlier downloads learned about the site: connections, ranges, identity.
+        let site = site_of(&task.url);
+        let mut memory = match &site {
+            Some(s) => sites::recall(&self.db, s, now_ms()).await?,
+            None => None,
+        };
+        if let Some(m) = &memory {
+            m.apply(&mut opts);
+        }
+        opts.learn = shardload_engine::Learning::default();
+        let tried = opts.connections;
+        let started_before = task.path.is_some();
+
         let path = match &task.path {
             Some(p) => p.clone(),
             None => {
                 // First start: ask the server for the name and size, then pick a free path.
                 let probe = tokio::select! {
-                    p = probe_any(&task, &opts) => p?,
+                    p = self.probe_as_allowed(&task, &mut opts, site.as_deref(), &mut memory) => p?,
                     () = cancel.cancelled() => return Err(shardload_engine::Error::Cancelled.into()),
                 };
                 std::fs::create_dir_all(&task.dir).map_err(shardload_engine::Error::from)?;
@@ -2085,6 +2173,24 @@ impl Inner {
         let result = shardload_engine::download(&req, &opts, Some(&tx), cancel).await;
         drop(tx);
         reporter.await.ok();
+        if let Some(site) = site {
+            let learned = opts.learn.get();
+            let known = memory.is_some();
+            let mut m = memory.unwrap_or(SiteMemory {
+                site,
+                ..SiteMemory::default()
+            });
+            m.learn(&learned, tried, task.connections, result.is_ok());
+            // A link that worked and then stopped: how long it lasted.
+            if matches!(result, Err(shardload_engine::Error::LinkExpired(_)))
+                && (started_before || learned.peak_connections > 0)
+            {
+                m.expired_after(((now_ms() - task.added_at).max(0) / 1000) as u64);
+            }
+            if known || !m.is_empty() {
+                sites::keep(&self.db, m, now_ms()).await?;
+            }
+        }
         // A checksum found for the file stays with the download, so the list shows it and
         // the next attempt checks against the same one.
         let found = match &result {

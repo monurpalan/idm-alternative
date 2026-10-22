@@ -95,6 +95,13 @@ pub enum Request {
         id: i64,
         dir: String,
     },
+    /// What downloads learned about each site (connections allowed, ranges, identity, how
+    /// long links last), answered in [`Reply::data`] as an array.
+    Sites,
+    /// Forgets what was learned about a site (`host` or `host:port`).
+    ForgetSite {
+        site: String,
+    },
     /// What to do once nothing is downloading or waiting any more: `nothing`, `exit`,
     /// `sleep`, `hibernate` or `shutdown`.
     WhenDone {

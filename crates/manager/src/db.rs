@@ -9,6 +9,7 @@ use sqlx::sqlite::{
 };
 
 use crate::Result;
+use crate::sites::SiteMemory;
 use crate::task::{Category, ErrorKind, HistoryEntry, Status, Stream, Task, TaskId};
 
 #[derive(Clone)]
@@ -368,6 +369,54 @@ impl Db {
         Ok(())
     }
 
+    pub(crate) async fn site(&self, site: &str) -> Result<Option<SiteMemory>> {
+        sqlx::query("SELECT * FROM sites WHERE site = ?")
+            .bind(site)
+            .fetch_optional(&self.pool)
+            .await?
+            .as_ref()
+            .map(site_memory)
+            .transpose()
+    }
+
+    /// Every remembered site, most recently seen first.
+    pub(crate) async fn sites(&self) -> Result<Vec<SiteMemory>> {
+        sqlx::query("SELECT * FROM sites ORDER BY seen_at DESC")
+            .fetch_all(&self.pool)
+            .await?
+            .iter()
+            .map(site_memory)
+            .collect()
+    }
+
+    pub(crate) async fn save_site(&self, m: &SiteMemory) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO sites (site, max_connections, no_ranges, browser, link_lifetime, seen_at)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT (site) DO UPDATE SET
+                 max_connections = excluded.max_connections, no_ranges = excluded.no_ranges,
+                 browser = excluded.browser, link_lifetime = excluded.link_lifetime,
+                 seen_at = excluded.seen_at",
+        )
+        .bind(&m.site)
+        .bind(m.max_connections.map(|v| v as i64))
+        .bind(m.no_ranges)
+        .bind(&m.browser)
+        .bind(m.link_lifetime.map(|v| v as i64))
+        .bind(m.seen_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn forget_site(&self, site: &str) -> Result<()> {
+        sqlx::query("DELETE FROM sites WHERE site = ?")
+            .bind(site)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub(crate) async fn set_queue_pos(&self, id: TaskId, pos: i64) -> Result<()> {
         sqlx::query("UPDATE tasks SET queue_pos = ? WHERE id = ?")
             .bind(pos)
@@ -581,6 +630,21 @@ fn task(r: &SqliteRow) -> Result<Task> {
             .transpose()?
             .unwrap_or_default(),
         final_url: r.try_get("final_url")?,
+    })
+}
+
+fn site_memory(r: &SqliteRow) -> Result<SiteMemory> {
+    Ok(SiteMemory {
+        site: r.try_get("site")?,
+        max_connections: r
+            .try_get::<Option<i64>, _>("max_connections")?
+            .map(|v| v as usize),
+        no_ranges: r.try_get("no_ranges")?,
+        browser: r.try_get("browser")?,
+        link_lifetime: r
+            .try_get::<Option<i64>, _>("link_lifetime")?
+            .map(|v| v as u64),
+        seen_at: r.try_get("seen_at")?,
     })
 }
 

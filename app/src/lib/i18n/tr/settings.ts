@@ -99,5 +99,13 @@ export default {
 	'Finished downloads are remembered, to tell you when you add one again.':
 		'Biten indirmeler hatırlanır; birini yeniden eklediğinizde söylenir.',
 	Forgotten: 'Unutuldu',
+	Sites: 'Siteler',
+	Advanced: 'Gelişmiş',
+	'A site that refuses it is tried with the others once, and the one it serves is remembered (Sites).':
+		'Bunu reddeden bir site diğerleriyle bir kez denenir; hizmet verdiği kimlik hatırlanır (Siteler).',
+	'Nothing learned yet. When a site limits connections, sends whole files only or serves only some browsers, the next download from it starts that way.':
+		'Henüz öğrenilen bir şey yok. Bir site bağlantıları sınırlarsa, yalnız dosyanın tamamını gönderirse ya da yalnız bazı tarayıcılara hizmet verirse, ondan sonraki indirme baştan öyle başlar.',
+	'Forgotten 30 days after a download last used it.':
+		'Bir indirme son kullandıktan 30 gün sonra unutulur.',
 	'Forget them': 'Unut'
 } satisfies Record<string, string>;

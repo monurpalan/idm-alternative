@@ -13,9 +13,12 @@
 		importSettings,
 		openLogs,
 		forgetLogin,
+		forgetSite,
+		sites as learnedSites,
 		clearHistory,
 		savedLogins,
 		type SavedLogin,
+		type SiteMemory,
 		installTool,
 		onToolsUpdated,
 		setSettings,
@@ -24,6 +27,7 @@
 		type ToolId,
 		type ToolStatus
 	} from '../api.ts';
+	import { siteFacts } from '../format.ts';
 	import { msg, t } from '../i18n.svelte.ts';
 
 	let { onclose }: { onclose: () => void } = $props();
@@ -33,9 +37,11 @@
 		{ id: 'connection', label: msg('Connection') },
 		{ id: 'schedule', label: msg('Schedule') },
 		{ id: 'logins', label: msg('Sign-ins') },
+		{ id: 'sites', label: msg('Sites') },
 		{ id: 'tools', label: msg('Video tools') },
 		{ id: 'system', label: msg('Browser and system') },
-		{ id: 'app', label: msg('App') }
+		{ id: 'app', label: msg('App') },
+		{ id: 'advanced', label: msg('Advanced') }
 	] as const;
 	let tab = $state<(typeof TABS)[number]['id']>('downloads');
 
@@ -62,6 +68,12 @@
 	let toolError = $state<string | null>(null);
 	let logins = $state<SavedLogin[]>([]);
 	let historyCleared = $state(false);
+	let siteList = $state<SiteMemory[]>([]);
+
+	async function forgetLearned(site: string) {
+		await forgetSite(site).catch((e) => (error = String(e)));
+		siteList = await learnedSites().catch(() => siteList);
+	}
 
 	async function forgetHistory() {
 		try {
@@ -137,6 +149,9 @@
 		const unlistenExtensions = onExtensions((v) => (extensions = v));
 		savedLogins()
 			.then((l) => (logins = l))
+			.catch(() => {});
+		learnedSites()
+			.then((l) => (siteList = l))
 			.catch(() => {});
 		getSettings()
 			.then((v) => {
@@ -256,6 +271,10 @@
 					>
 				</div>
 			{:else if tab === 'connection'}
+				<Field label={t('Proxy')}>
+					<Input bind:value={s.proxy} placeholder={t('none, or socks5://host:port')} />
+				</Field>
+			{:else if tab === 'advanced'}
 				<div class="grid">
 					<Field label={t('Introduce itself as')}>
 						<Select bind:value={s.browser}>
@@ -266,15 +285,24 @@
 							<option value="none">{t('Plain client')}</option>
 						</Select>
 					</Field>
-					<div class="span2">
-						<Field label={t('Proxy')}>
-							<Input bind:value={s.proxy} placeholder={t('none, or socks5://host:port')} />
-						</Field>
-					</div>
 				</div>
 				<Text variant="caption">
 					{t('Some servers only serve browsers: the app then sends the same headers as the one chosen.')}
+					{t('A site that refuses it is tried with the others once, and the one it serves is remembered (Sites).')}
 				</Text>
+			{:else if tab === 'sites'}
+				{#each siteList as m (m.site)}
+					<div class="row3">
+						<span>{m.site}</span>
+						<Text variant="muted" inline>{siteFacts(m).join(' · ')}</Text>
+						<Button onclick={() => forgetLearned(m.site)}>{t('Forget')}</Button>
+					</div>
+				{:else}
+					<Text variant="muted">
+						{t('Nothing learned yet. When a site limits connections, sends whole files only or serves only some browsers, the next download from it starts that way.')}
+					</Text>
+				{/each}
+				<Text variant="caption">{t('Forgotten 30 days after a download last used it.')}</Text>
 			{:else if tab === 'schedule'}
 				<Checkbox bind:checked={s.schedule.enabled}>{t('Start and stop the queue at set times')}</Checkbox>
 				<div class="grid">
@@ -438,9 +466,6 @@
 		grid-template-columns: repeat(3, 1fr);
 		align-items: end;
 		gap: var(--space-3);
-	}
-	.span2 {
-		grid-column: span 2;
 	}
 	.days {
 		display: flex;

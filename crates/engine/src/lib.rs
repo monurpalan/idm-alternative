@@ -36,7 +36,8 @@ mod zone;
 pub use checksum::{Algorithm, Checksum};
 pub use dash::{DashRequest, download_dash};
 pub use download::{
-    Options, Outcome, Phase, Probe, Progress, Request, SegmentView, download, fetch_text, probe,
+    Learned, Learning, Options, Outcome, Phase, Probe, Progress, Request, SegmentView, download,
+    fetch_text, probe,
 };
 pub use error::{Error, Result};
 pub use hls::{StreamRequest, download_hls};

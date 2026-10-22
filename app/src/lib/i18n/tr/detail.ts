@@ -39,5 +39,7 @@ export default {
 	'Get a fresh link from the browser': 'Tarayıcıdan yeni bağlantı al',
 	'Speed, last minute': 'Hız, son dakika',
 	Segments: 'Parçalar',
-	'{a} of {b} connections': '{a} / {b} bağlantı'
+	'{a} of {b} connections': '{a} / {b} bağlantı',
+	Site: 'Site',
+	'This site {facts} (learned)': 'Bu site {facts} (öğrenildi)'
 } satisfies Record<string, string>;

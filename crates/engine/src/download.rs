@@ -108,6 +108,46 @@ pub struct Options {
     /// release asset, or a checksum file next to the file (`<file>.sha256`, `SHA256SUMS`…).
     /// A checksum found is checked like a given one.
     pub find_checksum: bool,
+    /// Where the download notes what it learned about the server (see [`Learned`]); each
+    /// clone of the options shares it.
+    pub learn: Learning,
+}
+
+/// What a download found out about a server, for starting the next download from it right
+/// away: kept by the caller per site.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Learned {
+    /// The server refused connections beyond this many (403, 429, 503 while others worked).
+    pub max_connections: Option<usize>,
+    /// The most connections that were downloading at once.
+    pub peak_connections: usize,
+    /// The server does not send parts of the file (range requests), so one connection
+    /// downloads it from the start.
+    pub no_ranges: bool,
+}
+
+/// A shared [`Learned`]: give the download options one, read it when the download ends.
+#[derive(Debug, Clone, Default)]
+pub struct Learning(std::sync::Arc<std::sync::Mutex<Learned>>);
+
+impl Learning {
+    pub fn get(&self) -> Learned {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    fn note(&self, f: impl FnOnce(&mut Learned)) {
+        f(&mut self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner));
+    }
+
+    fn limited_to(&self, n: usize) {
+        self.note(|l| l.max_connections = Some(l.max_connections.map_or(n, |m| m.min(n))));
+    }
 }
 
 impl Default for Options {
@@ -128,6 +168,7 @@ impl Default for Options {
             mark_of_the_web: true,
             checksum_from: None,
             find_checksum: true,
+            learn: Learning::default(),
         }
     }
 }
@@ -289,6 +330,7 @@ pub async fn download(
                 });
             }
             Err(Error::RangeIgnored) if !force_single => {
+                opts.learn.note(|l| l.no_ranges = true);
                 tracing::warn!("server ignores range requests; restarting with one connection");
                 discard(&part, &state_path);
                 force_single = true;
@@ -737,6 +779,9 @@ impl Job<'_> {
             }
         };
         self.size_known.send_replace(Some(remote.size));
+        if !remote.ranges {
+            self.opts.learn.note(|l| l.no_ranges = true);
+        }
         let single = self.force_single || !remote.ranges || remote.size.is_none();
         if single {
             // Never send Range again; the probe body (from byte 0) is used as is.
@@ -866,6 +911,7 @@ impl Job<'_> {
                             if limit < conn_limit {
                                 tracing::info!("connection refused (HTTP {code}) while others work; limiting to {limit} connections");
                                 conn_limit = limit;
+                                self.opts.learn.limited_to(limit);
                             }
                             t.release(idx, true, now);
                         }
@@ -880,6 +926,7 @@ impl Job<'_> {
                                 if limit < conn_limit {
                                     tracing::info!("server busy (HTTP {code}); limiting to {limit} connections");
                                     conn_limit = limit;
+                                    self.opts.learn.limited_to(limit);
                                 }
                             }
                             t.release(idx, true, now);
@@ -988,6 +1035,8 @@ impl Job<'_> {
                             tracing::debug!(segment = idx, speed = t.segs[idx].speed, "dropping crawling connection");
                             stop.cancel();
                         }
+                        let active = t.active();
+                        self.opts.learn.note(|l| l.peak_connections = l.peak_connections.max(active));
                         if let Some(p) = progress {
                             p.send_replace(snapshot(&t, ctx.size));
                         }

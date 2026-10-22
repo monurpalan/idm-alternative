@@ -135,6 +135,12 @@ struct RelocateParams {
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
+struct SiteParams {
+    /// The site as list_sites shows it: a host name, with `:port` when not the default.
+    site: String,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
 struct WhenDoneParams {
     /// `nothing` (cancel), `exit` (close the app), `sleep`, `hibernate` or `shutdown`.
     action: String,
@@ -326,6 +332,23 @@ impl Downloads {
             dir: p.dir,
         })
         .await
+    }
+
+    #[tool(
+        description = "What Shardload learned about each site from earlier downloads, used to start the next download from it right: max_connections (it refused more; the next download tries one more), no_ranges (it sends whole files only), browser (the identity it served after refusing the one in the settings), link_lifetime (seconds its links worked before expiring) and seen_at. Forgotten 30 days after last use."
+    )]
+    async fn list_sites(&self) -> Result<CallToolResult, ErrorData> {
+        self.ask(Request::Sites).await
+    }
+
+    #[tool(
+        description = "Forget what was learned about a site (see list_sites), for example after it changed its limits; the next download finds out again."
+    )]
+    async fn forget_site(
+        &self,
+        Parameters(p): Parameters<SiteParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.ask(Request::ForgetSite { site: p.site }).await
     }
 
     #[tool(

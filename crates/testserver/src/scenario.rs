@@ -122,6 +122,9 @@ pub struct Scenario {
     pub auth: Option<String>,
     /// Delay before the response headers, in milliseconds.
     pub latency_ms: u64,
+    /// Requests whose `User-Agent` does not contain this get `403`, like a site that only
+    /// serves some browsers.
+    pub only_ua: Option<String>,
 }
 
 impl Default for Scenario {
@@ -147,6 +150,7 @@ impl Default for Scenario {
             cd: None,
             auth: None,
             latency_ms: 0,
+            only_ua: None,
         }
     }
 }

@@ -58,3 +58,30 @@ export function date(ms: number): string {
 export function day(ms: number): string {
 	return new Date(ms).toLocaleDateString(locale(), { day: 'numeric', month: 'long', year: 'numeric' });
 }
+
+const BROWSERS: Record<string, string> = {
+	chrome: 'Chrome',
+	edge: 'Edge',
+	firefox: 'Firefox',
+	safari: 'Safari'
+};
+
+/** What was learned about a site, as short facts: "allows 4 connections", "only as Firefox". */
+export function siteFacts(m: {
+	max_connections: number | null;
+	no_ranges: boolean;
+	browser: string | null;
+	link_lifetime: number | null;
+}): string[] {
+	const facts: string[] = [];
+	if (m.max_connections !== null) facts.push(t('allows {n} connections', { n: m.max_connections }));
+	if (m.no_ranges) facts.push(t('sends whole files only'));
+	if (m.browser !== null)
+		facts.push(
+			m.browser in BROWSERS
+				? t('serves only as {browser}', { browser: BROWSERS[m.browser] })
+				: t('serves only a plain client')
+		);
+	if (m.link_lifetime !== null) facts.push(t('links last about {time}', { time: duration(m.link_lifetime) }));
+	return facts;
+}

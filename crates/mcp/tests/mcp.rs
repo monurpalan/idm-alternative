@@ -158,10 +158,12 @@ async fn tools_reach_the_app() {
         [
             "add_download",
             "find_site_files",
+            "forget_site",
             "inspect_archive",
             "inspect_torrent",
             "inspect_video",
             "list_downloads",
+            "list_sites",
             "move_download",
             "pause_downloads",
             "relocate_download",
@@ -261,6 +263,12 @@ async fn tools_reach_the_app() {
             "relocate_download",
             json!({ "id": 7, "dir": "D:\\Downloads\\iso" }),
             json!({ "type": "relocate", "id": 7, "dir": "D:\\Downloads\\iso" }),
+        ),
+        ("list_sites", json!({}), json!({ "type": "sites" })),
+        (
+            "forget_site",
+            json!({ "site": "example.com" }),
+            json!({ "type": "forget_site", "site": "example.com" }),
         ),
         (
             "set_when_done",

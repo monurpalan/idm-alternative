@@ -31,5 +31,12 @@ export default {
 	'Also delete the files from disk': 'Dosyaları diskten de sil',
 	'New download': 'Yeni indirme',
 	Link: 'Bağlantı',
-	Done: 'Bitti'
+	Done: 'Bitti',
+
+	// What was learned about a site
+	'allows {n} connections': '{n} bağlantıya izin veriyor',
+	'sends whole files only': 'yalnız dosyanın tamamını gönderiyor',
+	'serves only as {browser}': 'yalnız {browser} kimliğine hizmet veriyor',
+	'serves only a plain client': 'yalnız düz istemciye hizmet veriyor',
+	'links last about {time}': 'bağlantıları yaklaşık {time} geçerli'
 } satisfies Record<string, string>;

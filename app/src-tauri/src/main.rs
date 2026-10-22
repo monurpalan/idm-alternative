@@ -271,6 +271,26 @@ async fn show_previous(handle: AppHandle, app: State<'_, App>, history: i64) -> 
     handle.opener().reveal_item_in_dir(path).map_err(msg)
 }
 
+/// What downloads learned about each site, for the settings.
+#[tauri::command]
+async fn sites(app: State<'_, App>) -> CmdResult<Vec<shardload_manager::SiteMemory>> {
+    app.manager.sites().await.map_err(msg)
+}
+
+/// What is remembered about the site of a download's address, for its details.
+#[tauri::command]
+async fn site_memory(
+    app: State<'_, App>,
+    url: String,
+) -> CmdResult<Option<shardload_manager::SiteMemory>> {
+    app.manager.site_memory(&url).await.map_err(msg)
+}
+
+#[tauri::command]
+async fn forget_site(app: State<'_, App>, site: String) -> CmdResult<()> {
+    app.manager.forget_site(&site).await.map_err(msg)
+}
+
 /// Forgets the finished downloads (for "you downloaded this before"); files stay.
 #[tauri::command]
 async fn clear_history(app: State<'_, App>) -> CmdResult<()> {
@@ -1748,6 +1768,23 @@ async fn bridge_reply(
                 Err(e) => Reply::error(e.to_string()),
             }
         }
+        Request::Sites => {
+            let app = handle.state::<App>();
+            match app.manager.sites().await {
+                Ok(sites) => Reply {
+                    data: serde_json::to_value(sites).ok(),
+                    ..Reply::ok()
+                },
+                Err(e) => Reply::error(e.to_string()),
+            }
+        }
+        Request::ForgetSite { site } => {
+            let app = handle.state::<App>();
+            match app.manager.forget_site(site.trim()).await {
+                Ok(()) => Reply::ok(),
+                Err(e) => Reply::error(e.to_string()),
+            }
+        }
         Request::WhenDone { action } => {
             match serde_json::from_value::<schedule::WhenDone>(serde_json::Value::String(
                 action.clone(),
@@ -2300,6 +2337,9 @@ fn main() {
             open_previous,
             show_previous,
             clear_history,
+            sites,
+            site_memory,
+            forget_site,
             saved_logins,
             forget_login,
             open_file,

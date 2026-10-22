@@ -42,6 +42,7 @@ Sizes and rates accept `K`, `M`, `G` suffixes (binary units). Flags accept `1/0`
 | `redirect_unique` | `off` | Each redirect leads to a new URL (adds `hop=n`), like a CDN signing every link; with `ttl`, each one expires on its own |
 | `cd` | — | `Content-Disposition` filename (ASCII fallback + `filename*` UTF-8) |
 | `latency_ms` | `0` | Delay before response headers |
+| `only_ua` | — | `403` unless the `User-Agent` contains this (a site that only serves some browsers) |
 
 `If-Range` is honoured: a validator that no longer matches turns a range request into `200`
 with the whole file, as RFC 9110 requires.
@@ -51,7 +52,8 @@ so each distinct URL is an independent scenario.
 
 ## `GET /_stats` · `POST /_reset`
 
-`/_stats` returns, per URL: GET count, current and peak concurrent responses, bytes sent, how many
+`/_stats` returns, per URL: GET count, current and peak concurrent responses, requests refused by
+`max_conns`, bytes sent, how many
 GETs came over HTTP/2, how many TCP connections they came on (when started through `serve_plain`,
 `serve_tls` or the binary), and the last User-Agent.
 The benchmark runner uses it to see how many connections a client opened. `/_reset` clears it.

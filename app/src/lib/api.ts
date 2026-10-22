@@ -139,6 +139,24 @@ export const importSettings = (path: string) => invoke<Settings>('import_setting
 /** Opens the small progress window of a download. */
 export const showProgress = (id: TaskId) => invoke<void>('show_progress', { id });
 
+/** What downloads learned about a site, used for its next download. */
+export interface SiteMemory {
+	site: string;
+	/** It refused more connections than this; the next download tries one more. */
+	max_connections: number | null;
+	/** It sends whole files only. */
+	no_ranges: boolean;
+	/** The identity it served after refusing the one in the settings (`none`: a plain client). */
+	browser: string | null;
+	/** Seconds its links worked before expiring. */
+	link_lifetime: number | null;
+	seen_at: number;
+}
+
+export const sites = () => invoke<SiteMemory[]>('sites');
+export const siteMemory = (url: string) => invoke<SiteMemory | null>('site_memory', { url });
+export const forgetSite = (site: string) => invoke<void>('forget_site', { site });
+
 export const savedLogins = () => invoke<SavedLogin[]>('saved_logins');
 export const forgetLogin = (site: string) => invoke<void>('forget_login', { site });
 

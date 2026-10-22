@@ -4,9 +4,17 @@
 	// (the engine's live splitting, one bar per connection's range), its own speed limit and
 	// "refresh link" for links that expired.
 
-	import { refreshInBrowser, refreshLink, setLogin, setSpeedLimit, type Task } from '../api.ts';
+	import {
+		refreshInBrowser,
+		refreshLink,
+		setLogin,
+		setSpeedLimit,
+		siteMemory,
+		type SiteMemory,
+		type Task
+	} from '../api.ts';
 	import { downloads, HISTORY, moveToFolder, row } from '../downloads.svelte.ts';
-	import { bytes, date, duration, percent, speed } from '../format.ts';
+	import { bytes, date, duration, percent, siteFacts, speed } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
 
 	let {
@@ -21,6 +29,19 @@
 	const SHOWN_AS =
 		/\.(pdf|docx?|xlsx?|pptx?|txt|rtf|odt|jpe?g|png|gif|webp|mp3|wav|flac|mp4|mkv|avi|mov|webm|zip|rar|7z)\.(exe|scr|com|pif|bat|cmd|msi|vbs|vbe|js|jse|wsf|hta|cpl|lnk|ps1)$/i;
 	const disguised = $derived(task.status === 'done' && SHOWN_AS.test(r.name));
+
+	/** What earlier downloads learned about the download's site. */
+	let site = $state<SiteMemory | null>(null);
+	$effect(() => {
+		const url = task.url;
+		void task.status; // a download that ends may have taught something
+		siteMemory(url)
+			.then((m) => {
+				if (url === task.url) site = m;
+			})
+			.catch(() => (site = null));
+	});
+	const learned = $derived(site ? siteFacts(site).join(' · ') : '');
 
 	let limitKb = $state('');
 	let newUrl = $state('');
@@ -209,6 +230,10 @@
 			</dd>
 			<dt>{t('Speed')}</dt>
 			<dd class="num">{speed(r.speed) || '–'}{r.eta !== null ? ` · ${t('{time} left', { time: duration(r.eta) })}` : ''}</dd>
+			{#if learned}
+				<dt>{t('Site')}</dt>
+				<dd title={site?.site}>{t('This site {facts} (learned)', { facts: learned })}</dd>
+			{/if}
 			{#if task.error && task.status === 'done'}
 				<!-- Said about a finished download that went differently than asked, e.g. saved as
 				     one file without ffmpeg: worth knowing, not a failure. -->
