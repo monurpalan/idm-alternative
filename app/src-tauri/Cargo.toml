@@ -16,10 +16,10 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 chrono = "0.4.45"
-shardload-bridge = { version = "0.1.0", path = "../../crates/bridge" }
-shardload-engine = { version = "0.1.0", path = "../../crates/engine" }
+shardload-bridge = { version = "0.1.1", path = "../../crates/bridge" }
+shardload-engine = { version = "0.1.1", path = "../../crates/engine" }
 shardload-manager = { path = "../../crates/manager" }
-shardload-media = { version = "0.1.0", path = "../../crates/media" }
+shardload-media = { version = "0.1.1", path = "../../crates/media" }
 lzma-rs = { version = "0.3", default-features = false }
 serde.workspace = true
 serde_json.workspace = true

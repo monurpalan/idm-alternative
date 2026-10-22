@@ -5696,7 +5696,7 @@ dependencies = [
 
 [[package]]
 name = "shardload-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "lzma-rs",
@@ -5728,7 +5728,7 @@ dependencies = [
 
 [[package]]
 name = "shardload-bench"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -5746,7 +5746,7 @@ dependencies = [
 
 [[package]]
 name = "shardload-bridge"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "getrandom 0.3.4",
  "serde",
@@ -5760,7 +5760,7 @@ dependencies = [
 
 [[package]]
 name = "shardload-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -5775,7 +5775,7 @@ dependencies = [
 
 [[package]]
 name = "shardload-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes",
  "axum",
@@ -5806,7 +5806,7 @@ dependencies = [
 
 [[package]]
 name = "shardload-manager"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -5829,7 +5829,7 @@ dependencies = [
 
 [[package]]
 name = "shardload-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rmcp",
  "serde",
@@ -5840,7 +5840,7 @@ dependencies = [
 
 [[package]]
 name = "shardload-media"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "roxmltree",
  "serde",
@@ -5849,7 +5849,7 @@ dependencies = [
 
 [[package]]
 name = "shardload-native-host"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -5859,7 +5859,7 @@ dependencies = [
 
 [[package]]
 name = "shardload-testserver"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes",
  "anyhow",
