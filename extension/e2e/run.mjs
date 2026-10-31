@@ -129,7 +129,18 @@ function serve() {
 			'content-disposition': `attachment; filename="${name}"`,
 			'content-length': 65536
 		});
-		res.end(Buffer.alloc(65536, 7));
+		// Slowly, as a real download would be: one this small and this near could otherwise be
+		// finished before the extension's cancel reaches it.
+		let sent = 0;
+		const timer = setInterval(() => {
+			res.write(Buffer.alloc(8192, 7));
+			sent += 8192;
+			if (sent >= 65536) {
+				clearInterval(timer);
+				res.end();
+			}
+		}, 150);
+		res.on('close', () => clearInterval(timer));
 	};
 	const server = createServer((req, res) => {
 		const url = new URL(req.url, 'http://x');
