@@ -68,12 +68,21 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: |
+            app/package-lock.json
+            extension/package-lock.json
       - name: Web UI
         working-directory: app
         run: |
           npm ci
           npm run build
+      # The extension in Chrome for Testing, with a stand-in for the app (see e2e/run.mjs).
+      - name: Browser extension, end to end
+        working-directory: extension
+        run: |
+          npm ci
+          npm run build
+          npm run e2e
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
@@ -81,6 +90,17 @@ jobs:
       - name: Packages (.deb, AppImage)
         working-directory: app
         run: npm run bundle -- --bundles deb,appimage
+      # Each package, installed or run as it comes, on a virtual display: the window loads,
+      # the bridge socket is there, and a download through the MCP server works.
+      - name: Smoke test of the packages
+        working-directory: app
+        run: |
+          sudo apt-get install -y --no-install-recommends xvfb xauth
+          sudo apt-get install -y ../target/release/bundle/deb/*.deb
+          xvfb-run -a node scripts/linux-smoke.mjs shardload shardload-mcp ../target/debug/testserver
+          image=$(ls ../target/release/bundle/appimage/*.AppImage)
+          chmod +x "$image"
+          xvfb-run -a node scripts/linux-smoke.mjs             "APPIMAGE_EXTRACT_AND_RUN=1 exec $image" shardload-mcp ../target/debug/testserver
       - uses: actions/upload-artifact@v4
         with:
           name: linux-packages

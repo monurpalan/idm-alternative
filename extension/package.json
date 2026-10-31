@@ -9,7 +9,8 @@
 	"scripts": {
 		"build": "node build.mjs",
 		"check": "tsc --noEmit",
-		"test": "node --test --experimental-strip-types src/*.test.ts"
+		"test": "node --test --experimental-strip-types src/*.test.ts",
+		"e2e": "node e2e/run.mjs"
 	},
 	"devDependencies": {
 		"@types/chrome": "^0.3.5",

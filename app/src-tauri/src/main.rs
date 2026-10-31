@@ -1490,6 +1490,8 @@ fn to_page(handle: &AppHandle, event: &'static str, payload: impl Serialize, sho
 /// The page has loaded and listens: hands it what came while it was closed.
 #[tauri::command]
 fn page_ready(handle: AppHandle, app: State<'_, App>) {
+    // Also what the Linux smoke test waits for: the window's page loaded and reached the app.
+    tracing::info!("the window's page is ready");
     let waiting = {
         let mut page = lock(&app.page);
         page.ready = true;
