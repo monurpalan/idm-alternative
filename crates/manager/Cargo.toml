@@ -11,9 +11,9 @@ anyhow.workspace = true
 futures-util.workspace = true
 base64 = "0.22"
 shardload-engine = { path = "../engine" }
-# rqbit's main branch until a release after 9.0.1: 9.0.1's DHT stops for good on Windows at the
-# first ICMP "port unreachable" (WSAECONNRESET), within seconds (ikatson/rqbit#690).
-librqbit = { git = "https://github.com/ikatson/rqbit", rev = "57e95d16c8", default-features = false, features = ["rust-tls"] }
+# 9.1.0 or later: 9.0.1's DHT stops for good on Windows at the first ICMP "port unreachable"
+# (WSAECONNRESET), within seconds (ikatson/rqbit#690).
+librqbit = { version = "9.1.0", default-features = false, features = ["rust-tls"] }
 serde.workspace = true
 serde_json.workspace = true
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
@@ -25,7 +25,7 @@ httpdate = "1"
 
 [dev-dependencies]
 tracing-subscriber.workspace = true
-librqbit = { git = "https://github.com/ikatson/rqbit", rev = "57e95d16c8", default-features = false, features = ["rust-tls"] }
+librqbit = { version = "9.1.0", default-features = false, features = ["rust-tls"] }
 shardload-testserver = { path = "../testserver" }
 axum = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
