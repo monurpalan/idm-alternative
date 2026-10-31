@@ -67,6 +67,8 @@ export default {
 	Connecting: 'Bağlanıyor',
 	Retrying: 'Yeniden deneniyor',
 	Waiting: 'Bekliyor',
+	'Link may have expired': 'Linkin süresi dolmuş olabilir',
+	'Link expires soon': 'Linkin süresi dolmak üzere',
 	'Waiting for the network': 'Ağ bekleniyor',
 	Paused: 'Duraklatıldı',
 	'Moving {p}%': 'Taşınıyor %{p}',

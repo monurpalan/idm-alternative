@@ -352,6 +352,12 @@ async fn site_memory(
     app.manager.site_memory(&url).await.map_err(msg)
 }
 
+/// Waiting downloads whose links, by what was learned of their sites, are about to expire.
+#[tauri::command]
+async fn link_warnings(app: State<'_, App>) -> CmdResult<Vec<shardload_manager::LinkWarning>> {
+    app.manager.link_warnings().await.map_err(msg)
+}
+
 #[tauri::command]
 async fn forget_site(app: State<'_, App>, site: String) -> CmdResult<()> {
     app.manager.forget_site(&site).await.map_err(msg)
@@ -803,7 +809,7 @@ async fn apply_settings(handle: &AppHandle, new: Settings) -> CmdResult<Settings
         .map_err(|e| format!("could not change starting with Windows: {e}"))?;
     }
     app.manager
-        .save_setting(settings::KEY, &new)
+        .save_setting(settings::KEY, &new.to_stored())
         .await
         .map_err(msg)?;
     *lock(&app.settings) = new.clone();
@@ -2153,6 +2159,7 @@ async fn tool_add(handle: &AppHandle, add: shardload_bridge::AddDownload) -> Cmd
             dir,
             start: add.start.unwrap_or(true),
             checksum: add.checksum.filter(|c| !c.trim().is_empty()),
+            pieces_from: add.pieces_from.filter(|p| !p.trim().is_empty()),
             stream,
             ..NewTask::default()
         })
@@ -2483,7 +2490,8 @@ fn open_logs(handle: AppHandle, app: State<'_, App>) -> CmdResult<()> {
 }
 
 /// The settings as a file to take to another computer or keep: everything in the settings
-/// dialog. Saved logins stay out (their passwords only open on this computer).
+/// dialog. Saved logins and the proxy's password stay out (they would be written in plain
+/// text).
 #[derive(Serialize, Deserialize)]
 struct SettingsFile {
     app: String,
@@ -2492,13 +2500,16 @@ struct SettingsFile {
 }
 
 #[tauri::command]
-fn export_settings(app: State<'_, App>, path: PathBuf) -> CmdResult<()> {
+/// Returns whether the proxy's password was left out.
+fn export_settings(app: State<'_, App>, path: PathBuf) -> CmdResult<bool> {
+    let settings = lock(&app.settings).clone();
     let file = SettingsFile {
         app: "shardload".into(),
         version: 1,
-        settings: lock(&app.settings).clone(),
+        settings: settings.to_export(),
     };
-    std::fs::write(&path, serde_json::to_vec_pretty(&file).map_err(msg)?).map_err(msg)
+    std::fs::write(&path, serde_json::to_vec_pretty(&file).map_err(msg)?).map_err(msg)?;
+    Ok(settings.proxy_has_password())
 }
 
 /// Reads a settings file and applies it; returns the settings now in force. Fields missing
@@ -2559,6 +2570,7 @@ fn main() {
 
             let mut settings: Settings =
                 tauri::async_runtime::block_on(Manager::read_setting(&db, settings::KEY))?
+                    .map(Settings::restored)
                     .unwrap_or_default();
             if settings.dir.as_os_str().is_empty() {
                 settings.dir = default_dir;
@@ -2699,6 +2711,7 @@ fn main() {
             clear_history,
             sites,
             site_memory,
+            link_warnings,
             forget_site,
             file_origin,
             dropped_file_origin,

@@ -158,6 +158,54 @@ impl Settings {
             ..Config::default()
         }
     }
+
+    /// The form saved in the database: a proxy address with a password is encrypted (DPAPI on
+    /// Windows; elsewhere the data folder belongs to the user alone and it stays as it is).
+    pub fn to_stored(&self) -> Self {
+        let mut stored = self.clone();
+        if proxy_password(&self.proxy) {
+            stored.proxy = shardload_manager::seal_setting(self.proxy.trim());
+        }
+        stored
+    }
+
+    /// Settings read back from the database. A proxy that cannot be decrypted (the data was
+    /// copied from another user or computer) is dropped.
+    pub fn restored(mut self) -> Self {
+        self.proxy = shardload_manager::open_setting(&self.proxy).unwrap_or_else(|| {
+            tracing::warn!("the saved proxy could not be decrypted; it is left empty");
+            String::new()
+        });
+        self
+    }
+
+    /// The settings as written to an exported file: without the proxy's password, which would
+    /// sit there in plain text. The user name is kept.
+    pub fn to_export(&self) -> Self {
+        let mut out = self.clone();
+        if proxy_password(&self.proxy)
+            && let Ok(mut url) = url::Url::parse(self.proxy.trim())
+            && url.set_password(None).is_ok()
+        {
+            out.proxy = url.to_string();
+            // `Url` adds a path the user did not type.
+            if !self.proxy.trim().ends_with('/') && out.proxy.ends_with('/') {
+                out.proxy.pop();
+            }
+        }
+        out
+    }
+
+    /// Whether the proxy address carries a password, which [`to_export`](Self::to_export)
+    /// leaves out.
+    pub fn proxy_has_password(&self) -> bool {
+        proxy_password(&self.proxy)
+    }
+}
+
+/// Whether a proxy address has `user:password@` in it.
+fn proxy_password(proxy: &str) -> bool {
+    url::Url::parse(proxy.trim()).is_ok_and(|u| u.password().is_some())
 }
 
 #[cfg(test)]
@@ -233,5 +281,54 @@ mod tests {
         };
         assert!(!off.config().engine.mark_of_the_web);
         assert!(old.find_checksums);
+    }
+
+    #[test]
+    fn proxy_password_is_not_kept_in_plain_text() {
+        let s = Settings {
+            proxy: "http://me:s3cret@127.0.0.1:8080".into(),
+            ..Settings::default()
+        };
+        let stored = s.to_stored();
+        #[cfg(windows)]
+        assert!(!stored.proxy.contains("s3cret"), "{}", stored.proxy);
+        let json = serde_json::to_string(&stored).expect("json");
+        let back: Settings = serde_json::from_str(&json).expect("json");
+        assert_eq!(back.restored(), s);
+        // Without a password there is nothing to hide.
+        let plain = Settings {
+            proxy: "socks5://127.0.0.1:1080".into(),
+            ..Settings::default()
+        };
+        assert_eq!(plain.to_stored(), plain);
+        assert_eq!(plain.clone().restored(), plain);
+        // Settings saved before encryption read as they were.
+        let old = Settings {
+            proxy: "http://me:old@proxy:3128".into(),
+            ..Settings::default()
+        };
+        assert_eq!(old.clone().restored(), old);
+        // One that cannot be decrypted is dropped.
+        let foreign = Settings {
+            proxy: "dpapi:AAAA".into(),
+            ..Settings::default()
+        };
+        assert_eq!(foreign.restored().proxy, "");
+    }
+
+    #[test]
+    fn export_leaves_the_proxy_password_out() {
+        let s = Settings {
+            proxy: "http://me:s3cret@127.0.0.1:8080".into(),
+            ..Settings::default()
+        };
+        assert!(s.proxy_has_password());
+        assert_eq!(s.to_export().proxy, "http://me@127.0.0.1:8080");
+        let plain = Settings {
+            proxy: "socks5://127.0.0.1:1080".into(),
+            ..Settings::default()
+        };
+        assert!(!plain.proxy_has_password());
+        assert_eq!(plain.to_export(), plain);
     }
 }

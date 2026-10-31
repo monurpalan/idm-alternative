@@ -84,6 +84,10 @@ struct AddParams {
     record_from_start: Option<bool>,
     /// Recording: begin this many minutes from now; it waits in the queue until then.
     record_in_minutes: Option<u64>,
+    /// A direct link: a `.torrent` of the same file (a link, or an absolute path on this
+    /// computer), single-file only. Its piece hashes check the download, and a corrupt piece
+    /// is downloaded again alone. The file is still downloaded over HTTP, not from peers.
+    pieces_from: Option<String>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -213,7 +217,7 @@ impl Downloads {
     }
 
     #[tool(
-        description = "Add a download to Shardload and start it (unless start is false): a direct file link, some files out of a ZIP archive (archive_entries), a magnet link or .torrent file (optionally only some of its files), a .meta4 metalink (its mirrors are used together, and with piece hashes a corrupt piece is downloaded again alone), or a page of a video site with video_height or audio_only: only a part of it with clip_start and clip_end, some videos of a playlist or a channel with playlist_items, or a live broadcast recorded with record. Something downloaded before (or already on the list) is refused with what was found, unless allow_duplicate. Returns the new download with its id; with playlist_items, the downloads added and the ones skipped."
+        description = "Add a download to Shardload and start it (unless start is false): a direct file link, some files out of a ZIP archive (archive_entries), a magnet link or .torrent file (optionally only some of its files), a .meta4 metalink (its mirrors are used together, and with piece hashes a corrupt piece is downloaded again alone; a direct link can borrow the piece hashes of a .torrent of the same file with pieces_from), or a page of a video site with video_height or audio_only: only a part of it with clip_start and clip_end, some videos of a playlist or a channel with playlist_items, or a live broadcast recorded with record. Something downloaded before (or already on the list) is refused with what was found, unless allow_duplicate. Returns the new download with its id; with playlist_items, the downloads added and the ones skipped."
     )]
     async fn add_download(
         &self,
@@ -239,6 +243,7 @@ impl Downloads {
             record_minutes: p.record_minutes,
             record_from_start: p.record_from_start,
             record_in_minutes: p.record_in_minutes,
+            pieces_from: p.pieces_from,
         }))
         .await
     }

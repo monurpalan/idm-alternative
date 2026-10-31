@@ -41,5 +41,10 @@ export default {
 	Segments: 'Parçalar',
 	'{a} of {b} connections': '{a} / {b} bağlantı',
 	Site: 'Site',
-	'This site {facts} (learned)': 'Bu site {facts} (öğrenildi)'
+	'This site {facts} (learned)': 'Bu site {facts} (öğrenildi)',
+	'Probably expired, by how long links of this site lasted: get a fresh one below':
+		'Bu sitenin linklerinin ne kadar sürdüğüne bakılırsa süresi dolmuş olabilir: aşağıdan yenisini alın',
+	'Expires in about {time}, by how long links of this site lasted':
+		'Bu sitenin linklerinin ne kadar sürdüğüne bakılırsa yaklaşık {time} içinde dolacak',
+	'Start now': 'Şimdi başlat'
 } satisfies Record<string, string>;

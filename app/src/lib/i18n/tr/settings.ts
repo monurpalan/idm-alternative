@@ -73,6 +73,8 @@ export default {
 	'Import settings…': 'Ayarları içe aktar…',
 	'Open the log folder': 'Kayıt klasörünü aç',
 	'Settings saved to {path}': 'Ayarlar kaydedildi: {path}',
+	'Settings saved to {path}, without the proxy password':
+		'Ayarlar kaydedildi: {path} (proxy şifresi dosyaya yazılmadı)',
 	'Could not save the settings: {e}': 'Ayarlar kaydedilemedi: {e}',
 	'Settings loaded and applied': 'Ayarlar yüklendi ve uygulandı',
 	'Could not load the settings: {e}': 'Ayarlar yüklenemedi: {e}',

@@ -159,8 +159,9 @@ export const uiLanguage = () => invoke<'en' | 'tr'>('ui_language');
 
 /** Opens the folder with the app's log files. */
 export const openLogs = () => invoke<void>('open_logs');
-/** Saves the settings to a JSON file (saved logins stay out). */
-export const exportSettings = (path: string) => invoke<void>('export_settings', { path });
+/** Saves the settings to a JSON file (saved logins stay out); true when the proxy's password
+ * was left out too. */
+export const exportSettings = (path: string) => invoke<boolean>('export_settings', { path });
 /** Applies a settings file; returns the settings now in force. */
 export const importSettings = (path: string) => invoke<Settings>('import_settings', { path });
 
@@ -226,6 +227,17 @@ export interface SiteMemory {
 
 export const sites = () => invoke<SiteMemory[]>('sites');
 export const siteMemory = (url: string) => invoke<SiteMemory | null>('site_memory', { url });
+
+/** A waiting download whose link, by how long links of its site lasted, may soon stop working. */
+export interface LinkWarning {
+	id: TaskId;
+	/** When the link is expected to stop working, Unix ms. */
+	expires_at: number;
+	/** Already past that: it most likely needs a fresh link. */
+	expired: boolean;
+}
+
+export const linkWarnings = () => invoke<LinkWarning[]>('link_warnings');
 export const forgetSite = (site: string) => invoke<void>('forget_site', { site });
 
 export const savedLogins = () => invoke<SavedLogin[]>('saved_logins');

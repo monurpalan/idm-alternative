@@ -207,6 +207,8 @@ pub struct AddDownload {
     pub record_from_start: Option<bool>,
     /// Recording: begin this many minutes from now rather than at once.
     pub record_in_minutes: Option<u64>,
+    /// A `.torrent` of the same file (a link or a path): its piece hashes check the download.
+    pub pieces_from: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

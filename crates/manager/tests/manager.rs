@@ -831,3 +831,63 @@ async fn a_metalinks_piece_hashes_repair_a_corrupt_piece() {
     assert!(sent < size + 3 * MB, "sent {sent}");
     m.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_torrents_piece_hashes_check_an_http_download() {
+    use sha1::{Digest, Sha1};
+    let size = 6 * MB;
+    let mut whole = vec![0u8; size as usize];
+    shardload_testserver::content::fill(32, 0, &mut whole);
+    // A single-file torrent of the same file, in pieces of 1 MiB.
+    let mut torrent = format!(
+        "d4:infod6:lengthi{size}e4:name9:piece.bin12:piece lengthi{MB}e6:pieces{}:",
+        size / MB * 20
+    )
+    .into_bytes();
+    for piece in whole.chunks(MB as usize) {
+        torrent.extend_from_slice(&Sha1::digest(piece));
+    }
+    torrent.extend_from_slice(b"ee");
+    let w = WorkDir::new("torrent-pieces");
+    let torrent_path = w.0.join("piece.bin.torrent");
+    std::fs::write(&torrent_path, &torrent).expect("write torrent");
+
+    let base = start_server().await;
+    let m = Manager::open(&w.db(), w.config(3)).await.expect("open");
+    let task = m
+        .add(NewTask {
+            pieces_from: Some(torrent_path.to_string_lossy().into_owned()),
+            ..new_task(format!(
+                "{base}/file/x.bin?size=6M&seed=32&corrupt_at=4200000"
+            ))
+        })
+        .await
+        .expect("add");
+    // The torrent names the file.
+    assert_eq!(task.name.as_deref(), Some("piece.bin"));
+    let done = wait_done(&m, task.id).await;
+    assert_file(&done, 32, size);
+    // No whole-file checksum: only the piece hashes found and mended the corrupt byte, by
+    // downloading its piece again.
+    let sent = bytes_sent(&base).await;
+    assert!(sent < size + 3 * MB, "sent {sent}");
+
+    // A torrent of a folder cannot check one file.
+    let folder = w.0.join("folder.torrent");
+    std::fs::write(
+        &folder,
+        b"d4:infod5:filesld6:lengthi5e4:pathl5:a.bineee4:name1:x12:piece lengthi8e6:pieces20:aaaaaaaaaaaaaaaaaaaaee",
+    )
+    .expect("write");
+    let refused = m
+        .add(NewTask {
+            pieces_from: Some(folder.to_string_lossy().into_owned()),
+            ..new_task(format!("{base}/file/y.bin?size=1M"))
+        })
+        .await;
+    assert!(
+        matches!(refused, Err(shardload_manager::Error::BadTorrent(_))),
+        "{refused:?}"
+    );
+    m.close().await;
+}

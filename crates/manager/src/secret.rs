@@ -1,6 +1,7 @@
 //! A download's request headers can carry cookies and passwords (`Cookie`, `Authorization`),
 //! so the list keeps them encrypted with Windows DPAPI: only this Windows user, on this
-//! machine, can read them back. Elsewhere they are stored as they are.
+//! machine, can read them back. Elsewhere they are stored as they are. The app keeps other
+//! secrets (the proxy's password) the same way, with [`seal_setting`] and [`open_setting`].
 
 /// Marks an encrypted value; anything else is plain JSON from before encryption.
 const PREFIX: &str = "dpapi:";
@@ -8,13 +9,38 @@ const PREFIX: &str = "dpapi:";
 /// Ties the data to this use, so another program running as the same user cannot decrypt
 /// it with DPAPI alone. The text is part of the key: changing it makes the saved headers
 /// unreadable, so it keeps the name the app had when they were first saved.
-#[cfg(windows)]
 const ENTROPY: &[u8] = b"idm-alternative request headers";
+
+/// The same for secrets in the app's settings.
+const SETTINGS: &[u8] = b"shardload settings";
 
 /// The stored form of `plain`.
 pub(crate) fn seal(plain: &str) -> String {
+    seal_with(plain, ENTROPY)
+}
+
+/// The plain text of a stored value; `None` when it cannot be decrypted (the list was copied
+/// from another user or machine).
+pub(crate) fn open(stored: &str) -> Option<String> {
+    open_with(stored, ENTROPY)
+}
+
+/// The stored form of a secret in the settings, e.g. a proxy address with its password.
+pub fn seal_setting(plain: &str) -> String {
+    seal_with(plain, SETTINGS)
+}
+
+/// The plain text of a secret saved with [`seal_setting`]; `None` when it cannot be decrypted.
+/// Text that was never encrypted comes back as it is.
+pub fn open_setting(stored: &str) -> Option<String> {
+    open_with(stored, SETTINGS)
+}
+
+fn seal_with(plain: &str, entropy: &[u8]) -> String {
+    #[cfg(not(windows))]
+    let _ = entropy;
     #[cfg(windows)]
-    match dpapi::protect(plain.as_bytes(), ENTROPY) {
+    match dpapi::protect(plain.as_bytes(), entropy) {
         Ok(sealed) => {
             use base64::Engine as _;
             return format!(
@@ -22,14 +48,12 @@ pub(crate) fn seal(plain: &str) -> String {
                 base64::engine::general_purpose::STANDARD.encode(sealed)
             );
         }
-        Err(e) => tracing::warn!("could not encrypt request headers: {e}"),
+        Err(e) => tracing::warn!("could not encrypt a secret: {e}"),
     }
     plain.to_owned()
 }
 
-/// The plain text of a stored value; `None` when it cannot be decrypted (the list was copied
-/// from another user or machine).
-pub(crate) fn open(stored: &str) -> Option<String> {
+fn open_with(stored: &str, entropy: &[u8]) -> Option<String> {
     let Some(encoded) = stored.strip_prefix(PREFIX) else {
         return Some(stored.to_owned());
     };
@@ -39,12 +63,12 @@ pub(crate) fn open(stored: &str) -> Option<String> {
         let sealed = base64::engine::general_purpose::STANDARD
             .decode(encoded)
             .ok()?;
-        let plain = dpapi::unprotect(&sealed, ENTROPY).ok()?;
+        let plain = dpapi::unprotect(&sealed, entropy).ok()?;
         String::from_utf8(plain).ok()
     }
     #[cfg(not(windows))]
     {
-        let _ = encoded;
+        let _ = (encoded, entropy);
         None
     }
 }
@@ -152,5 +176,19 @@ mod tests {
         assert_eq!(open("[]").as_deref(), Some("[]"));
         // Damaged or foreign data does not decrypt.
         assert_eq!(open("dpapi:AAAA"), None);
+    }
+
+    #[test]
+    fn settings_use_their_own_key() {
+        let proxy = "http://user:pa55@127.0.0.1:8080";
+        let stored = seal_setting(proxy);
+        assert_eq!(open_setting(&stored).as_deref(), Some(proxy));
+        #[cfg(windows)]
+        {
+            assert!(!stored.contains("pa55"));
+            // Headers and settings cannot open each other's secrets.
+            assert_eq!(open(&stored), None);
+            assert_eq!(open_setting(&seal(proxy)), None);
+        }
     }
 }

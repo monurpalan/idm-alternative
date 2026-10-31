@@ -39,6 +39,7 @@ use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 
 use db::{Db, Insert};
+pub use secret::{open_setting, seal_setting};
 pub use sites::SiteMemory;
 pub use task::{
     ArchiveChoice, Category, ErrorKind, Group, HistoryEntry, NewTask, Recording, Status, Stream,
@@ -66,6 +67,9 @@ pub enum Error {
     /// A clip whose times cannot be used.
     #[error("{0}")]
     BadClip(String),
+    /// A `.torrent` given to check a download that cannot be used.
+    #[error("{0}")]
+    BadTorrent(String),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -379,6 +383,30 @@ pub fn site_of(url: &str) -> Option<String> {
     })
 }
 
+/// A waiting download whose link may soon stop working (see [`Manager::link_warnings`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct LinkWarning {
+    pub id: TaskId,
+    /// When the link is expected to stop working, Unix milliseconds.
+    pub expires_at: i64,
+    /// Already past that: it most likely needs a fresh link from the browser.
+    pub expired: bool,
+}
+
+impl LinkWarning {
+    /// For a link given at `given` (Unix ms) on a site whose links lasted `lifetime` seconds:
+    /// a warning once three quarters of that have passed.
+    fn of(id: TaskId, given: i64, lifetime: u64, now: i64) -> Option<Self> {
+        let lifetime = (lifetime as i64).saturating_mul(1000);
+        let expires_at = given.saturating_add(lifetime);
+        (now - given >= lifetime / 4 * 3).then_some(Self {
+            id,
+            expires_at,
+            expired: now >= expires_at,
+        })
+    }
+}
+
 /// How an earlier download of the same file was found (see [`Manager::find_previous`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -604,6 +632,17 @@ impl Manager {
             new.name = new.name.or(Some(m.name));
             new.checksum = new.checksum.or(m.checksum);
             new.pieces = new.pieces.or(m.pieces);
+        }
+        // A torrent of the same file: its piece hashes check the HTTP download.
+        if let Some(source) = new.pieces_from.take() {
+            let opts = lock(&self.inner.config).engine.clone();
+            let bytes = torrent::read_torrent_file(&source, &new.headers, &opts)
+                .await
+                .map_err(Error::BadTorrent)?;
+            let (pieces, name, _) =
+                torrent::single_file_pieces(&bytes).map_err(Error::BadTorrent)?;
+            new.pieces = Some(pieces);
+            new.name = new.name.or((!name.is_empty()).then_some(name));
         }
         if let Some(c) = &new.checksum {
             c.parse::<Checksum>().map_err(Error::BadChecksum)?;
@@ -1221,7 +1260,7 @@ impl Manager {
                 }
             }
         }
-        self.inner.db.set_url(id, url).await?;
+        self.inner.db.set_url(id, url, now_ms()).await?;
         self.inner.db.set_headers(id, &headers).await?;
         self.inner.emit(Event::Updated(self.get(id).await?));
         if was_running || task.status == Status::Error {
@@ -1296,6 +1335,37 @@ impl Manager {
             Some(site) => sites::recall(&self.inner.db, &site, now_ms()).await,
             None => Ok(None),
         }
+    }
+
+    /// Waiting downloads (queued or paused) whose link, by how long links of that site lasted
+    /// before, is about to stop working or already has: start them sooner, or get a fresh
+    /// link from the browser. A guess; the download is not stopped from trying.
+    pub async fn link_warnings(&self) -> Result<Vec<LinkWarning>> {
+        let now = now_ms();
+        let mut lifetimes: HashMap<String, Option<u64>> = HashMap::new();
+        let mut out = Vec::new();
+        for task in self.inner.db.list().await? {
+            if !matches!(task.status, Status::Queued | Status::Paused) {
+                continue;
+            }
+            let Some(site) = site_of(&task.url) else {
+                continue;
+            };
+            let lifetime = match lifetimes.get(&site) {
+                Some(l) => *l,
+                None => {
+                    let l = sites::recall(&self.inner.db, &site, now)
+                        .await?
+                        .and_then(|m| m.link_lifetime);
+                    lifetimes.insert(site, l);
+                    l
+                }
+            };
+            if let Some(w) = lifetime.and_then(|l| LinkWarning::of(task.id, task.link_at, l, now)) {
+                out.push(w);
+            }
+        }
+        Ok(out)
     }
 
     /// Forgets what downloads learned about `site`; the next one finds out again.
@@ -2374,7 +2444,7 @@ impl Inner {
             if matches!(result, Err(shardload_engine::Error::LinkExpired(_)))
                 && (started_before || learned.peak_connections > 0)
             {
-                m.expired_after(((now_ms() - task.added_at).max(0) / 1000) as u64);
+                m.expired_after(((now_ms() - task.link_at).max(0) / 1000) as u64);
             }
             if known || !m.is_empty() {
                 sites::keep(&self.db, m, now_ms()).await?;

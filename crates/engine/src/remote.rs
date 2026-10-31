@@ -400,6 +400,12 @@ impl Http {
     /// A whole small resource as text (a playlist), and the URL it came from after
     /// redirects. Fails past `limit` bytes.
     pub async fn text(&self, url: &str, limit: usize) -> Result<(String, String)> {
+        let (body, final_url) = self.bytes(url, limit).await?;
+        Ok((String::from_utf8_lossy(&body).into_owned(), final_url))
+    }
+
+    /// Like [`text`](Self::text), for a small file that is not text (a `.torrent`).
+    pub async fn bytes(&self, url: &str, limit: usize) -> Result<(Vec<u8>, String)> {
         use futures_util::StreamExt;
         let resp = self.get(url, HeaderMap::new(), 0).await?;
         if !resp.status().is_success() {
@@ -414,7 +420,7 @@ impl Http {
                 return Err(Error::State(format!("{url} is larger than {limit} bytes")));
             }
         }
-        Ok((String::from_utf8_lossy(&body).into_owned(), final_url))
+        Ok((body, final_url))
     }
 
     /// A small text file such as a checksum list: [`Fetched::Text`] when the server answers

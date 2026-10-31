@@ -177,8 +177,10 @@
 		});
 		if (!path) return;
 		try {
-			await exportSettings(path);
-			fileStatus = t('Settings saved to {path}', { path });
+			const noPassword = await exportSettings(path);
+			fileStatus = noPassword
+				? t('Settings saved to {path}, without the proxy password', { path })
+				: t('Settings saved to {path}', { path });
 		} catch (e) {
 			fileStatus = t('Could not save the settings: {e}', { e: String(e) });
 		}

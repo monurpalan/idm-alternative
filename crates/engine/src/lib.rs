@@ -38,7 +38,7 @@ pub use checksum::{Algorithm, Checksum, file_checksum};
 pub use dash::{DashRequest, download_dash};
 pub use download::{
     Learned, Learning, Options, Outcome, Phase, Probe, Progress, Request, SegmentView, download,
-    fetch_text, find_published_checksum, github_releases, probe,
+    fetch_bytes, fetch_text, find_published_checksum, github_releases, probe,
 };
 pub use error::{Error, Result};
 pub use hls::{Clip, RecordRequest, StreamRequest, download_hls, record_hls};

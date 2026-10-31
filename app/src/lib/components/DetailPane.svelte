@@ -10,6 +10,7 @@
 		setLogin,
 		setSpeedLimit,
 		siteMemory,
+		startTasks,
 		type SiteMemory,
 		type Task
 	} from '../api.ts';
@@ -42,6 +43,8 @@
 			.catch(() => (site = null));
 	});
 	const learned = $derived(site ? siteFacts(site).join(' · ') : '');
+	/** Set when the link, by how long the site's links lasted, is about to expire. */
+	const link = $derived(downloads.links[task.id]);
 
 	let limitKb = $state('');
 	let newUrl = $state('');
@@ -234,6 +237,21 @@
 				<dt>{t('Site')}</dt>
 				<dd title={site?.site}>{t('This site {facts} (learned)', { facts: learned })}</dd>
 			{/if}
+			{#if link}
+				<dt>{t('Link')}</dt>
+				<dd class:error={link.expired}>
+					{link.expired
+						? t('Probably expired, by how long links of this site lasted: get a fresh one below')
+						: t('Expires in about {time}, by how long links of this site lasted', {
+								time: duration(Math.max(60, (link.expires_at - Date.now()) / 1000))
+							})}
+					{#if !link.expired}
+						<Button variant="link" onclick={() => startTasks([task.id]).catch((e) => onerror(String(e)))}
+							>{t('Start now')}</Button
+						>
+					{/if}
+				</dd>
+			{/if}
 			{#if task.error && task.status === 'done'}
 				<!-- Said about a finished download that went differently than asked, e.g. saved as
 				     one file without ffmpeg: worth knowing, not a failure. -->
@@ -272,7 +290,7 @@
 			</form>
 		{/if}
 		{#if task.status !== 'done'}
-			<form class="inline two" class:attention={task.error_kind === 'expired'} onsubmit={refresh}>
+			<form class="inline two" class:attention={task.error_kind === 'expired' || link?.expired} onsubmit={refresh}>
 				<label for="newurl">{t('New link')}</label>
 				<Input id="newurl" type="url" bind:value={newUrl} placeholder={t('A fresh link to the same file')} />
 				<Button type="submit" disabled={refreshing || !newUrl.trim()}>{t('Use it')}</Button>

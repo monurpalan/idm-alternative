@@ -5,12 +5,14 @@ import { open as pickFolder } from '@tauri-apps/plugin-dialog';
 import { SvelteSet } from 'svelte/reactivity';
 import { msg } from './i18n.svelte.ts';
 import {
+	linkWarnings,
 	listGroups,
 	listTasks,
 	onManagerEvent,
 	relocateTask,
 	type Category,
 	type Group,
+	type LinkWarning,
 	type Task,
 	type TaskId,
 	type TaskProgress
@@ -139,6 +141,9 @@ class Downloads {
 	opened = new SvelteSet<number>();
 	loaded = $state(false);
 	error = $state<string | null>(null);
+	/** Waiting downloads whose links may soon expire, or already have, by id. */
+	links = $state<Record<TaskId, LinkWarning>>({});
+	#linksTimer: ReturnType<typeof setTimeout> | undefined;
 
 	async reload() {
 		try {
@@ -148,6 +153,17 @@ class Downloads {
 		} catch (e) {
 			this.error = String(e);
 		}
+		this.reloadLinks();
+	}
+
+	/** Asks again which links are about to expire, soon after the list changed. */
+	reloadLinks(delay = 500) {
+		clearTimeout(this.#linksTimer);
+		this.#linksTimer = setTimeout(() => {
+			linkWarnings()
+				.then((all) => (this.links = Object.fromEntries(all.map((w) => [w.id, w]))))
+				.catch(() => {});
+		}, delay);
 	}
 
 	async reloadGroups() {
@@ -169,6 +185,7 @@ class Downloads {
 						const i = this.tasks.findIndex((t) => t.id === e.data.id);
 						if (i >= 0) this.tasks[i] = e.data;
 						else this.tasks.push(e.data);
+						if (e.data.status !== 'downloading') this.reloadLinks();
 						if (e.data.status !== 'downloading') delete this.live[e.data.id];
 						delete this.moving[e.data.id];
 						break;
@@ -199,7 +216,10 @@ class Downloads {
 			() => this.reload()
 		);
 		this.reload();
+		// Links age while they wait.
+		const ageing = setInterval(() => this.reloadLinks(0), 60_000);
 		return () => {
+			clearInterval(ageing);
 			stop.then((f) => f());
 		};
 	}

@@ -390,6 +390,59 @@ impl<S: TorrentStorage> TorrentStorage for SafeNamesStorage<S> {
     }
 }
 
+/// The largest `.torrent` read for its piece hashes.
+pub const MAX_TORRENT_FILE: usize = 50 << 20;
+
+/// Reads a `.torrent` (a link or a path on disk) for [`single_file_pieces`].
+pub async fn read_torrent_file(
+    source: &str,
+    headers: &[(String, String)],
+    opts: &shardload_engine::Options,
+) -> Result<Vec<u8>> {
+    let source = source.trim();
+    let lower = source.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        return shardload_engine::fetch_bytes(source, headers, opts, MAX_TORRENT_FILE)
+            .await
+            .map_err(|e| format!("could not fetch the torrent: {e}"));
+    }
+    let path = source.strip_prefix("file:///").unwrap_or(source);
+    std::fs::read(path).map_err(|e| format!("could not read {path}: {e}"))
+}
+
+/// The piece hashes of a torrent of one file, to check an HTTP download of the same file
+/// with; also the file's name and size in the torrent.
+pub fn single_file_pieces(bytes: &[u8]) -> Result<(shardload_engine::Pieces, String, u64)> {
+    let t = librqbit::torrent_from_bytes(bytes).map_err(|e| format!("not a torrent: {e}"))?;
+    let info = &t.info.data;
+    let size = match (info.length, &info.files) {
+        (Some(n), None) => n,
+        _ => return Err("only a torrent of a single file can check a download".into()),
+    };
+    let hashes: &[u8] = info.pieces.as_ref();
+    let length = u64::from(info.piece_length);
+    if length == 0
+        || !hashes.len().is_multiple_of(20)
+        || (hashes.len() / 20) as u64 != size.div_ceil(length)
+    {
+        return Err("the torrent's pieces do not match its file".into());
+    }
+    let hex = |b: &[u8]| -> String { b.iter().map(|b| format!("{b:02x}")).collect() };
+    let name = info
+        .name
+        .as_ref()
+        .map(|n| String::from_utf8_lossy(n.as_ref()).into_owned())
+        .unwrap_or_default();
+    let pieces = shardload_engine::Pieces {
+        length,
+        hashes: hashes
+            .chunks(20)
+            .map(|h| format!("sha1:{}", hex(h)))
+            .collect(),
+    };
+    Ok((pieces, name, size))
+}
+
 /// What to hand librqbit: links as they are, a file on disk as its bytes.
 fn source(url: &str) -> Result<AddTorrent<'static>> {
     let url = url.trim();
@@ -407,6 +460,26 @@ fn source(url: &str) -> Result<AddTorrent<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn single_file_pieces_are_read() {
+        // 5 bytes in pieces of 2: three SHA-1 hashes.
+        let mut t = b"d4:infod6:lengthi5e4:name5:a.bin12:piece lengthi2e6:pieces60:".to_vec();
+        t.extend(0..60u8);
+        t.extend(b"ee");
+        let (p, name, size) = single_file_pieces(&t).expect("pieces");
+        assert_eq!((name.as_str(), size, p.length), ("a.bin", 5, 2));
+        assert_eq!(p.hashes.len(), 3);
+        assert_eq!(p.hashes[0], "sha1:000102030405060708090a0b0c0d0e0f10111213");
+        // A folder of files cannot check one download.
+        let folder: &[u8] = b"d4:infod5:filesld6:lengthi5e4:pathl5:a.bineee4:name1:x12:piece lengthi8e6:pieces20:aaaaaaaaaaaaaaaaaaaaee";
+        assert!(single_file_pieces(folder).is_err());
+        // Pieces that do not cover the file.
+        let short: &[u8] =
+            b"d4:infod6:lengthi50e4:name5:a.bin12:piece lengthi2e6:pieces20:aaaaaaaaaaaaaaaaaaaaee";
+        assert!(single_file_pieces(short).is_err());
+        assert!(single_file_pieces(b"not a torrent").is_err());
+    }
 
     #[test]
     fn recognises_torrents() {

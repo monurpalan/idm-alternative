@@ -201,5 +201,47 @@ async fn how_long_links_last_is_estimated() {
     );
     let memory = m.site_memory(&base).await.expect("memory").expect("kept");
     assert!(memory.link_lifetime.is_some_and(|s| s <= 10), "{memory:?}");
+    let lifetime = memory.link_lifetime.expect("lifetime");
+
+    // A link from the same site waiting in the queue: no warning while it is young, then
+    // "expired" once it is older than links of that site lasted.
+    let waiting = m
+        .add(NewTask {
+            url: format!("{base}/file/b.bin?size={MB}&ttl=1"),
+            ..NewTask::default()
+        })
+        .await
+        .expect("add");
+    let warned =
+        |all: Vec<shardload_manager::LinkWarning>| all.into_iter().find(|w| w.id == waiting.id);
+    if lifetime >= 2 {
+        assert_eq!(warned(m.link_warnings().await.expect("warnings")), None);
+    }
+    tokio::time::sleep(Duration::from_millis(lifetime * 1000 + 300)).await;
+    let w = warned(m.link_warnings().await.expect("warnings")).expect("warned");
+    assert!(w.expired, "{w:?}");
+    // The failed download is not waiting; it says so itself.
+    assert!(warned(m.link_warnings().await.expect("warnings")).is_some());
+    assert!(
+        !m.link_warnings()
+            .await
+            .expect("warnings")
+            .iter()
+            .any(|w| w.id == t.id)
+    );
+    // A fresh link starts the count again.
+    m.refresh_link(
+        waiting.id,
+        &format!("{base}/file/b.bin?size={MB}&ttl=1&seed=2"),
+        None,
+    )
+    .await
+    .expect("refresh");
+    if lifetime >= 2 {
+        assert_eq!(warned(m.link_warnings().await.expect("warnings")), None);
+    } else {
+        let w = warned(m.link_warnings().await.expect("warnings"));
+        assert!(w.is_none_or(|w| !w.expired), "{w:?}");
+    }
     m.close().await;
 }

@@ -197,6 +197,13 @@
 		return ext.length && ext.length <= 4 ? ext.toUpperCase() : '';
 	}
 
+	/** For a waiting download whose link, by what the site taught, is about to expire. */
+	function linkNote(task: Task): string | null {
+		const w = downloads.links[task.id];
+		if (!w) return null;
+		return w.expired ? t('Link may have expired') : t('Link expires soon');
+	}
+
 	function statusText(r: Row): string {
 		const task = r.task;
 		const moved = downloads.moving[task.id];
@@ -226,10 +233,11 @@
 						time: new Date(at).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })
 					});
 				// Waiting for an automatic retry after a failure that may pass.
-				return task.error ? t('Retrying') : t('Waiting');
+				if (task.error) return t('Retrying');
+				return linkNote(task) ?? t('Waiting');
 			}
 			case 'paused':
-				return t('Paused');
+				return linkNote(task) ?? t('Paused');
 			case 'done':
 				return t('Done');
 			case 'error':

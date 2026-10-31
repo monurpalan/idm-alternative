@@ -298,6 +298,9 @@ pub struct Task {
     /// alone. Not sent to the UI.
     #[serde(skip)]
     pub pieces: Option<shardload_engine::Pieces>,
+    /// When `url` was given (Unix ms): `added_at`, or when the link was last refreshed.
+    #[serde(skip)]
+    pub link_at: i64,
 }
 
 /// Downloads added together: a playlist, a channel, a batch, the files of a site.
@@ -351,6 +354,9 @@ pub struct NewTask {
     pub group: Option<i64>,
     /// Hashes of the file's pieces (a metalink's are taken by themselves).
     pub pieces: Option<shardload_engine::Pieces>,
+    /// A `.torrent` of the same file (a link or a path on disk): its piece hashes check the
+    /// download, so a corrupt piece is downloaded again alone. Single-file torrents only.
+    pub pieces_from: Option<String>,
 }
 
 /// Live progress of a running download, sent about four times a second.

@@ -431,9 +431,11 @@ impl Db {
         Ok(())
     }
 
-    pub(crate) async fn set_url(&self, id: TaskId, url: &str) -> Result<()> {
-        sqlx::query("UPDATE tasks SET url = ? WHERE id = ?")
+    /// A fresh link for the download, given at `at` (Unix ms).
+    pub(crate) async fn set_url(&self, id: TaskId, url: &str, at: i64) -> Result<()> {
+        sqlx::query("UPDATE tasks SET url = ?, link_at = ? WHERE id = ?")
             .bind(url)
+            .bind(at)
             .bind(id)
             .execute(&self.pool)
             .await?;
@@ -654,6 +656,9 @@ fn task(r: &SqliteRow) -> Result<Task> {
         checksum: r.try_get("checksum")?,
         checksum_from: r.try_get("checksum_from")?,
         added_at: r.try_get("added_at")?,
+        link_at: r
+            .try_get::<Option<i64>, _>("link_at")?
+            .unwrap_or(r.try_get("added_at")?),
         finished_at: r.try_get("finished_at")?,
         queue_pos: r.try_get("queue_pos")?,
         stream: r

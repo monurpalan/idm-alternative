@@ -529,6 +529,19 @@ pub async fn fetch_text(
         .await
 }
 
+/// Like [`fetch_text`], for a small file that is not text (a `.torrent`).
+pub async fn fetch_bytes(
+    url: &str,
+    headers: &[(String, String)],
+    opts: &Options,
+    limit: usize,
+) -> Result<Vec<u8>> {
+    Ok(Http::new(&http_config(headers, opts))?
+        .bytes(url, limit)
+        .await?
+        .0)
+}
+
 pub(crate) fn http_config(headers: &[(String, String)], opts: &Options) -> HttpConfig {
     HttpConfig {
         user_agent: opts.user_agent.clone(),
