@@ -28,10 +28,6 @@ const HOST = `${REAL_HOST}.e2e`;
 const EXTENSION_ID = 'calgjlgiljgeegibddigkflnpegdhhle';
 const WINDOWS = process.platform === 'win32';
 const REG_KEY = `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${HOST}`;
-// Chrome for Testing's own folder and Chrome's: the test host is written to both.
-const LINUX_HOSTS = ['google-chrome-for-testing', 'google-chrome'].map((b) =>
-	join(homedir(), '.config', b, 'NativeMessagingHosts')
-);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -66,8 +62,11 @@ async function chrome() {
 
 // ---- The stand-in host --------------------------------------------------------------------
 
-/** Registers the stub host for Chrome for Testing only; returns the function undoing it. */
-function registerHost(work) {
+/**
+ * Registers the stub host; returns the function undoing it. On Linux the browser also looks in
+ * its profile's `NativeMessagingHosts`, so it goes there and nowhere else.
+ */
+function registerHost(work, profile) {
 	const script = join(HERE, 'stub-host.mjs');
 	let launcher;
 	if (WINDOWS) {
@@ -91,13 +90,10 @@ function registerHost(work) {
 		execFileSync('reg', ['add', REG_KEY, '/ve', '/t', 'REG_SZ', '/d', file, '/f'], { stdio: 'ignore' });
 		return () => execFileSync('reg', ['delete', REG_KEY, '/f'], { stdio: 'ignore' });
 	}
-	const files = LINUX_HOSTS.map((dir) => {
-		mkdirSync(dir, { recursive: true });
-		const file = join(dir, `${HOST}.json`);
-		writeFileSync(file, JSON.stringify(manifest));
-		return file;
-	});
-	return () => files.forEach((f) => rmSync(f, { force: true }));
+	const dir = join(profile, 'NativeMessagingHosts');
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(join(dir, `${HOST}.json`), JSON.stringify(manifest));
+	return () => {};
 }
 
 /** A copy of the built extension that talks to the test host. */
@@ -267,7 +263,7 @@ async function main() {
 	mkdirSync(downloads, { recursive: true });
 	const log = join(work, 'host.log');
 	const EXTENSION = testCopy(work);
-	const unregister = registerHost(work);
+	const unregister = registerHost(work, profile);
 	const server = await serve();
 	const base = `http://127.0.0.1:${server.address().port}`;
 	const args = [
