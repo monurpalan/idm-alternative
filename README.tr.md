@@ -102,6 +102,20 @@ bakıldı; yazmıyorsa "?"):
 
 1. Sitesi açık kaynak diyor ama bir lisans adı vermiyor.
 
+**Bellek** (geliştirme bilgisayarı, Windows 11, 2026-11-01; uygulama ve WebView2 süreçlerinin
+toplamı; *ayrılmış* = commit, *RAM'de* = özel çalışma kümesi):
+
+| | Shardload | IDM 6.43 |
+|---|---|---|
+| Pencere açık, boşta | 200 MB ayrılmış (uygulama 13 MB, WebView2 ~190 MB); RAM'de pencere odakta değilken 17 MB, odaktayken ~130 MB | ~11 MB |
+| 500 indirmelik liste | aynı (yalnız görünen satırlar çizilir) | – |
+| 1 GiB indirirken | 240–275 MB ayrılmış, ~110 MB RAM'de | 15–20 MB |
+| Tepside (pencere kapalı) | 18 MB ayrılmış, 15 MB RAM'de, tek süreç | 10–14 MB |
+
+Shardload'un belleğinin çoğu, Tauri uygulamalarının Edge ile paylaştığı WebView2'dir; pencere
+kapanınca onunla birlikte kapanır. Yöntem ve ham sayılar:
+[bench/results/2026-11-01_memory.md](bench/results/2026-11-01_memory.md).
+
 Ayrıntılı özellik listesi, bütün hız testleri, bellek ve boyut ölçümleri ve nasıl çalıştığı
 [İngilizce README'de](README.md#in-detail).
 

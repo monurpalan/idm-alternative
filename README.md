@@ -292,20 +292,26 @@ What this does and does not say:
 
 ### Size and memory
 
-Measured on the development machine (release build, Windows 11):
+Measured on the development machine (release build, Windows 11, 2026-11-01). Memory is the sum
+over the app and its WebView2 processes; *private* is what they committed (in RAM or the page
+file), *in RAM* their private working set. Details, method and raw numbers:
+[bench/results/2026-11-01_memory.md](bench/results/2026-11-01_memory.md).
 
 | | |
 |---|---|
-| Installer | 9.6 MiB |
-| Installed | 39.5 MB (app 35.9 MB, of which ~7 MB is the torrent client; MCP server 2.7 MB; browser host 0.8 MB) |
-| Idle memory, app process | 32 MB working set (8 MB private) |
-| Idle memory, WebView2 (6 processes) | 367 MB working set (160 MB private) |
-| Idle in the tray (window closed) | 5 MB private, no WebView2 processes |
-| 500 downloads in the list, 20 running (~10 MB/s) | UI 9% of a core, engine 18–22%; scrolling at 60 fps |
+| Installer | 10.7 MiB |
+| Installed | 41 MB (app, torrent client included; MCP server; browser host) |
+| Cold start | window in 0.08 s, list shown in 0.6 s (500 downloads: 0.8 s) |
+| Window open, idle | 200 MB private (app 13 MB, WebView2 ~190 MB, half of it its GPU process); in RAM 17 MB when the window is not focused, ~130 MB when it is |
+| Window open, 500 downloads in the list | the same: only the rows in view are drawn |
+| Downloading 1 GiB (at 10 MiB/s, or as fast as loopback goes) | 240–275 MB private, ~110 MB in RAM |
+| Closed to the tray | 18 MB private, 15 MB in RAM, 1 process (no WebView2) |
 
-Most of the memory is the WebView2 runtime that every Tauri app shares with Edge; IDM's
-native window needs far less. In the tray the app closes its window and the WebView with it,
-so that price is only paid while the window is open.
+For comparison, IDM 6.43 on the same machine: about 11 MB private with its window open,
+15–20 MB while downloading, 10–14 MB in the tray, in one process. Most of Shardload's memory is
+the WebView2 runtime that every Tauri app shares with Edge; IDM's native window needs far less.
+In the tray Shardload closes its window and the WebView with it, so that price is only paid
+while the window is open; the engine itself stays around 13 MB.
 
 ### How it works
 

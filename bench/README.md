@@ -81,3 +81,24 @@ for conditions where many connections do not help or are punished. They found on
   internet scenarios add real downloads.
 - Clients that hand off to a long-running process need their exit detection checked before
   their numbers are trusted (done for IDM, see above).
+
+## Memory
+
+`bench/memory/measure.py` measures memory from the outside: the sum over each client's process
+tree (Shardload with its WebView2 processes, AB DM's JVM...) of private bytes, working set and
+private working set, at a cold start, idle with the window open, minimized, while downloading
+1 GiB from the test server (unlimited and at 10 MiB/s), and closed to the tray; `--visible`
+keeps the window on top while idle, `--list500`/`--make-list500` measure a 500-download list.
+It needs `psutil` and the test server on `127.0.0.1:8771`, and never stops a client that was
+already running. To run Shardload next to an installed copy, build it with another identifier
+and without the browser host next to it (the script refuses a build with one: that profile would
+register its host with the browsers in place of the installed app's):
+
+```bash
+TAURI_CONFIG='{"identifier":"io.github.monurpalan.shardload.memtest"}' CARGO_TARGET_DIR=C:/tmp/memtest/target \
+  cargo build --release -p shardload-app -p shardload-mcp --features tauri/custom-protocol
+MEMTEST_SHARDLOAD_BIN=C:/tmp/memtest/target/release python bench/memory/measure.py --clients shardload,idm --runs 3
+python bench/memory/summarize.py C:/tmp/memtest/memory.json
+```
+
+Results: [results/2026-11-01_memory.md](results/2026-11-01_memory.md).
