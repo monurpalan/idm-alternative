@@ -8,7 +8,7 @@ mod hls;
 use serde::Serialize;
 
 pub use dash::parse_mpd;
-pub use dash_segments::{DashTrack, Piece, dash_track};
+pub use dash_segments::{DashLive, DashTrack, Piece, dash_live, dash_track};
 pub use hls::parse_m3u8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

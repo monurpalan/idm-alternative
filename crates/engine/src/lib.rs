@@ -35,7 +35,7 @@ mod zip;
 mod zone;
 
 pub use checksum::{Algorithm, Checksum, file_checksum};
-pub use dash::{DashRequest, download_dash};
+pub use dash::{DashRequest, download_dash, record_dash};
 pub use download::{
     Learned, Learning, Options, Outcome, Phase, Probe, Progress, Request, SegmentView, download,
     fetch_bytes, fetch_text, find_published_checksum, github_releases, probe,

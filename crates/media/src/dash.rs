@@ -124,6 +124,41 @@ fn frame_rate(v: &str) -> Option<f64> {
     }
 }
 
+/// An ISO 8601 date and time as DASH uses them (`2026-10-31T12:00:00Z`, with fractions of a
+/// second or an offset such as `+03:00`; no zone is taken as UTC), in Unix seconds.
+pub(crate) fn iso_datetime(v: &str) -> Option<f64> {
+    let (date, time) = v.trim().split_once('T')?;
+    let mut d = date.splitn(3, '-').map(|p| p.parse::<i64>().ok());
+    let (y, m, day) = (d.next()??, d.next()??, d.next()??);
+    if !(1..=12).contains(&m) || !(1..=31).contains(&day) {
+        return None;
+    }
+    // The zone: `Z`, `+hh:mm`, `-hh:mm`, or none.
+    let (clock, offset) = if let Some(c) = time.strip_suffix('Z') {
+        (c, 0.0)
+    } else if let Some(i) = time.rfind(['+', '-']) {
+        let (h, mi) = time[i + 1..]
+            .split_once(':')
+            .unwrap_or((&time[i + 1..], "0"));
+        let o = h.parse::<f64>().ok()? * 3600.0 + mi.parse::<f64>().ok()? * 60.0;
+        (&time[..i], if &time[i..=i] == "-" { -o } else { o })
+    } else {
+        (time, 0.0)
+    };
+    let mut c = clock.splitn(3, ':');
+    let h: f64 = c.next()?.parse().ok()?;
+    let mi: f64 = c.next()?.parse().ok()?;
+    let s: f64 = c.next().unwrap_or("0").parse().ok()?;
+    // Days since 1970-01-01 (Howard Hinnant's days_from_civil).
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days as f64 * 86_400.0 + h * 3600.0 + mi * 60.0 + s - offset)
+}
+
 /// ISO 8601 durations as DASH uses them: `PT1H2M3.5S`, `P1DT2H`.
 pub(crate) fn iso_duration(v: &str) -> Option<f64> {
     let rest = v.strip_prefix('P')?;

@@ -75,7 +75,6 @@ export default {
 	// A stream (HLS, DASH)
 	'Read the playlist first': 'Önce oynatma listesi okunmalı',
 	'Protected streams cannot be downloaded': 'Korumalı yayınlar indirilemez',
-	'Live DASH streams cannot be recorded yet': 'Canlı DASH yayınları henüz kaydedilemiyor',
 	'As offered': 'Sunulduğu gibi',
 	Track: 'Parça',
 	Stream: 'Yayın',

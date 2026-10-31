@@ -4,14 +4,14 @@
 //! several connections.
 
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::download::{Options, Outcome, Phase, Progress, Request, http_config};
 use crate::error::{Error, Result};
-use crate::hls::{Clip, MediaPlaylist, Segment, Source, segmented};
+use crate::hls::{Clip, LiveSource, MediaPlaylist, RecordRequest, Segment, Source, segmented};
 use crate::remote::Http;
 use crate::state::sibling;
 
@@ -40,6 +40,53 @@ fn segment(p: shardload_media::Piece) -> Segment {
         key: None,
         duration: p.duration,
     }
+}
+
+/// Records a live DASH stream (a `dynamic` manifest) to `req.output`, as [`record_hls`]
+/// does an HLS one: the manifest is read again as often as it asks (`minimumUpdatePeriod`)
+/// and each new segment of the chosen representations is appended, by its number. It ends
+/// when the manifest turns `static` (the broadcast is over), after `limit`, when `cancel`
+/// fires (what was recorded is kept), or when the manifest cannot be read several times.
+/// `req.clip` does not apply.
+///
+/// [`record_hls`]: crate::record_hls
+pub async fn record_dash(
+    req: &DashRequest,
+    limit: Option<Duration>,
+    opts: &Options,
+    progress: Option<&watch::Sender<Progress>>,
+    cancel: &CancellationToken,
+) -> Result<Outcome> {
+    let started = Instant::now();
+    let _lock = crate::place::Lock::acquire(&req.output)?;
+    let http = Http::new(&http_config(&req.headers, opts))?;
+    if let Some(p) = progress {
+        p.send_modify(|p| p.phase = Phase::Probing);
+    }
+    if req.audio.is_some() && req.ffmpeg.is_none() {
+        return Err(Error::State(
+            "this stream has separate audio: ffmpeg is needed to join it".into(),
+        ));
+    }
+    // The manifest is read once here so a wrong representation fails at once.
+    let (text, manifest) = http.text(&req.manifest, MAX_MANIFEST).await?;
+    let mut sources = Vec::new();
+    for rep in std::iter::once(&req.video).chain(req.audio.as_ref()) {
+        shardload_media::dash_live(&manifest, &text, rep, 0.0).map_err(|e| Error::State(e.0))?;
+        sources.push(LiveSource::Dash {
+            manifest: manifest.clone(),
+            rep: rep.clone(),
+        });
+    }
+    let record = RecordRequest {
+        video: req.manifest.clone(),
+        audio: None,
+        output: req.output.clone(),
+        headers: req.headers.clone(),
+        ffmpeg: req.ffmpeg.clone(),
+        limit,
+    };
+    crate::hls::record(&record, sources, http, opts, progress, cancel, started).await
 }
 
 /// Downloads a DASH stream to `req.output`. Interrupted, it keeps what is finished, and

@@ -1686,13 +1686,22 @@ impl Inner {
         let (tx, rx) = watch::channel(Progress::default());
         let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
         if let Some(record) = &stream.record {
-            if stream.dash.is_some() {
+            let limit = record.limit.map(Duration::from_secs);
+            if let Some(video) = stream.dash {
+                let req = shardload_engine::DashRequest {
+                    manifest: task.url.clone(),
+                    video,
+                    audio: stream.audio,
+                    output: path,
+                    headers: task.headers.clone(),
+                    ffmpeg,
+                    clip: None,
+                };
+                let result =
+                    shardload_engine::record_dash(&req, limit, &opts, Some(&tx), cancel).await;
                 drop(tx);
                 reporter.await.ok();
-                return Err(shardload_engine::Error::State(
-                    "live DASH streams cannot be recorded yet".into(),
-                )
-                .into());
+                return Ok(result?);
             }
             let req = shardload_engine::RecordRequest {
                 video: task.url.clone(),
@@ -1700,7 +1709,7 @@ impl Inner {
                 output: path,
                 headers: task.headers.clone(),
                 ffmpeg,
-                limit: record.limit.map(Duration::from_secs),
+                limit,
             };
             let result = shardload_engine::record_hls(&req, &opts, Some(&tx), cancel).await;
             drop(tx);

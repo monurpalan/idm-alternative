@@ -3,6 +3,8 @@
 
 mod common;
 
+use std::time::Duration;
+
 use shardload_engine::{CancellationToken, DashRequest, Options, download_dash};
 use shardload_testserver::hls::track_seed;
 use shardload_testserver::{Verdict, verify_file};
@@ -213,4 +215,104 @@ async fn saves_a_dash_text_representation() {
     .expect("mpd");
     let streams = shardload_media::parse_mpd("u", &mpd).expect("parse");
     assert_eq!(streams.subtitles[0].language.as_deref(), Some("tr"));
+}
+
+/// Records a live DASH stream with progress; returns the outcome and the last progress.
+async fn record_dash(
+    req: &DashRequest,
+    limit: Option<Duration>,
+    cancel: &CancellationToken,
+) -> (
+    shardload_engine::Result<shardload_engine::Outcome>,
+    shardload_engine::Progress,
+) {
+    let (tx, rx) = tokio::sync::watch::channel(shardload_engine::Progress::default());
+    let opts = Options {
+        connections: 4,
+        ..Options::default()
+    };
+    let result = tokio::time::timeout(
+        LIMIT,
+        shardload_engine::record_dash(req, limit, &opts, Some(&tx), cancel),
+    )
+    .await
+    .expect("recording hung");
+    let last = rx.borrow().clone();
+    (result, last)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn records_a_live_dash_stream_until_it_ends() {
+    let base = start().await;
+    let dir = workdir("dash-live");
+    // A segment every 200 ms, the stream ends after 8: by the clock ($Number$) and from a
+    // sliding timeline ($Time$).
+    for (mode, seed) in [("number", 41), ("timeline", 42)] {
+        let out = dir.join(&format!("{mode}.mp4"));
+        let url = format!(
+            "{base}/dash/manifest.mpd?mode={mode}&live=1&seg_ms=200&window=5&end_after=8&seed={seed}&seg_size=32K&init_size=4K"
+        );
+        let (done, last) =
+            record_dash(&request(url, "v720", &out), None, &CancellationToken::new()).await;
+        let done = done.expect("record");
+        // The init segment, then every segment from the first, in order.
+        let size = 4096 + 8 * (32 << 10);
+        assert_eq!(done.size, size, "{mode}");
+        assert_eq!(
+            verify_file(&out, track_seed(seed, "v720"), size).expect("verify"),
+            Verdict::Ok,
+            "{mode}"
+        );
+        assert_eq!(last.missed, 0, "{mode}");
+        assert!(
+            (1.4..=1.8).contains(&last.recorded),
+            "{mode}: {}",
+            last.recorded
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_live_dash_recording_stops_when_asked_or_at_its_limit() {
+    let base = start().await;
+    let dir = workdir("dash-live-stop");
+    let url = |seed: u64| {
+        format!(
+            "{base}/dash/manifest.mpd?mode=number&live=1&seg_ms=200&window=10&seed={seed}&seg_size=16K&init_size=1K"
+        )
+    };
+    // Stopped by the user: what was recorded is kept.
+    let out = dir.join("stopped.mp4");
+    let cancel = CancellationToken::new();
+    let stop = cancel.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        stop.cancel();
+    });
+    let (done, _) = record_dash(&request(url(43), "v360", &out), None, &cancel).await;
+    let done = done.expect("stopped, not failed");
+    let segments = (done.size - 1024) / (16 << 10);
+    assert!((3..=12).contains(&segments), "{segments} segments");
+    assert_eq!(
+        verify_file(&out, track_seed(43, "v360"), done.size).expect("verify"),
+        Verdict::Ok
+    );
+    // A limit of 1 s.
+    let out = dir.join("limited.mp4");
+    let (done, last) = record_dash(
+        &request(url(44), "v360", &out),
+        Some(Duration::from_secs(1)),
+        &CancellationToken::new(),
+    )
+    .await;
+    done.expect("record");
+    assert!((1.0..=2.0).contains(&last.recorded), "{}", last.recorded);
+    // An unknown representation fails at once.
+    let (failed, _) = record_dash(
+        &request(url(45), "nope", &dir.join("nope.mp4")),
+        None,
+        &CancellationToken::new(),
+    )
+    .await;
+    assert!(failed.is_err());
 }

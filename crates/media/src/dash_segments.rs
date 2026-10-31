@@ -1,10 +1,11 @@
 //! Where a DASH representation's media is: the URLs (and byte ranges) of its initialisation
 //! and media segments, from `SegmentTemplate` (with `$Number$` or `SegmentTimeline` and
-//! `$Time$`), `SegmentList`, or a single file (`SegmentBase` / a plain `BaseURL`).
+//! `$Time$`), `SegmentList`, or a single file (`SegmentBase` / a plain `BaseURL`). A live
+//! (dynamic) manifest is read with [`dash_live`]: the segments it offers at that moment.
 
 use roxmltree::{Document, Node};
 
-use crate::dash::iso_duration;
+use crate::dash::{iso_datetime, iso_duration};
 use crate::{Error, resolve};
 
 /// A piece of media: a whole resource, or `[start, end)` of it.
@@ -23,7 +24,23 @@ pub struct DashTrack {
     /// The representation is one file (`SegmentBase` or only a `BaseURL`): `segments` holds
     /// it whole, and it is worth downloading with several connections.
     pub single: bool,
+    /// The number of `segments[0]` (`startNumber`); the others follow one by one.
+    pub first: u64,
 }
+
+/// A live manifest as read at one moment.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DashLive {
+    pub track: DashTrack,
+    /// The broadcast is over (the manifest became `static`): nothing more will come.
+    pub ended: bool,
+    /// How long to wait before reading the manifest again (`minimumUpdatePeriod`), seconds.
+    pub refresh: Option<f64>,
+}
+
+/// How far back a live `$Number$` template is read when the manifest does not say
+/// (`timeShiftBufferDepth`): a few segments behind the newest.
+const LIVE_DEPTH: f64 = 30.0;
 
 fn child<'a, 'i>(node: Node<'a, 'i>, name: &str) -> Option<Node<'a, 'i>> {
     node.children()
@@ -97,7 +114,27 @@ fn attr<'a>(templates: &[Node<'a, '_>], name: &str) -> Option<&'a str> {
 /// The segments of representation `rep_id` in the manifest at `url`.
 pub fn dash_track(url: &str, text: &str, rep_id: &str) -> Result<DashTrack, Error> {
     let doc = Document::parse(text).map_err(|e| Error(format!("not a DASH manifest: {e}")))?;
+    track(url, doc.root_element(), rep_id, None)
+}
+
+/// The segments of representation `rep_id` that a live manifest offers at `now` (Unix
+/// seconds): the ones listed (`SegmentTimeline`, `SegmentList`), or for a `$Number$`
+/// template the ones out by the clock since `availabilityStartTime`, as far back as
+/// `timeShiftBufferDepth`. A manifest that is `static` (the broadcast ended) gives all of
+/// its segments and says it ended.
+pub fn dash_live(url: &str, text: &str, rep_id: &str, now: f64) -> Result<DashLive, Error> {
+    let doc = Document::parse(text).map_err(|e| Error(format!("not a DASH manifest: {e}")))?;
     let mpd = doc.root_element();
+    let live = mpd.attribute("type") == Some("dynamic");
+    Ok(DashLive {
+        track: track(url, mpd, rep_id, live.then_some(now))?,
+        ended: !live,
+        refresh: mpd.attribute("minimumUpdatePeriod").and_then(iso_duration),
+    })
+}
+
+/// `now` is set for a live manifest.
+fn track(url: &str, mpd: Node, rep_id: &str, now: Option<f64>) -> Result<DashTrack, Error> {
     let period = child(mpd, "Period").ok_or_else(|| Error("the manifest has no period".into()))?;
     let (set, rep) = children(period, "AdaptationSet")
         .find_map(|set| {
@@ -122,6 +159,10 @@ pub fn dash_track(url: &str, text: &str, rep_id: &str) -> Result<DashTrack, Erro
         .attribute("duration")
         .or_else(|| mpd.attribute("mediaPresentationDuration"))
         .and_then(iso_duration);
+    let period_start = period
+        .attribute("start")
+        .and_then(iso_duration)
+        .unwrap_or(0.0);
 
     let templates: Vec<Node> = [child(rep, "SegmentTemplate"), child(set, "SegmentTemplate")]
         .into_iter()
@@ -144,9 +185,30 @@ pub fn dash_track(url: &str, text: &str, rep_id: &str) -> Result<DashTrack, Erro
         };
         let init = attr(&templates, "initialization").map(|i| piece(i, 0, 0, None));
 
+        // Where the media timeline is now, in ticks, for a live manifest.
+        let live_ticks = match now {
+            Some(now) => {
+                let start = mpd
+                    .attribute("availabilityStartTime")
+                    .and_then(iso_datetime)
+                    .ok_or_else(|| Error("a live manifest without its start time".into()))?;
+                let offset: u64 = attr(&templates, "presentationTimeOffset")
+                    .and_then(|o| o.parse().ok())
+                    .unwrap_or(0);
+                Some((
+                    ((now - start - period_start).max(0.0) * timescale as f64) as u64,
+                    offset,
+                ))
+            }
+            None => None,
+        };
         let mut segments = Vec::new();
+        let mut first = start_number;
         if let Some(timeline) = templates.iter().find_map(|t| child(*t, "SegmentTimeline")) {
-            let end = duration.map(|d| (d * timescale as f64).round() as u64);
+            let end = match live_ticks {
+                Some((ticks, offset)) => Some(offset + ticks),
+                None => duration.map(|d| (d * timescale as f64).round() as u64),
+            };
             let mut time = 0u64;
             let mut number = start_number;
             let entries: Vec<Node> = children(timeline, "S").collect();
@@ -182,22 +244,42 @@ pub fn dash_track(url: &str, text: &str, rep_id: &str) -> Result<DashTrack, Erro
                 .and_then(|d| d.parse().ok())
                 .filter(|d: &f64| *d > 0.0)
                 .ok_or_else(|| Error("SegmentTemplate without duration or timeline".into()))?;
-            let total =
-                duration.ok_or_else(|| Error("the manifest does not say how long it is".into()))?;
-            let count = (total * timescale as f64 / seg).ceil() as u64;
-            let mut time = 0u64;
-            for i in 0..count {
-                segments.push(piece(media, start_number + i, time, Some(seg)));
-                time += seg as u64;
+            // Live: the segments complete by now, as far back as the manifest keeps them.
+            let (from, count) = match live_ticks {
+                Some((ticks, _)) => {
+                    let out = (ticks as f64 / seg).floor() as u64;
+                    let depth = mpd
+                        .attribute("timeShiftBufferDepth")
+                        .and_then(iso_duration)
+                        .unwrap_or(LIVE_DEPTH);
+                    let keep = ((depth * timescale as f64 / seg).floor() as u64).max(1);
+                    (out.saturating_sub(keep), out)
+                }
+                None => {
+                    let total = duration
+                        .ok_or_else(|| Error("the manifest does not say how long it is".into()))?;
+                    (0, (total * timescale as f64 / seg).ceil() as u64)
+                }
+            };
+            first = start_number + from;
+            for i in from..count {
+                segments.push(piece(
+                    media,
+                    start_number + i,
+                    (i as f64 * seg) as u64,
+                    Some(seg),
+                ));
             }
         }
-        if segments.is_empty() {
+        // A live stream may not have its first segment out yet.
+        if segments.is_empty() && now.is_none() {
             return Err(Error("the representation has no segments".into()));
         }
         return Ok(DashTrack {
             init,
             segments,
             single: false,
+            first,
         });
     }
 
@@ -227,13 +309,17 @@ pub fn dash_track(url: &str, text: &str, rep_id: &str) -> Result<DashTrack, Erro
                 duration: each,
             })
             .collect();
-        if segments.is_empty() {
+        if segments.is_empty() && now.is_none() {
             return Err(Error("the segment list is empty".into()));
         }
         return Ok(DashTrack {
             init,
             segments,
             single: false,
+            first: list
+                .attribute("startNumber")
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(1),
         });
     }
 
@@ -246,6 +332,7 @@ pub fn dash_track(url: &str, text: &str, rep_id: &str) -> Result<DashTrack, Erro
             duration,
         }],
         single: true,
+        first: 1,
     })
 }
 
@@ -325,6 +412,66 @@ mod tests {
                 "1350000", "1530000", "1710000"
             ]
         );
+    }
+
+    #[test]
+    fn live_number_template_follows_the_clock() {
+        // Started at 12:00:00 UTC, 2 s segments, 10 s kept.
+        let mpd = r#"<MPD type="dynamic" availabilityStartTime="2026-10-31T12:00:00Z"
+            minimumUpdatePeriod="PT2S" timeShiftBufferDepth="PT10S"><Period start="PT0S">
+            <AdaptationSet><SegmentTemplate timescale="1000" duration="2000" startNumber="1"
+              initialization="i.mp4" media="$Number$.m4s"/>
+            <Representation id="v" bandwidth="1"/></AdaptationSet></Period></MPD>"#;
+        let noon = 1_793_448_000.0;
+        // 7 s in: segments 1–3 are out (the 4th still being made).
+        let l = dash_live("https://h/m.mpd", mpd, "v", noon + 7.0).expect("live");
+        assert!(!l.ended);
+        assert_eq!(l.refresh, Some(2.0));
+        assert_eq!(l.track.first, 1);
+        let urls: Vec<_> = l.track.segments.iter().map(|s| s.url.as_str()).collect();
+        assert_eq!(
+            urls,
+            ["https://h/1.m4s", "https://h/2.m4s", "https://h/3.m4s"]
+        );
+        // A minute in: only the last 10 s are kept, 26–30.
+        let l = dash_live("https://h/m.mpd", mpd, "v", noon + 61.0).expect("live");
+        assert_eq!(l.track.first, 26);
+        assert_eq!(l.track.segments.len(), 5);
+        assert_eq!(l.track.segments[4].url, "https://h/30.m4s");
+        // Before the first segment is out: nothing yet, no error.
+        let l = dash_live("https://h/m.mpd", mpd, "v", noon + 1.0).expect("live");
+        assert!(l.track.segments.is_empty());
+        // Once the broadcast is over the manifest is static: everything, and it ended.
+        let over = mpd.replace(
+            r#"type="dynamic""#,
+            r#"type="static" mediaPresentationDuration="PT6S""#,
+        );
+        let l = dash_live("https://h/m.mpd", &over, "v", noon + 99.0).expect("static");
+        assert!(l.ended);
+        assert_eq!(l.track.segments.len(), 3);
+    }
+
+    #[test]
+    fn live_timeline_window() {
+        let mpd = r#"<MPD type="dynamic" availabilityStartTime="2026-10-31T12:00:00.500+00:00">
+            <Period><AdaptationSet>
+            <SegmentTemplate timescale="1000" startNumber="41" media="t$Time$.m4s">
+              <SegmentTimeline><S t="80000" d="2000" r="2"/></SegmentTimeline>
+            </SegmentTemplate><Representation id="v" bandwidth="1"/></AdaptationSet></Period></MPD>"#;
+        let l = dash_live("https://h/m.mpd", mpd, "v", 1_793_448_090.0).expect("live");
+        assert_eq!(l.track.first, 41);
+        let urls: Vec<_> = l.track.segments.iter().map(|s| s.url.as_str()).collect();
+        assert_eq!(
+            urls,
+            [
+                "https://h/t80000.m4s",
+                "https://h/t82000.m4s",
+                "https://h/t84000.m4s"
+            ]
+        );
+        // A live manifest without its start time cannot place `$Number$` segments.
+        let bad = r#"<MPD type="dynamic"><Period><AdaptationSet><SegmentTemplate duration="2" media="$Number$"/><Representation id="v" bandwidth="1"/></AdaptationSet></Period></MPD>"#;
+        assert!(dash_live("https://h/m.mpd", bad, "v", 0.0).is_err());
     }
 
     #[test]

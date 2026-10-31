@@ -114,6 +114,32 @@ async fn a_live_stream_is_recorded_until_it_ends() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_live_dash_stream_is_recorded_until_it_ends() {
+    let base = start_server().await;
+    let w = WorkDir::new("dash");
+    let m = w.manager().await;
+    let url = format!(
+        "{base}/dash/manifest.mpd?mode=number&live=1&seg_ms=200&window=8&end_after=6&seed=42&seg_size=32K&init_size=4K"
+    );
+    let mut new = recording(url, Recording::default());
+    if let Some(s) = new.stream.as_mut() {
+        s.dash = Some("v720".into());
+    }
+    let t = m.add(new).await.expect("add");
+    let done = wait_for(&m, t.id, 30, |t| {
+        t.status != Status::Downloading && t.status != Status::Queued
+    })
+    .await;
+    assert_eq!(done.status, Status::Done, "{:?}", done.error);
+    let path = done.path.expect("path");
+    assert_eq!(
+        verify_file(&path, track_seed(42, "v720"), 4096 + 6 * (32 << 10)).expect("verify"),
+        Verdict::Ok
+    );
+    m.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn stopping_a_recording_finishes_it() {
     let base = start_server().await;
     let w = WorkDir::new("stop");

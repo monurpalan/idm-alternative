@@ -47,7 +47,6 @@
 	const blocked = $derived.by(() => {
 		if (!info) return msg('Read the playlist first');
 		if (info.encryption === 'DRM') return msg('Protected streams cannot be downloaded');
-		if (info.live && info.format === 'dash') return msg('Live DASH streams cannot be recorded yet');
 		return null;
 	});
 

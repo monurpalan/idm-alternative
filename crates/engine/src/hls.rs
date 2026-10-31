@@ -786,11 +786,73 @@ const LIVE_READ_FAILURES: u32 = 5;
 /// How often a live playlist is read when it does not say (no target duration).
 const LIVE_REFRESH: Duration = Duration::from_secs(2);
 
-/// One track of a recording: its playlist, the file its segments are appended to, and the
+/// Where a live track's segments are listed.
+pub(crate) enum LiveSource {
+    /// An HLS media playlist.
+    Hls(String),
+    /// A representation of a DASH manifest.
+    Dash { manifest: String, rep: String },
+}
+
+/// What a live track offers when its list is read: the segments numbered from `first`.
+struct LiveView {
+    init: Option<Segment>,
+    first: u64,
+    segments: Vec<Segment>,
+    ended: bool,
+    /// Read again after this long, seconds, when the list says.
+    refresh: Option<f64>,
+}
+
+impl LiveSource {
+    async fn read(&self, http: &Http) -> Result<LiveView> {
+        match self {
+            Self::Hls(url) => {
+                let (text, url) = http.text(url, MAX_PLAYLIST).await?;
+                match parse_any(&url, &text)? {
+                    Playlist::Media(m) => Ok(LiveView {
+                        init: m.init,
+                        first: m.sequence,
+                        segments: m.segments,
+                        ended: m.ended,
+                        refresh: m.target,
+                    }),
+                    Playlist::Best { .. } => {
+                        Err(Error::State("a master playlist names another".into()))
+                    }
+                }
+            }
+            Self::Dash { manifest, rep } => {
+                let (text, url) = http.text(manifest, MAX_PLAYLIST).await?;
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs_f64();
+                let live = shardload_media::dash_live(&url, &text, rep, now)
+                    .map_err(|e| Error::State(e.0))?;
+                let segment = |p: shardload_media::Piece| Segment {
+                    url: p.url,
+                    range: p.range,
+                    key: None,
+                    duration: p.duration,
+                };
+                Ok(LiveView {
+                    init: live.track.init.map(segment),
+                    first: live.track.first,
+                    segments: live.track.segments.into_iter().map(segment).collect(),
+                    ended: live.ended,
+                    refresh: live.refresh,
+                })
+            }
+        }
+    }
+}
+
+/// One track of a recording: its list, the file its segments are appended to, and the
 /// next segment wanted.
 struct LiveTrack {
     name: &'static str,
-    url: String,
+    source: LiveSource,
     file: PathBuf,
     next: Option<u64>,
     /// Seconds recorded.
@@ -828,28 +890,37 @@ pub async fn record_hls(
             "this stream has separate audio: ffmpeg is needed to join it".into(),
         ));
     }
+    let mut sources = vec![LiveSource::Hls(video_url)];
+    sources.extend(audio_url.map(LiveSource::Hls));
+    record(req, sources, http, opts, progress, cancel, started).await
+}
+
+/// Records the live tracks (video, then audio) of `req` (see [`record_hls`]).
+pub(crate) async fn record(
+    req: &RecordRequest,
+    sources: Vec<LiveSource>,
+    http: Http,
+    opts: &Options,
+    progress: Option<&watch::Sender<Progress>>,
+    cancel: &CancellationToken,
+    started: Instant,
+) -> Result<Outcome> {
     let dir = sibling(&req.output, ".shardload-hls");
     // A recording cannot go on where it stopped: the stream has moved on.
     tokio::fs::remove_dir_all(&dir).await.ok();
     tokio::fs::create_dir_all(&dir).await?;
-    let mut tracks = vec![LiveTrack {
-        name: "video",
-        url: video_url,
-        file: dir.join("video.joined"),
-        next: None,
-        recorded: 0.0,
-        ended: false,
-    }];
-    if let Some(url) = audio_url {
-        tracks.push(LiveTrack {
-            name: "audio",
-            url,
-            file: dir.join("audio.joined"),
+    let mut tracks: Vec<LiveTrack> = sources
+        .into_iter()
+        .zip(["video", "audio"])
+        .map(|(source, name)| LiveTrack {
+            name,
+            source,
+            file: dir.join(format!("{name}.joined")),
             next: None,
             recorded: 0.0,
             ended: false,
-        });
-    }
+        })
+        .collect();
     let run = Run {
         http,
         dir: dir.clone(),
@@ -869,17 +940,10 @@ pub async fn record_hls(
     'record: loop {
         let mut wait = LIVE_REFRESH;
         for t in tracks.iter_mut().filter(|t| !t.ended) {
-            let media = match run.http.text(&t.url, MAX_PLAYLIST).await {
-                Ok((text, url)) => parse_any(&url, &text),
-                Err(e) => Err(e),
-            };
-            let media = match media {
-                Ok(Playlist::Media(m)) => {
+            let media = match t.source.read(&run.http).await {
+                Ok(m) => {
                     failures = 0;
                     m
-                }
-                Ok(Playlist::Best { .. }) => {
-                    return Err(Error::State("a master playlist names another".into()));
                 }
                 Err(e) => {
                     failures += 1;
@@ -897,10 +961,13 @@ pub async fn record_hls(
                     continue;
                 }
             };
-            if let Some(target) = media.target {
+            if let Some(target) = media.refresh.filter(|r| *r > 0.0) {
                 wait = wait.min(Duration::from_secs_f64(target));
             }
+            // The initialisation segment goes first, once there are media segments after it
+            // (a live DASH stream may have none out yet).
             if t.next.is_none()
+                && !media.segments.is_empty()
                 && let Some(init) = &media.init
                 && append(&run, init, &t.file, t.name).await.is_err()
             {
@@ -908,7 +975,7 @@ pub async fn record_hls(
                 break 'record;
             }
             for (i, seg) in media.segments.iter().enumerate() {
-                let seq = media.sequence + i as u64;
+                let seq = media.first + i as u64;
                 if t.next.is_some_and(|n| seq < n) {
                     continue;
                 }

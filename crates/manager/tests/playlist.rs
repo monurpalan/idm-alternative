@@ -217,9 +217,22 @@ async fn a_clip_of_a_youtube_video() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "network: a YouTube live stream; needs ffmpeg and ffprobe on PATH"]
 async fn a_youtube_live_stream_is_recorded_for_its_limit() {
+    // Lofi Girl's around-the-clock stream.
+    record_live_page("https://www.youtube.com/@LofiGirl/live", "yt").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "network: a Twitch live stream; needs ffmpeg and ffprobe on PATH"]
+async fn a_twitch_live_stream_is_recorded_for_its_limit() {
+    // Lofi Girl's around-the-clock stream on Twitch.
+    record_live_page("https://www.twitch.tv/lofigirl", "twitch").await;
+}
+
+/// Records 10 s of a live broadcast through yt-dlp and checks it is an MP4 of some seconds.
+async fn record_live_page(url: &str, tag: &str) {
     use shardload_manager::{Recording, Status, Stream};
     let ffmpeg = on_path("ffmpeg").expect("ffmpeg on PATH");
-    let dir = std::env::temp_dir().join(format!("shardload-yt-live-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("shardload-{tag}-live-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).expect("dir");
     let t = tools();
@@ -235,10 +248,9 @@ async fn a_youtube_live_stream_is_recorded_for_its_limit() {
     )
     .await
     .expect("open");
-    // Lofi Girl's around-the-clock stream.
     let task = m
         .add(NewTask {
-            url: "https://www.youtube.com/@LofiGirl/live".into(),
+            url: url.into(),
             name: Some("lofi.mp4".into()),
             start: true,
             stream: Some(Stream {
