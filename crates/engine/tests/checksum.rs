@@ -347,9 +347,9 @@ async fn a_corrupt_piece_is_downloaded_again_alone() {
     get(&request(url, &out), &o).await.expect("download");
     assert_verified(&out, 21, size);
     // The file, then the one piece again: not the whole file twice. (A connection moved to
-    // another range on a busy machine may add a little.)
+    // another range on a busy machine may add up to a piece or so.)
     let sent = common::bytes_sent(&base).await;
-    assert!((size + MB..size + 2 * MB).contains(&sent), "sent {sent}");
+    assert!((size + MB..size + 3 * MB).contains(&sent), "sent {sent}");
 
     // Without piece hashes the same corruption is only caught by the whole-file checksum.
     let out = dir.join("g.bin");

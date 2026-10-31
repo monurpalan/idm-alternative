@@ -307,16 +307,22 @@ async fn close_then_open_resumes() {
 async fn killed_manager_resumes_on_next_open() {
     let base = start_server().await;
     let w = WorkDir::new("killed");
-    // 4 connections at 1 MiB/s: about 4 s; killed after the first checkpoint (2 s).
+    // 4 connections at 1 MiB/s: about 4 s; killed after the first checkpoint (2 s), which
+    // a busy machine may write a little later.
     let size = 16 * MB;
     let url = format!("{base}/file/k.bin?size={size}&seed=5&rate=1M");
     let (db, config) = (w.db(), w.config(3));
+    let state = w.path().join("downloads/k.bin.shardload-state");
     let id = std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("runtime");
         let id = rt.block_on(async {
             let m = Manager::open(&db, config).await.expect("open");
             let task = m.add(new_task(url)).await.expect("add");
-            tokio::time::sleep(Duration::from_millis(2500)).await;
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+            while !state.exists() {
+                assert!(tokio::time::Instant::now() < deadline, "no checkpoint");
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
             assert_eq!(
                 m.get(task.id).await.expect("get").status,
                 Status::Downloading
