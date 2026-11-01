@@ -44,17 +44,19 @@ async fn killed_process_resumes() {
     let url = format!("{base}/file/f.bin?size={size}&seed=5&rate=1M");
 
     let mut child = shard(&url, &out).spawn().expect("spawn shard");
-    // Kill once a checkpoint has recorded 8 MiB, not after a fixed time: on a slow CI machine
-    // the first checkpoints can come late.
+    // Kill once a checkpoint has recorded 20 MiB, not after a fixed time: on a slow CI machine
+    // the first checkpoints can come late. Resuming after a kill downloads each part's last
+    // 2 s again (about 8 MiB here, see the engine's `State::load`), so it must be well past
+    // that.
     let deadline = std::time::Instant::now() + Duration::from_secs(60);
-    while saved(&state) < 8 * MB {
+    while saved(&state) < 20 * MB {
         assert!(
             child.try_wait().expect("try_wait").is_none(),
             "shard finished before it could be killed"
         );
         assert!(
             std::time::Instant::now() < deadline,
-            "no checkpoint of 8 MiB within 60 s"
+            "no checkpoint of 20 MiB within 60 s"
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
@@ -74,10 +76,11 @@ async fn killed_process_resumes() {
     assert!(!state.exists());
 
     // Starting over would fetch the whole file again. Resuming keeps what the last
-    // checkpoint recorded, at least the 8 MiB waited for above.
+    // checkpoint recorded (at least the 20 MiB waited for above), less each part's last
+    // seconds.
     let again = bytes_sent(&base).await - before;
     assert!(
-        again < size - 4 * MB,
+        again < size - 8 * MB,
         "fetched {} of {} MiB again",
         again / MB,
         size / MB
