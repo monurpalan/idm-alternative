@@ -23,6 +23,8 @@ tracing.workspace = true
 url = "2"
 httpdate = "1"
 fs4 = "1.1.0"
+aes-gcm = "0.10"
+getrandom = "0.3"
 
 [dev-dependencies]
 tracing-subscriber.workspace = true
@@ -36,6 +38,11 @@ sha2 = "0.11.1"
 
 [lints]
 workspace = true
+
+# Linux keeps the key that encrypts secrets in the Secret Service (GNOME Keyring, KWallet), over
+# the D-Bus library Tauri's tray already links.
+[target."cfg(target_os = \"linux\")".dependencies]
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 [target."cfg(windows)".dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
