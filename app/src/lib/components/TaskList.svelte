@@ -2,11 +2,13 @@
 	import { Button, Icon, Progress } from './ui/index.ts';
 	import type { Group, Task, TaskId } from '../api.ts';
 	import { downloads, row, type Row, type SortKey } from '../downloads.svelte.ts';
-	import { bytes, clock, duration, percent, speed } from '../format.ts';
+	import { bytes, clock, duration, percent, speed, timeLeft } from '../format.ts';
 	import { locale, msg, t } from '../i18n.svelte.ts';
 
 	/** Tooltip of a download whose file may not be what its name says. */
 	const warnedTitle = () => t('Not what its name says: open the details');
+	/** Time left as the column shows it. */
+	const leftText = (r: Row) => (r.calculating ? t('calculating') : timeLeft(r.left));
 
 	// Gets the tasks already filtered and in order; each row reads its own live progress, so a
 	// progress update re-renders only the rows of running downloads.
@@ -371,7 +373,7 @@
 						/>
 					</td>
 					<td class="numeric">{speed(r.speed)}</td>
-					<td class="numeric">{duration(r.eta)}</td>
+					<td class="numeric">{leftText(r)}</td>
 					<td class="status" title={r.task.error ?? ''}>
 						<span class="marker"></span>{statusText(r)}
 					</td>
@@ -414,8 +416,9 @@
 	.c-progress {
 		width: 160px;
 	}
+	/* Room for a range ("14–19 min") and for "calculating" in Turkish. */
 	.c-eta {
-		width: 88px;
+		width: 112px;
 	}
 	.c-status {
 		width: 144px;

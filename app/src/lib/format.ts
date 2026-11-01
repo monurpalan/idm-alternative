@@ -1,6 +1,6 @@
 // How numbers look in the list: binary units like the CLI, short durations.
 
-import { locale, t } from './i18n.svelte.ts';
+import { locale, msg, t } from './i18n.svelte.ts';
 
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
 
@@ -72,6 +72,7 @@ export function siteFacts(m: {
 	no_ranges: boolean;
 	browser: string | null;
 	link_lifetime: number | null;
+	speed?: number | null;
 }): string[] {
 	const facts: string[] = [];
 	if (m.max_connections !== null) facts.push(t('allows {n} connections', { n: m.max_connections }));
@@ -83,6 +84,7 @@ export function siteFacts(m: {
 				: t('serves only a plain client')
 		);
 	if (m.link_lifetime !== null) facts.push(t('links last about {time}', { time: duration(m.link_lifetime) }));
+	if (m.speed) facts.push(t('downloads at about {speed}', { speed: speed(m.speed) }));
 	return facts;
 }
 
@@ -112,3 +114,23 @@ export function clock(seconds: number): string {
 /** `SHA-256` for a checksum `sha256:<hex>` (or its algorithm alone). */
 export const algorithmName = (checksum: string): string =>
 	checksum.split(':')[0].toUpperCase().replace(/^SHA(\d)/, 'SHA-$1');
+
+/**
+ * Time left from `[soonest, latest]` seconds: one value when the two are close (`14 min`),
+ * otherwise a range in the unit of the latest (`14–19 min`). The same rule as the tray's
+ * (`i18n::time_left` in the app).
+ */
+export function timeLeft(left: [number, number] | null): string {
+	if (!left) return '';
+	const [soonest, latest] = left;
+	const mid = (soonest + latest) / 2;
+	if (latest - soonest <= Math.max(0.15 * mid, 5)) return duration(mid);
+	let a: number, b: number, key: string;
+	if (latest < 90) [a, b, key] = [Math.round(soonest), Math.round(latest), msg('{a}–{b} s')];
+	else if (latest < 90 * 60)
+		[a, b, key] = [Math.max(1, Math.round(soonest / 60)), Math.round(latest / 60), msg('{a}–{b} min')];
+	else [a, b, key] = [Math.round(soonest / 1800) / 2, Math.round(latest / 1800) / 2, msg('{a}–{b} h')];
+	if (a >= b) return duration(mid);
+	const num = (v: number) => v.toLocaleString(locale());
+	return t(key, { a: num(a), b: num(b) });
+}

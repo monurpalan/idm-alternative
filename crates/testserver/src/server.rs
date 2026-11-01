@@ -378,6 +378,7 @@ async fn serve_file(
         end,
         rate: rate.filter(|r| *r > 0),
         total_rate: sc.total_rate.map(|r| r.0).filter(|r| *r > 0),
+        wave: sc.wave.filter(|w| w.low.0 > 0 && w.high.0 > 0),
         stall_after: sc.stall_after.map(|s| s.0),
         drop_after: sc.drop_after.map(|s| s.0),
     };
@@ -518,6 +519,7 @@ struct BodyState {
     pos: u64,
     end: u64,
     rate: Option<u64>,
+    wave: Option<crate::scenario::Wave>,
     total_rate: Option<u64>,
     stall_after: Option<u64>,
     drop_after: Option<u64>,
@@ -549,7 +551,10 @@ impl BodyState {
                     len = len.min(limit - sent);
                 }
             }
-            for rate in [s.rate, s.total_rate].into_iter().flatten() {
+            for rate in [s.rate, s.total_rate, s.wave.map(|w| w.low.0)]
+                .into_iter()
+                .flatten()
+            {
                 // Small chunks keep throttled streams smooth (about 20 writes per second).
                 len = len.min((rate / 20).max(1024));
             }
@@ -571,6 +576,15 @@ impl BodyState {
                 let due =
                     s.guard.started + Duration::from_secs_f64(s.guard.sent as f64 / rate as f64);
                 tokio::time::sleep_until(due.into()).await;
+            }
+            if let Some(w) = s.wave {
+                let phase = s.guard.started.elapsed().as_millis() as u64 / w.period_ms;
+                let now = if phase.is_multiple_of(2) {
+                    w.low.0
+                } else {
+                    w.high.0
+                };
+                tokio::time::sleep(Duration::from_secs_f64(len as f64 / now as f64)).await;
             }
             if let Some(total) = s.total_rate {
                 // All connections draw from one budget: each chunk waits for its share.

@@ -245,3 +245,47 @@ async fn how_long_links_last_is_estimated() {
     }
     m.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sites_speed_is_remembered_and_starts_the_next_estimate() {
+    let base = start_server().await;
+    let w = WorkDir::new("speed");
+    let m = w.manager().await;
+    // About 2 MiB/s for three seconds.
+    download(
+        &m,
+        format!("{base}/file/s.bin?size={}&total_rate=2M&seed=1", 6 * MB),
+    )
+    .await;
+    let sites = m.sites().await.expect("sites");
+    let speed = sites[0].speed.expect("learned a speed");
+    assert!((1_500_000..2_600_000).contains(&speed), "{speed}");
+
+    // The next one estimates its time left from the start, from that speed.
+    let mut events = m.subscribe();
+    let t = m
+        .add(NewTask {
+            url: format!("{base}/file/t.bin?size={}&total_rate=2M&seed=2", 8 * MB),
+            start: true,
+            ..NewTask::default()
+        })
+        .await
+        .expect("add");
+    let mut first = None;
+    while first.is_none() {
+        if let Ok(Ok(shardload_manager::Event::Progress(p))) =
+            tokio::time::timeout(Duration::from_secs(10), events.recv()).await
+            && p.id == t.id
+        {
+            first = p.eta.map(|e| (e, p.received));
+        }
+    }
+    let ([soonest, latest], received) = first.expect("an estimate");
+    let truth = (8 * MB - received) as f64 / 2_097_152.0;
+    assert!(
+        soonest - 1.0 <= truth && truth <= latest + 1.0,
+        "{soonest}..{latest} for {truth}"
+    );
+    wait_end(&m, t.id).await;
+    m.close().await;
+}

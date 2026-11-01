@@ -17,7 +17,7 @@
 		type Task
 	} from '../api.ts';
 	import { downloads, HISTORY, moveToFolder, row } from '../downloads.svelte.ts';
-	import { algorithmName, bytes, date, duration, percent, siteFacts, speed } from '../format.ts';
+	import { algorithmName, bytes, date, duration, percent, siteFacts, speed, timeLeft } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
 
 	let {
@@ -254,7 +254,7 @@
 					: ''}
 			</dd>
 			<dt>{t('Speed')}</dt>
-			<dd class="num">{speed(r.speed) || '–'}{r.eta !== null ? ` · ${t('{time} left', { time: duration(r.eta) })}` : ''}</dd>
+			<dd class="num">{speed(r.speed) || '–'}{r.left ? ` · ${t('{time} left', { time: timeLeft(r.left) })}` : r.calculating ? ` · ${t('calculating')}` : ''}</dd>
 			{#if learned}
 				<dt>{t('Site')}</dt>
 				<dd title={site?.site}>{t('This site {facts} (learned)', { facts: learned })}</dd>

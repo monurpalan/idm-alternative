@@ -432,18 +432,20 @@ impl Db {
 
     pub(crate) async fn save_site(&self, m: &SiteMemory) -> Result<()> {
         sqlx::query(
-            "INSERT INTO sites (site, max_connections, no_ranges, browser, link_lifetime, seen_at)
-             VALUES (?, ?, ?, ?, ?, ?)
+            "INSERT INTO sites (site, max_connections, no_ranges, browser, link_lifetime, speed,
+                                seen_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (site) DO UPDATE SET
                  max_connections = excluded.max_connections, no_ranges = excluded.no_ranges,
                  browser = excluded.browser, link_lifetime = excluded.link_lifetime,
-                 seen_at = excluded.seen_at",
+                 speed = excluded.speed, seen_at = excluded.seen_at",
         )
         .bind(&m.site)
         .bind(m.max_connections.map(|v| v as i64))
         .bind(m.no_ranges)
         .bind(&m.browser)
         .bind(m.link_lifetime.map(|v| v as i64))
+        .bind(m.speed.map(|v| v as i64))
         .bind(m.seen_at)
         .execute(&self.pool)
         .await?;
@@ -735,6 +737,7 @@ fn site_memory(r: &SqliteRow) -> Result<SiteMemory> {
         link_lifetime: r
             .try_get::<Option<i64>, _>("link_lifetime")?
             .map(|v| v as u64),
+        speed: r.try_get::<Option<i64>, _>("speed")?.map(|v| v as u64),
         seen_at: r.try_get("seen_at")?,
     })
 }

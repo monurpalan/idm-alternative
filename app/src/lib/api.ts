@@ -85,6 +85,8 @@ export interface TaskProgress {
 	checksum_from: string | null;
 	/** While recording a live stream: seconds recorded. */
 	recorded: number;
+	/** Seconds left, `[soonest, latest]`; null while calculating. */
+	eta: [number, number] | null;
 	/** `[start, end, received, active]` per segment. */
 	segments: [number, number, number, boolean][];
 }
@@ -234,6 +236,8 @@ export interface SiteMemory {
 	browser: string | null;
 	/** Seconds its links worked before expiring. */
 	link_lifetime: number | null;
+	/** How fast its downloads went, bytes per second. */
+	speed: number | null;
 	seen_at: number;
 }
 

@@ -30,6 +30,31 @@ impl<'de> Deserialize<'de> for Size {
     }
 }
 
+/// A speed that jumps between two rates: `low:high:period_ms`, e.g. `512K:2M:1500`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Wave {
+    pub low: Size,
+    pub high: Size,
+    pub period_ms: u64,
+}
+
+impl<'de> Deserialize<'de> for Wave {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        let parts: Vec<&str> = s.split(':').collect();
+        let [low, high, period] = parts.as_slice() else {
+            return Err(de::Error::custom(
+                "wave must be `low:high:period_ms`, e.g. `512K:2M:1500`",
+            ));
+        };
+        Ok(Wave {
+            low: low.parse().map_err(de::Error::custom)?,
+            high: high.parse().map_err(de::Error::custom)?,
+            period_ms: period.parse::<u64>().map_err(de::Error::custom)?.max(1),
+        })
+    }
+}
+
 /// One slowed connection: the `n`-th GET to this URL is served at `rate` bytes/s.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SlowConn {
@@ -86,6 +111,8 @@ pub struct Scenario {
     pub range_as_200: bool,
     /// Per-connection rate limit in bytes/s.
     pub rate: Option<Size>,
+    /// Each connection's speed jumps between two rates, like a busy or wireless line.
+    pub wave: Option<Wave>,
     /// Rate limit in bytes/s for all connections to the URL together, like a server that
     /// limits each client (IP) rather than each connection: more connections do not help.
     pub total_rate: Option<Size>,
@@ -147,6 +174,7 @@ impl Default for Scenario {
             ranges: true,
             range_as_200: false,
             rate: None,
+            wave: None,
             total_rate: None,
             slow_conn: None,
             stall_after: None,

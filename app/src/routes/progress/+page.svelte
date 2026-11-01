@@ -6,7 +6,7 @@
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { openFile, pauseTasks, showInFolder, startTasks, type TaskId } from '#lib/api.ts';
 	import { downloads, row } from '#lib/downloads.svelte.ts';
-	import { bytes, duration, percent, speed } from '#lib/format.ts';
+	import { bytes, duration, percent, speed, timeLeft } from '#lib/format.ts';
 	import { msg, t } from '#lib/i18n.svelte.ts';
 	import { Button, Progress, Text } from '#lib/components/ui/index.ts';
 
@@ -83,7 +83,7 @@
 				<dt>{t('Speed')}</dt>
 				<dd>{speed(r.speed)}</dd>
 				<dt>{t('Time left')}</dt>
-				<dd>{duration(r.eta)}</dd>
+				<dd>{r.calculating ? t('calculating') : timeLeft(r.left)}</dd>
 			{/if}
 		</dl>
 

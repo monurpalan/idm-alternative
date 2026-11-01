@@ -6,6 +6,10 @@ export default {
 	'{s} s': '{s} sn',
 	'{m} min {s} s': '{m} dk {s} sn',
 	'{m} min': '{m} dk',
+	'{a}–{b} s': '{a}–{b} sn',
+	'{a}–{b} min': '{a}–{b} dk',
+	'{a}–{b} h': '{a}–{b} sa',
+	calculating: 'hesaplanıyor',
 	'{h} h {m} min': '{h} sa {m} dk',
 	'{d} days': '{d} gün',
 	'All downloads': 'Tüm indirmeler',
@@ -38,5 +42,6 @@ export default {
 	'sends whole files only': 'yalnız dosyanın tamamını gönderiyor',
 	'serves only as {browser}': 'yalnız {browser} kimliğine hizmet veriyor',
 	'serves only a plain client': 'yalnız düz istemciye hizmet veriyor',
-	'links last about {time}': 'bağlantıları yaklaşık {time} geçerli'
+	'links last about {time}': 'bağlantıları yaklaşık {time} geçerli',
+	'downloads at about {speed}': 'yaklaşık {speed} hızla iner'
 } satisfies Record<string, string>;

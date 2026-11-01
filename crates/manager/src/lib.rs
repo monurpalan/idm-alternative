@@ -14,6 +14,7 @@ pub mod batch;
 pub mod clip;
 pub mod command;
 mod db;
+pub mod eta;
 pub mod folder;
 pub mod grabber;
 pub mod origin;
@@ -34,7 +35,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use shardload_engine::{
-    CancellationToken, Checksum, Conflict, Limiter, Options, Outcome, Progress,
+    CancellationToken, Checksum, Conflict, Limiter, Options, Outcome, Phase, Progress,
 };
 use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
@@ -1800,7 +1801,13 @@ impl Inner {
         let is_dash = stream.dash.is_some();
         let video_path = path.clone();
         let (tx, rx) = watch::channel(Progress::default());
-        let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
+        let reporter = tokio::spawn(report(
+            task.id,
+            rx,
+            self.events.clone(),
+            self.db.clone(),
+            None,
+        ));
         if let Some(record) = &stream.record {
             let limit = record.limit.map(Duration::from_secs);
             if let Some(video) = stream.dash {
@@ -1959,7 +1966,13 @@ impl Inner {
             }
         };
         let (tx, rx) = watch::channel(Progress::default());
-        let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
+        let reporter = tokio::spawn(report(
+            task.id,
+            rx,
+            self.events.clone(),
+            self.db.clone(),
+            None,
+        ));
         let result = zip
             .extract(&chosen, &folder, false, Some(&tx), cancel)
             .await;
@@ -2073,7 +2086,13 @@ impl Inner {
         };
         self.torrents.set_limit(self.global.rate());
         let (tx, rx) = watch::channel(Progress::default());
-        let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
+        let reporter = tokio::spawn(report(
+            task.id,
+            rx,
+            self.events.clone(),
+            self.db.clone(),
+            None,
+        ));
         let result = self
             .torrents
             .download(&task.url, &folder, choice.files, limit, &tx, cancel)
@@ -2138,7 +2157,13 @@ impl Inner {
         };
         let stem = path.with_extension("");
         let (tx, rx) = watch::channel(Progress::default());
-        let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
+        let reporter = tokio::spawn(report(
+            task.id,
+            rx,
+            self.events.clone(),
+            self.db.clone(),
+            None,
+        ));
         let clip = task.stream.as_ref().and_then(|s| s.clip);
         let record = task.stream.as_ref().and_then(|s| s.record.clone());
         // A recording ends at its limit like the user stopping it.
@@ -2268,6 +2293,7 @@ impl Inner {
                     verified: 0,
                     checksum_from: None,
                     recorded: 0.0,
+                    eta: None,
                     segments: Vec::new(),
                 }));
                 tokio::time::sleep(PROGRESS_EVERY).await;
@@ -2554,7 +2580,14 @@ impl Inner {
             mirrors: task.mirrors.clone(),
         };
         let (tx, rx) = watch::channel(Progress::default());
-        let reporter = tokio::spawn(report(task.id, rx, self.events.clone(), self.db.clone()));
+        let prior = memory.as_ref().and_then(|m| m.speed).map(|s| s as f64);
+        let reporter = tokio::spawn(report(
+            task.id,
+            rx,
+            self.events.clone(),
+            self.db.clone(),
+            prior,
+        ));
         let result = shardload_engine::download(&req, &opts, Some(&tx), cancel).await;
         drop(tx);
         reporter.await.ok();
@@ -2566,6 +2599,9 @@ impl Inner {
                 ..SiteMemory::default()
             });
             m.learn(&learned, tried, task.connections, result.is_ok());
+            if let Ok(o) = &result {
+                m.moved(o.size - o.resumed_from, o.elapsed.as_secs_f64());
+            }
             // A link that worked and then stopped: how long it lasted.
             if matches!(result, Err(shardload_engine::Error::LinkExpired(_)))
                 && (started_before || learned.peak_connections > 0)
@@ -2606,9 +2642,12 @@ async fn report(
     mut rx: watch::Receiver<Progress>,
     events: broadcast::Sender<Event>,
     db: Db,
+    prior: Option<f64>,
 ) {
     let mut tick = tokio::time::interval(PROGRESS_EVERY);
     let mut saved = Instant::now();
+    let started = Instant::now();
+    let mut eta = eta::Estimator::new(prior);
     loop {
         tick.tick().await;
         match rx.has_changed() {
@@ -2626,6 +2665,13 @@ async fn report(
             Ok(true) => {}
         }
         let p = rx.borrow_and_update().clone();
+        let left = match (p.phase, p.size) {
+            (Phase::Downloading, Some(size)) => {
+                eta.update(started.elapsed().as_secs_f64(), p.received);
+                eta.eta(size.saturating_sub(p.received))
+            }
+            _ => None,
+        };
         if saved.elapsed() >= SAVE_EVERY {
             saved = Instant::now();
             if let Err(e) = db.set_received(id, p.received, p.size).await {
@@ -2642,6 +2688,7 @@ async fn report(
             verified: p.verified,
             checksum_from: p.checksum_from,
             recorded: p.recorded,
+            eta: left.map(|(soonest, latest)| [soonest, latest]),
             segments: p.segments,
         }));
     }

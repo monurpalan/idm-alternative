@@ -50,8 +50,12 @@ export interface Row {
 	/** 0..1, or null when the size is unknown. */
 	fraction: number | null;
 	speed: number;
-	/** Seconds, or null. */
+	/** Seconds left, the middle of `left` (for sorting), or null. */
 	eta: number | null;
+	/** Seconds left, `[soonest, latest]`, or null. */
+	left: [number, number] | null;
+	/** Running, size known, and too early to tell how long it takes. */
+	calculating: boolean;
 	live: TaskProgress | undefined;
 }
 
@@ -82,6 +86,8 @@ export function row(task: Task, live: TaskProgress | undefined): Row {
 	const size = live?.size ?? task.size;
 	const received = task.status === 'done' ? (size ?? task.received) : (live?.received ?? task.received);
 	const speed = task.status === 'downloading' ? (live?.speed ?? 0) : 0;
+	// The manager's estimate: the same in the list, the progress window, the tray and MCP.
+	const left = task.status === 'downloading' && live?.eta ? live.eta : null;
 	return {
 		task,
 		name: task.name ?? nameFromUrl(task.url),
@@ -89,7 +95,9 @@ export function row(task: Task, live: TaskProgress | undefined): Row {
 		received,
 		fraction: size ? Math.min(1, received / size) : task.status === 'done' ? 1 : null,
 		speed,
-		eta: size && speed > 0 ? (size - received) / speed : null,
+		eta: left ? (left[0] + left[1]) / 2 : null,
+		left,
+		calculating: !left && !!size && task.status === 'downloading' && live?.phase === 'downloading',
 		live
 	};
 }

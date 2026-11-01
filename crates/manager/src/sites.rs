@@ -27,6 +27,8 @@ pub struct SiteMemory {
     pub browser: Option<String>,
     /// How long a link from it worked before it expired, the shortest seen.
     pub link_lifetime: Option<u64>,
+    /// How fast its downloads went, bytes per second, averaged over the recent ones.
+    pub speed: Option<u64>,
     /// Unix milliseconds.
     pub seen_at: i64,
 }
@@ -37,6 +39,17 @@ impl SiteMemory {
             && !self.no_ranges
             && self.browser.is_none()
             && self.link_lifetime.is_none()
+            && self.speed.is_none()
+    }
+
+    /// A download from the site moved `bytes` in `secs`. Short ones say little about the
+    /// site's speed and are left out.
+    pub fn moved(&mut self, bytes: u64, secs: f64) {
+        if bytes < 1 << 20 || secs < 1.0 {
+            return;
+        }
+        let speed = (bytes as f64 / secs) as u64;
+        self.speed = Some(self.speed.map_or(speed, |s| (s + speed) / 2));
     }
 
     /// Download options for this site: at most one connection more than it allowed, one

@@ -46,9 +46,9 @@ struct App {
     when_done: Mutex<schedule::Armed>,
     /// Events waiting for the page, which is closed while the app sits in the tray.
     page: Mutex<Page>,
-    /// Latest bytes received and speed of each running download, for local tools asking
-    /// over the bridge (the page gets the same through events).
-    live: Mutex<HashMap<TaskId, (u64, f64)>>,
+    /// Latest bytes received, speed and time left of each running download, for local tools
+    /// asking over the bridge and the tray (the page gets the same through events).
+    live: Mutex<HashMap<TaskId, Live>>,
     /// Listening to the clipboard while the setting is on.
     #[cfg(windows)]
     clipboard: Mutex<Option<clipboard::Watcher>>,
@@ -1577,11 +1577,16 @@ async fn forward_events(handle: AppHandle, mut events: broadcast::Receiver<Event
     let mut statuses: HashMap<TaskId, Status> = HashMap::new();
     let mut tick = tokio::time::interval(PROGRESS_EVERY);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut ticks: u64 = 0;
+    let mut shown_tip = String::from("Shardload");
     loop {
         tokio::select! {
             e = events.recv() => match e {
                 Ok(Event::Progress(p)) => {
-                    lock(&handle.state::<App>().live).insert(p.id, (p.received, p.speed));
+                    lock(&handle.state::<App>().live).insert(
+                        p.id,
+                        Live { received: p.received, speed: p.speed, eta: p.eta },
+                    );
                     pending.insert(p.id, p);
                 }
                 Ok(e) => {
@@ -1625,6 +1630,15 @@ async fn forward_events(handle: AppHandle, mut events: broadcast::Receiver<Event
                 if !pending.is_empty() {
                     let batch: Vec<TaskProgress> = pending.drain().map(|(_, p)| p).collect();
                     handle.emit("manager-progress", &batch).ok();
+                }
+                // About once a second is enough for a tooltip.
+                ticks += 1;
+                if ticks.is_multiple_of(4) && let Some(tray) = handle.tray_by_id("main") {
+                    let tip = tray_tooltip(&handle);
+                    if tip != shown_tip {
+                        tray.set_tooltip(Some(&tip)).ok();
+                        shown_tip = tip;
+                    }
                 }
             }
         }
@@ -2416,8 +2430,9 @@ where
 
 /// A download as local tools see it: no request headers, which may hold the browser's
 /// cookies.
-fn task_view(t: &Task, live: Option<&(u64, f64)>) -> serde_json::Value {
-    let (received, speed) = live.copied().unwrap_or((t.received, 0.0));
+fn task_view(t: &Task, live: Option<&Live>) -> serde_json::Value {
+    let (received, speed, eta) =
+        live.map_or((t.received, 0.0, None), |l| (l.received, l.speed, l.eta));
     serde_json::json!({
         "id": t.id,
         "url": t.url,
@@ -2437,7 +2452,46 @@ fn task_view(t: &Task, live: Option<&(u64, f64)>) -> serde_json::Value {
         "group_id": t.group_id,
         "content": t.content,
         "warning": t.warning,
+        "eta_seconds": eta.map(|[soonest, latest]| [soonest.round(), latest.round()]),
     })
+}
+
+/// A running download as last reported.
+#[derive(Debug, Clone, Copy)]
+struct Live {
+    received: u64,
+    speed: f64,
+    /// Seconds left, `[soonest, latest]`; `None` while calculating.
+    eta: Option<[f64; 2]>,
+}
+
+/// The tray's tooltip: how many are downloading and when they will all be done.
+fn tray_tooltip(handle: &AppHandle) -> String {
+    let live: Vec<Live> = lock(&handle.state::<App>().live)
+        .values()
+        .copied()
+        .collect();
+    if live.is_empty() {
+        return "Shardload".into();
+    }
+    let lang = lang(handle);
+    let n = live.len().to_string();
+    // They run side by side: all are done when the last one is.
+    let last = live
+        .iter()
+        .filter_map(|l| l.eta)
+        .fold(None, |acc: Option<[f64; 2]>, [a, b]| {
+            Some(acc.map_or([a, b], |[x, y]| [x.max(a), y.max(b)]))
+        });
+    let line = match last {
+        Some([a, b]) => i18n::t(
+            lang,
+            "{n} downloading, {time} left",
+            &[("n", &n), ("time", &i18n::time_left(lang, a, b))],
+        ),
+        None => i18n::t(lang, "{n} downloading", &[("n", &n)]),
+    };
+    format!("Shardload\n{line}")
 }
 
 /// Passed when Windows starts the app at sign-in: stay in the tray.

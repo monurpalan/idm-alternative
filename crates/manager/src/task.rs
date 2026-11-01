@@ -432,6 +432,8 @@ pub struct TaskProgress {
     pub checksum_from: Option<String>,
     /// While recording a live stream: seconds recorded.
     pub recorded: f64,
+    /// Seconds left, `[soonest, latest]` (see [`crate::eta`]); `None` while calculating.
+    pub eta: Option<[f64; 2]>,
     #[serde(serialize_with = "segments")]
     pub segments: Vec<SegmentView>,
 }
