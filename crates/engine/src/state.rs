@@ -1,7 +1,11 @@
 //! The per-download state file that makes resume possible.
 //!
-//! It is only ever written after the data it describes has been flushed to disk, so after a
-//! crash or power loss it may lag behind the file, but never claims bytes that are missing.
+//! Checkpoints save positions captured before the state is written, without flushing the
+//! data file (ADR 0002): bytes handed to the OS survive the process crashing or being killed,
+//! so then the state never claims missing bytes. After an OS crash or power loss it may claim
+//! the last few seconds of bytes that never reached the disk. Only stopping early (pause,
+//! cancel, an error) flushes the data first. The state file itself is always on the disk
+//! before it replaces the previous one.
 
 use std::path::{Path, PathBuf};
 
@@ -45,14 +49,24 @@ impl State {
         consistent.then_some(state)
     }
 
-    /// Writes atomically: a crash leaves either the old or the new file, never half of one.
+    /// Writes atomically and durably: the new file is on the disk before it replaces the old
+    /// one, so a crash or a power loss leaves either the old or the new file, never half of
+    /// one. A few KB: the flush costs nothing worth measuring (unlike the data file's).
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        use std::io::Write;
         let tmp = sibling(path, ".tmp");
-        std::fs::write(
-            &tmp,
-            serde_json::to_vec(self).map_err(std::io::Error::other)?,
-        )?;
-        std::fs::rename(&tmp, path)
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(&serde_json::to_vec(self).map_err(std::io::Error::other)?)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp, path)?;
+        // The rename itself is in the folder: on Unix it is made durable by syncing the
+        // folder. Windows has no such call for folders; NTFS journals the rename.
+        #[cfg(unix)]
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::File::open(dir)?.sync_all()?;
+        }
+        Ok(())
     }
 }
 
@@ -61,4 +75,35 @@ pub fn sibling(path: &Path, suffix: &str) -> PathBuf {
     let mut s = path.as_os_str().to_owned();
     s.push(suffix);
     PathBuf::from(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state(written: u64) -> State {
+        State::new(
+            "https://e.x/f",
+            100,
+            Validators::default(),
+            vec![SavedSegment {
+                start: 0,
+                written,
+                end: 100,
+            }],
+        )
+    }
+
+    #[test]
+    fn saved_states_replace_each_other_whole() {
+        let dir = std::env::temp_dir().join(format!("shardload-state-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("f.shardload-state");
+        state(10).save(&path).expect("save");
+        assert_eq!(State::load(&path).expect("load").segments[0].written, 10);
+        state(60).save(&path).expect("save again");
+        assert_eq!(State::load(&path).expect("load").segments[0].written, 60);
+        assert!(!sibling(&path, ".tmp").exists(), "no temporary file left");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
