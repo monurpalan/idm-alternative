@@ -301,6 +301,51 @@ pub struct Task {
     /// When `url` was given (Unix ms): `added_at`, or when the link was last refreshed.
     #[serde(skip)]
     pub link_at: i64,
+    /// What the finished file's first bytes say it is, e.g. `program:exe` (see
+    /// [`shardload_engine::sniff::Content::label`]).
+    pub content: Option<String>,
+    /// Its name and its content disagree, or its name alone looks like a trick.
+    pub warning: Option<Warning>,
+    /// The file name was given (by the user or the browser) rather than taken from the
+    /// server: it is never changed for a better one.
+    #[serde(skip)]
+    pub name_given: bool,
+    /// The title of the page the download came from.
+    #[serde(skip)]
+    pub page_title: Option<String>,
+}
+
+/// A finished file that may not be what it says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Warning {
+    /// `disguised`: a program named like a document or media; `webpage`: a web page saved
+    /// where the name promised a file.
+    #[serde(serialize_with = "finding_name")]
+    pub kind: shardload_engine::sniff::Finding,
+    /// `content` when the file's bytes said so, `name` when only its name does.
+    pub by: &'static str,
+}
+
+impl Warning {
+    /// What `name` and the stored content label say together.
+    pub(crate) fn of(name: &str, content: Option<&str>) -> Option<Self> {
+        use shardload_engine::sniff;
+        let content = content.and_then(sniff::Content::parse);
+        let kind = sniff::check(name, content)?;
+        let by = if sniff::check(name, None) == Some(kind) {
+            "name"
+        } else {
+            "content"
+        };
+        Some(Self { kind, by })
+    }
+}
+
+fn finding_name<S: serde::Serializer>(
+    f: &shardload_engine::sniff::Finding,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    s.serialize_str(f.as_str())
 }
 
 /// Downloads added together: a playlist, a channel, a batch, the files of a site.
@@ -357,6 +402,9 @@ pub struct NewTask {
     /// A `.torrent` of the same file (a link or a path on disk): its piece hashes check the
     /// download, so a corrupt piece is downloaded again alone. Single-file torrents only.
     pub pieces_from: Option<String>,
+    /// The title of the page the link was on: names a file whose name says nothing
+    /// (`download.php`).
+    pub title: Option<String>,
 }
 
 /// Live progress of a running download, sent about four times a second.

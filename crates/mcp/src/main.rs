@@ -210,7 +210,7 @@ impl Downloads {
     }
 
     #[tool(
-        description = "List the downloads in Shardload with id, url, file name, path, status (queued, downloading, paused, done, error), error (for a finished download a note, e.g. saved at a lower quality), size and received bytes, speed in bytes per second, place in the queue (queue_pos, lower starts first), own speed limit, and group_id for downloads added together (a playlist, a batch)."
+        description = "List the downloads in Shardload with id, url, file name, path, status (queued, downloading, paused, done, error), error (for a finished download a note, e.g. saved at a lower quality), size and received bytes, speed in bytes per second, place in the queue (queue_pos, lower starts first), own speed limit, group_id for downloads added together (a playlist, a batch), content (what a finished file's first bytes say it is, e.g. program:exe, document:pdf, html) and warning (kind disguised: a program named like a document or media; kind webpage: the server sent a web page where the name promised a file, and the download failed; by: name or content)."
     )]
     async fn list_downloads(&self) -> Result<CallToolResult, ErrorData> {
         self.ask(Request::Tasks).await

@@ -43,7 +43,7 @@ pub use secret::{open_setting, seal_setting};
 pub use sites::SiteMemory;
 pub use task::{
     ArchiveChoice, Category, ErrorKind, Group, HistoryEntry, NewTask, Recording, Status, Stream,
-    Subtitle, Task, TaskId, TaskProgress, TorrentChoice,
+    Subtitle, Task, TaskId, TaskProgress, TorrentChoice, Warning,
 };
 pub use torrent::{TorrentConfig, TorrentFile, TorrentInfo};
 
@@ -689,6 +689,7 @@ impl Manager {
                 mirrors: &new.mirrors,
                 group: new.group,
                 pieces: new.pieces.as_ref(),
+                page_title: new.title.as_deref(),
             })
             .await?;
         let task = self.get(id).await?;
@@ -1555,8 +1556,19 @@ impl Inner {
                 tracing::info!(id, "trying the saved login");
                 self.db.set_status(id, Status::Queued, None).await
             }
-            (Ok(outcome), _) => {
+            (Ok(outcome), _) => 'done: {
                 lock(&self.retries).remove(&id);
+                match self.inspect(id).await {
+                    Ok(None) => {}
+                    Ok(Some(page)) => {
+                        tracing::warn!(id, "the server sent a web page instead of the file");
+                        break 'done self
+                            .db
+                            .fail_from_start(id, &page, Some(ErrorKind::Expired))
+                            .await;
+                    }
+                    Err(e) => tracing::warn!(id, "could not check what the file is: {e}"),
+                }
                 let finished = match self.db.finish(id, outcome.size, now_ms()).await {
                     Ok(()) if note.is_some() => {
                         self.db.set_status(id, Status::Done, note.as_deref()).await
@@ -1625,6 +1637,75 @@ impl Inner {
         if let Err(e) = self.fill().await {
             tracing::error!("could not start queued downloads: {e}");
         }
+    }
+
+    /// Reads the start of a finished file and keeps what it is. A name that says nothing
+    /// (`download.php`), chosen from the server's answer, gets the extension of what the file
+    /// is (and the page's title when its stem says nothing either). A web page where the name
+    /// promised a file is deleted and its message returned: the link led to a sign-in page or
+    /// an error, not to the file.
+    async fn inspect(&self, id: TaskId) -> Result<Option<String>> {
+        use shardload_engine::sniff;
+        let Some(task) = self.db.get(id).await? else {
+            return Ok(None);
+        };
+        // Files this reads: a plain download's, not a stream's or a torrent's.
+        let (Some(path), Some(name), None) = (&task.path, &task.name, &task.stream) else {
+            return Ok(None);
+        };
+        if torrent::is_torrent(&task.url) || !path.is_file() {
+            return Ok(None);
+        }
+        let head = {
+            let path = path.clone();
+            tokio::task::spawn_blocking(move || sniff::read_head(&path))
+                .await
+                .map_err(|e| shardload_engine::Error::from(std::io::Error::other(e)))?
+                .map_err(shardload_engine::Error::from)?
+        };
+        let content = sniff::sniff(&head);
+        self.db
+            .set_content(id, content.map(sniff::Content::label).as_deref())
+            .await?;
+        if sniff::check(name, content) == Some(sniff::Finding::WebPage) {
+            delete_files_of(path);
+            return Ok(Some(format!(
+                "the server sent a web page, not {name}: often a sign-in page or a link that \
+                 expired; get a fresh link from the site"
+            )));
+        }
+        if task.name_given {
+            return Ok(None);
+        }
+        let Some(better) = sniff::better_name(name, content, task.page_title.as_deref()) else {
+            return Ok(None);
+        };
+        let _one_at_a_time = self.naming.lock().await;
+        let taken: HashSet<PathBuf> = self.db.paths_except(id).await?.into_iter().collect();
+        let to = shardload_engine::target_avoiding(&task.dir, &better, "", Conflict::Rename, |p| {
+            taken.contains(p)
+        });
+        if let Err(e) = std::fs::rename(path, &to) {
+            tracing::warn!(
+                id,
+                "could not rename {} to {}: {e}",
+                path.display(),
+                to.display()
+            );
+            return Ok(None);
+        }
+        let new_name = file_name(&to);
+        tracing::info!(id, "named {name} by its content: {new_name}");
+        self.db
+            .set_place(
+                id,
+                &task.dir,
+                Some(&new_name),
+                Some(&to),
+                Category::for_name(&new_name),
+            )
+            .await?;
+        Ok(None)
     }
 
     /// A stream (HLS or DASH): the name comes from the page title (or the playlist URL) with

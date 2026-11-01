@@ -31,6 +31,49 @@ pub fn fill(seed: u64, offset: u64, buf: &mut [u8]) {
     }
 }
 
+/// The first bytes of a file of `kind`, laid over the seeded content so a download can be
+/// told apart by what it is: a program, a document, a web page. `None` for an unknown kind.
+pub fn magic(kind: &str) -> Option<Vec<u8>> {
+    Some(match kind {
+        "exe" => {
+            let mut b = vec![0u8; 0x84];
+            b[..2].copy_from_slice(b"MZ");
+            b[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+            b[0x80..].copy_from_slice(b"PE\0\0");
+            b
+        }
+        "pdf" => b"%PDF-1.7\n".to_vec(),
+        "html" => b"<!DOCTYPE html>\n<html><head><title>Sign in</title></head><body>".to_vec(),
+        "zip" => {
+            let mut b = b"PK\x03\x04".to_vec();
+            b.resize(26, 0);
+            b.extend_from_slice(b"\x0a\0\0\0readme.txt");
+            b
+        }
+        "docx" => {
+            let mut b = b"PK\x03\x04".to_vec();
+            b.resize(26, 0);
+            b.extend_from_slice(b"\x13\0\0\0[Content_Types].xmlPK\x03\x04word/document.xml");
+            b
+        }
+        "png" => b"\x89PNG\r\n\x1A\n".to_vec(),
+        "mp4" => b"\0\0\0\x20ftypisom".to_vec(),
+        "sh" => b"#!/bin/sh\n".to_vec(),
+        _ => return None,
+    })
+}
+
+/// [`fill`], with the file starting as `magic` (see [`magic`]).
+pub fn fill_with(seed: u64, magic: &[u8], offset: u64, buf: &mut [u8]) {
+    fill(seed, offset, buf);
+    for (i, b) in buf.iter_mut().enumerate() {
+        match magic.get((offset + i as u64) as usize) {
+            Some(m) => *b = *m,
+            None => break,
+        }
+    }
+}
+
 /// Returns the offset of the first byte in `data` that differs from the expected
 /// content starting at `offset`, if any.
 pub fn first_mismatch(seed: u64, offset: u64, data: &[u8]) -> Option<u64> {

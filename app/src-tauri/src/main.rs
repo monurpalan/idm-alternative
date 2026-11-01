@@ -209,6 +209,9 @@ struct AddRequest {
     /// A batch: leave out the files downloaded before or on the list.
     #[serde(default)]
     skip_known: bool,
+    /// The title of the page the link came from.
+    #[serde(default)]
+    title: Option<String>,
     /// One of a group added together.
     #[serde(default)]
     group: Option<i64>,
@@ -382,6 +385,7 @@ async fn add_task(app: State<'_, App>, request: AddRequest) -> CmdResult<Task> {
             stream: request.stream,
             mirrors: clean_mirrors(request.mirrors),
             group: request.group,
+            title: request.title,
             ..NewTask::default()
         })
         .await
@@ -1795,6 +1799,7 @@ async fn bridge_reply(
                     "url": capture.url,
                     "filename": capture.filename,
                     "size": capture.size,
+                    "title": capture.title,
                     "headers": capture.request_headers(),
                 }),
                 true,
@@ -2403,6 +2408,8 @@ fn task_view(t: &Task, live: Option<&(u64, f64)>) -> serde_json::Value {
         "checksum": t.checksum,
         "checksum_from": t.checksum_from,
         "group_id": t.group_id,
+        "content": t.content,
+        "warning": t.warning,
     })
 }
 

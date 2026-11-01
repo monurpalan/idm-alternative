@@ -309,7 +309,10 @@ async fn serve_file(
     let mut resp_headers = HeaderMap::new();
     resp_headers.insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_static("application/octet-stream"),
+        sc.ctype
+            .as_deref()
+            .and_then(|c| HeaderValue::from_str(c).ok())
+            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
     );
     if ranges {
         resp_headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
@@ -356,6 +359,11 @@ async fn serve_file(
         corrupt,
         guard,
         seed: sc.seed,
+        magic: sc
+            .kind
+            .as_deref()
+            .and_then(content::magic)
+            .unwrap_or_default(),
         pos: start,
         end,
         rate: rate.filter(|r| *r > 0),
@@ -495,6 +503,8 @@ struct BodyState {
     corrupt: Option<u64>,
     guard: ConnGuard,
     seed: u64,
+    /// How the file starts (see [`content::magic`]).
+    magic: Vec<u8>,
     pos: u64,
     end: u64,
     rate: Option<u64>,
@@ -535,7 +545,7 @@ impl BodyState {
             }
 
             let mut buf = vec![0u8; len as usize];
-            content::fill(s.seed, s.pos, &mut buf);
+            content::fill_with(s.seed, &s.magic, s.pos, &mut buf);
             // Only the first response to send that byte: one cut off before it does not count.
             if let Some(at) = s.corrupt.filter(|at| (s.pos..s.pos + len).contains(at))
                 && !s.guard.url.corrupted.swap(true, Ordering::Relaxed)

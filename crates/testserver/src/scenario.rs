@@ -128,6 +128,11 @@ pub struct Scenario {
     /// The first response to send the byte at this offset sends it flipped, like a flaky
     /// mirror or a bad line; later ones are clean.
     pub corrupt_at: Option<Size>,
+    /// The file starts like this kind of file (see [`crate::content::magic`]): `exe`, `pdf`,
+    /// `html`, `zip`, `docx`, `png`, `mp4`, `sh`; the rest is the usual seeded bytes.
+    pub kind: Option<String>,
+    /// `Content-Type` to send instead of `application/octet-stream`.
+    pub ctype: Option<String>,
 }
 
 impl Default for Scenario {
@@ -155,6 +160,8 @@ impl Default for Scenario {
             latency_ms: 0,
             only_ua: None,
             corrupt_at: None,
+            kind: None,
+            ctype: None,
         }
     }
 }

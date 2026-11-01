@@ -33,6 +33,7 @@ pub(crate) struct Insert<'a> {
     pub mirrors: &'a [String],
     pub group: Option<i64>,
     pub pieces: Option<&'a shardload_engine::Pieces>,
+    pub page_title: Option<&'a str>,
 }
 
 impl Db {
@@ -83,8 +84,8 @@ impl Db {
         let id = sqlx::query(
             "INSERT INTO tasks (url, headers, dir, name, status, category, connections,
                                 speed_limit, checksum, added_at, stream, mirrors, group_id,
-                                pieces, queue_pos)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                pieces, name_given, page_title, queue_pos)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                      (SELECT COALESCE(MAX(queue_pos), 0) + 1 FROM tasks))",
         )
         .bind(t.url)
@@ -105,6 +106,8 @@ impl Db {
         )
         .bind(t.group)
         .bind(t.pieces.map(serde_json::to_string).transpose()?)
+        .bind(t.name.is_some())
+        .bind(t.page_title)
         .execute(&self.pool)
         .await?
         .last_insert_rowid();
@@ -230,6 +233,36 @@ impl Db {
                 .execute(&self.pool)
                 .await?;
         }
+        Ok(())
+    }
+
+    /// What a finished file's content is (see [`crate::task::Task::content`]).
+    pub(crate) async fn set_content(&self, id: TaskId, label: Option<&str>) -> Result<()> {
+        sqlx::query("UPDATE tasks SET content = ? WHERE id = ?")
+            .bind(label)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// A download that turned out not to be the file: failed with nothing kept, so starting
+    /// it again downloads it from the start.
+    pub(crate) async fn fail_from_start(
+        &self,
+        id: TaskId,
+        error: &str,
+        kind: Option<ErrorKind>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE tasks SET status = 'error', error = ?, error_kind = ?, received = 0,
+                              finished_at = NULL WHERE id = ?",
+        )
+        .bind(error)
+        .bind(kind.map(ErrorKind::as_str))
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -446,7 +479,7 @@ impl Db {
     pub(crate) async fn reset(&self, id: TaskId) -> Result<()> {
         sqlx::query(
             "UPDATE tasks SET status = 'queued', error = NULL, error_kind = NULL, received = 0,
-                              finished_at = NULL
+                              finished_at = NULL, content = NULL
              WHERE id = ?",
         )
         .bind(id)
@@ -635,12 +668,20 @@ fn task(r: &SqliteRow) -> Result<Task> {
     let u64_opt = |col: &str| -> Result<Option<u64>> {
         Ok(r.try_get::<Option<i64>, _>(col)?.map(|v| v as u64))
     };
+    let name: Option<String> = r.try_get("name")?;
+    let content: Option<String> = r.try_get("content")?;
     Ok(Task {
         id: r.try_get("id")?,
         url: r.try_get("url")?,
         headers: load_headers(r.try_get("headers")?)?,
         dir: PathBuf::from(r.try_get::<String, _>("dir")?),
-        name: r.try_get("name")?,
+        warning: name
+            .as_deref()
+            .and_then(|n| crate::task::Warning::of(n, content.as_deref())),
+        content,
+        name,
+        name_given: r.try_get("name_given")?,
+        page_title: r.try_get("page_title")?,
         path: r.try_get::<Option<String>, _>("path")?.map(PathBuf::from),
         size: u64_opt("size")?,
         received: r.try_get::<i64, _>("received")? as u64,

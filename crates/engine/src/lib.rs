@@ -29,6 +29,7 @@ mod place;
 mod relink;
 mod remote;
 pub mod segments;
+pub mod sniff;
 mod state;
 mod subtitles;
 mod zip;

@@ -32,6 +32,7 @@
 		url: initialUrl = '',
 		name: initialName = null,
 		headers = null,
+		title = null,
 		onclose,
 		onshow
 	}: {
@@ -40,6 +41,8 @@
 		name?: string | null;
 		/** From the browser: cookies, referrer, user agent. */
 		headers?: Headers | null;
+		/** The title of the page the download started from. */
+		title?: string | null;
 		onclose: () => void;
 		/** Goes to a download on the list (one found to be the same file). */
 		onshow: (id: TaskId) => void;
@@ -230,7 +233,8 @@
 				start,
 				login: login(),
 				headers,
-				mirrors: mirrorList()
+				mirrors: mirrorList(),
+				title
 			});
 			onclose();
 		} catch (e) {

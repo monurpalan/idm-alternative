@@ -38,6 +38,18 @@ export interface Task {
 	group_id: number | null;
 	/** How a stream, a page or a torrent is downloaded; only what the list shows is typed. */
 	stream: { record?: Recording | null } | null;
+	/** What the finished file's first bytes say it is: `program:exe`, `document:pdf`... */
+	content: string | null;
+	/** The file may not be what its name says. */
+	warning: Warning | null;
+}
+
+/** A finished file that may not be what it says: a program named like a document
+ * (`disguised`), or a web page saved where the name promised a file (`webpage`); found by
+ * its `name` alone or by its `content`. */
+export interface Warning {
+	kind: 'disguised' | 'webpage';
+	by: 'name' | 'content';
 }
 
 /** How a live stream is recorded. */
@@ -315,6 +327,8 @@ export const addTask = (request: {
 	mirrors?: string[];
 	/** One of a group added together (see `newGroup`). */
 	group?: number | null;
+	/** The title of the page the link came from: names a file whose name says nothing. */
+	title?: string | null;
 }) => invoke<Task>('add_task', { request });
 
 /** Video sites whose pages yt-dlp reads (a pasted link opens the page window). */
@@ -465,6 +479,8 @@ export interface Capture {
 	url: string;
 	filename: string | null;
 	size: number | null;
+	/** The title of the page the download started from. */
+	title: string | null;
 	/** Cookies, referrer, user agent: what the browser would have sent. */
 	headers: Headers;
 }

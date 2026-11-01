@@ -5,6 +5,9 @@
 	import { bytes, clock, duration, percent, speed } from '../format.ts';
 	import { locale, msg, t } from '../i18n.svelte.ts';
 
+	/** Tooltip of a download whose file may not be what its name says. */
+	const warnedTitle = () => t('Not what its name says: open the details');
+
 	// Gets the tasks already filtered and in order; each row reads its own live progress, so a
 	// progress update re-renders only the rows of running downloads.
 	let {
@@ -346,7 +349,11 @@
 				>
 					<td class="numeric muted">{queuePos.get(t.id) ?? ''}</td>
 					<td class="name" title={r.task.url}>
-						<span class="kind">{kind(r.name)}</span>
+						<span
+							class="kind"
+							class:warn={!!t.warning}
+							title={t.warning ? warnedTitle() : undefined}>{kind(r.name)}</span
+						>
 						{r.name}
 					</td>
 					<td class="numeric">{bytes(r.size)}</td>
@@ -484,6 +491,12 @@
 	}
 	.kind:empty {
 		visibility: hidden;
+	}
+	/* The file may not be what its name says (see the detail pane). */
+	.kind.warn {
+		border-color: var(--danger);
+		color: var(--danger);
+		visibility: visible;
 	}
 	.status {
 		color: var(--muted);

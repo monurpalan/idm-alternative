@@ -79,6 +79,7 @@
 		url: string;
 		name?: string | null;
 		headers?: Headers | null;
+		title?: string | null;
 	} | null>(null);
 	let picking = $state<CapturedLinks | null>(null);
 	let grabbing = $state(false);
@@ -145,7 +146,7 @@
 			onSettings((s) => (globalLimit = s.speed_limit)),
 			onExtensions((s) => (extensions = s)),
 			// The browser handed over a download: confirm it like IDM does.
-			onCapture((c) => (adding = { url: c.url, name: c.filename, headers: c.headers })),
+			onCapture((c) => (adding = { url: c.url, name: c.filename, headers: c.headers, title: c.title })),
 			onCapturedLinks((l) => (picking = l)),
 			onNotice((text) => (info = text)),
 			onUpdate((u) => (update = u)),
@@ -542,6 +543,7 @@
 		url={adding.url}
 		name={adding.name}
 		headers={adding.headers}
+		title={adding.title}
 		onclose={() => (adding = null)}
 		onshow={goTo}
 	/>

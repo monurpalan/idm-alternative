@@ -66,6 +66,17 @@ async function send(message: object): Promise<Reply> {
 	}
 }
 
+/** The title of an open tab showing `page`, if there is one. */
+async function titleOf(page: string | undefined): Promise<string | null> {
+	if (!page) return null;
+	try {
+		const tabs = await api.tabs.query({});
+		return tabs.find((t) => t.url === page)?.title || null;
+	} catch {
+		return null;
+	}
+}
+
 async function handOver(url: string, referrer: string | undefined, filename?: string, size?: number) {
 	return send({
 		type: 'download',
@@ -73,6 +84,7 @@ async function handOver(url: string, referrer: string | undefined, filename?: st
 		referrer: referrer || null,
 		filename: filename || null,
 		size: size && size > 0 ? size : null,
+		title: await titleOf(referrer),
 		cookies: await cookiesFor(url),
 		user_agent: navigator.userAgent
 	});

@@ -258,6 +258,9 @@ pub struct Capture {
     pub filename: Option<String>,
     /// Size the browser was told, if any.
     pub size: Option<u64>,
+    /// The title of the page the download started from: names a file whose name says
+    /// nothing (`download.php`).
+    pub title: Option<String>,
     /// `Cookie` header value for the URL, from the browser's cookie store.
     pub cookies: Option<String>,
     pub user_agent: Option<String>,

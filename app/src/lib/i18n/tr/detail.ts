@@ -31,6 +31,13 @@ export default {
 	Warning: 'Uyarı',
 	'A program named like a document: open it only if you trust where it came from':
 		'Belge gibi adlandırılmış bir program: yalnızca kaynağına güveniyorsanız açın',
+	'Its content is a program, though its name says otherwise: open it only if you trust where it came from':
+		'Adı başka bir şey söylese de içeriği bir program: yalnızca kaynağına güveniyorsanız açın',
+	'Found by its content': 'İçeriğinden anlaşıldı',
+	'Found by its name': 'Adından anlaşıldı',
+	'The server sent a web page, not the file: often a sign-in page or an expired link. Get a fresh link below.':
+		'Sunucu dosya yerine bir web sayfası gönderdi: çoğu zaman bir giriş sayfası ya da süresi dolmuş bir bağlantı. Aşağıdan yeni bir bağlantı alın.',
+	'Not what its name says: open the details': 'Adının söylediği şey değil: ayrıntıları açın',
 	Apply: 'Uygula',
 	'Downloads from this site sign in by themselves':
 		'Bu sitedeki indirmeler kendiliğinden giriş yapar',

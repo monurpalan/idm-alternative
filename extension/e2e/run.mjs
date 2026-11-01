@@ -334,6 +334,7 @@ async function main() {
 			if (m.type !== 'download') throw new Error(`type ${m.type}`);
 			if (m.referrer !== `${base}/`) throw new Error(`referrer ${m.referrer}`);
 			if (!m.cookies?.includes('sid=e2e')) throw new Error(`cookies ${m.cookies}`);
+			if (m.title !== 'e2e') throw new Error(`page title ${m.title}`);
 			await sleep(1000);
 			if (onDisk('plain.zip')) throw new Error('the browser downloaded it as well');
 		});

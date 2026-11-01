@@ -26,10 +26,10 @@
 
 	const r = $derived(row(task, downloads.live[task.id]));
 
-	// A program dressed as a document or a video: `report.pdf.exe`, `clip.mp4.scr`.
-	const SHOWN_AS =
-		/\.(pdf|docx?|xlsx?|pptx?|txt|rtf|odt|jpe?g|png|gif|webp|mp3|wav|flac|mp4|mkv|avi|mov|webm|zip|rar|7z)\.(exe|scr|com|pif|bat|cmd|msi|vbs|vbe|js|jse|wsf|hta|cpl|lnk|ps1)$/i;
-	const disguised = $derived(task.status === 'done' && SHOWN_AS.test(r.name));
+	// A program dressed as a document or a video, by its name (`report.pdf.exe`) or by its
+	// bytes; or a web page (a sign-in page, an error) saved where the name promised a file.
+	const disguised = $derived(task.status === 'done' && task.warning?.kind === 'disguised');
+	const webPage = $derived(task.status === 'error' && task.warning?.kind === 'webpage');
 
 	/** What earlier downloads learned about the download's site. */
 	let site = $state<SiteMemory | null>(null);
@@ -257,13 +257,25 @@
 				     one file without ffmpeg: worth knowing, not a failure. -->
 				<dt>{t('Note')}</dt>
 				<dd class="note" title={task.error}>{task.error}</dd>
+			{:else if webPage}
+				<dt>{t('Problem')}</dt>
+				<dd class="error wrap" title={task.error}>
+					{t('The server sent a web page, not the file: often a sign-in page or an expired link. Get a fresh link below.')}
+				</dd>
 			{:else if task.error}
 				<dt>{t('Problem')}</dt>
 				<dd class="error" title={task.error}>{task.error}</dd>
 			{/if}
 			{#if disguised}
 				<dt>{t('Warning')}</dt>
-				<dd class="error">{t('A program named like a document: open it only if you trust where it came from')}</dd>
+				<dd class="error wrap">
+					{task.warning?.by === 'content'
+						? t('Its content is a program, though its name says otherwise: open it only if you trust where it came from')
+						: t('A program named like a document: open it only if you trust where it came from')}
+					<Text variant="caption" inline
+						>{task.warning?.by === 'content' ? t('Found by its content') : t('Found by its name')}</Text
+					>
+				</dd>
 			{/if}
 		</dl>
 		<form class="inline" onsubmit={applyLimit}>
@@ -403,6 +415,10 @@
 	}
 	.note {
 		color: var(--muted);
+	}
+	/* A warning is read whole, not from a tooltip. */
+	.wrap {
+		white-space: normal;
 	}
 	.inline {
 		display: grid;
