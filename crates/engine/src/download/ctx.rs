@@ -28,6 +28,12 @@ pub(crate) struct Ctx {
     /// same bytes.
     pub(crate) sources: Mutex<Vec<Source>>,
     pub(crate) cancel: CancellationToken,
+    /// A checkpoint being written on a blocking thread: the state file is synced to the
+    /// disk, which on a slow disk takes long enough to hold the controller up.
+    pub(crate) saving: Mutex<Option<tokio::task::JoinHandle<std::io::Result<()>>>>,
+    /// Set when the download has all its data: a checkpoint still being written then leaves
+    /// the state file alone (see [`State::save_unless`]).
+    pub(crate) finished: Arc<Mutex<bool>>,
 }
 
 /// How one source of the file is doing: the download's own URL (0) or a mirror.
@@ -51,6 +57,22 @@ pub(crate) struct Source {
 impl Ctx {
     pub(crate) fn table(&self) -> MutexGuard<'_, Table> {
         self.table.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The checkpoint being written, if any.
+    pub(crate) fn take_saving(&self) -> Option<tokio::task::JoinHandle<std::io::Result<()>>> {
+        self.saving
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+    }
+
+    /// Waits for the checkpoint being written, if any, and says how it went.
+    pub(crate) async fn saved(&self) -> Result<()> {
+        match self.take_saving() {
+            Some(h) => Ok(h.await.map_err(std::io::Error::other)??),
+            None => Ok(()),
+        }
     }
 
     /// The lowest active speed limit, if any.

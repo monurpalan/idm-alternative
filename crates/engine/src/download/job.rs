@@ -76,6 +76,8 @@ impl Job<'_> {
             limiters: self.opts.limiters.clone(),
             shed: AtomicUsize::new(0),
             cancel: cancel.child_token(),
+            saving: Mutex::new(None),
+            finished: Arc::new(Mutex::new(false)),
         });
 
         // Mirrors are checked while the download already runs from its own URL; each joins
@@ -339,6 +341,9 @@ impl Job<'_> {
         if let Some(p) = progress {
             p.send_replace(snapshot(&ctx.table(), Some(received)));
         }
+        // A checkpoint still being written must not leave a state file beside the finished
+        // one; it is not waited for.
+        *ctx.finished.lock().unwrap_or_else(PoisonError::into_inner) = true;
         // Every connection task has finished, so this is the last handle to the file and it
         // is closed here, before the caller renames it.
         drop(ctx);
@@ -415,7 +420,9 @@ impl Job<'_> {
     /// never claims bytes that were not yet handed to the OS: that survives the process
     /// crashing or being killed. With `durable`, the file is also flushed to the disk first,
     /// which additionally survives power loss — but on Windows a flush stalls every write
-    /// to the file for seconds, so it is only done when stopping (see ADR 0002).
+    /// to the file for seconds, so it is only done when stopping (see ADR 0002). The state
+    /// file is written on a blocking thread while the download goes on; a save that fails
+    /// is reported at the next checkpoint.
     pub(crate) async fn checkpoint(&self, ctx: &Ctx, durable: bool) -> Result<()> {
         let Some(size) = ctx.size.filter(|_| ctx.ranges) else {
             return Ok(()); // without ranges there is nothing to resume from
@@ -426,7 +433,27 @@ impl Job<'_> {
         }
         let mut state = State::new(&self.req.url, size, ctx.remote().0.validators, segments);
         state.clean = durable;
-        state.save(self.state_path)?;
+        let path = self.state_path.to_owned();
+        let finished = Arc::clone(&ctx.finished);
+        let save = move || state.save_unless(&path, &finished);
+        if durable {
+            // After the one being written, so the clean state is the one that stays.
+            ctx.saved().await.ok();
+            return Ok(tokio::task::spawn_blocking(save)
+                .await
+                .map_err(std::io::Error::other)??);
+        }
+        match ctx.take_saving() {
+            // The last one is still being written: this one is skipped, the next is newer.
+            Some(h) if !h.is_finished() => {
+                *ctx.saving.lock().unwrap_or_else(PoisonError::into_inner) = Some(h);
+                return Ok(());
+            }
+            Some(h) => h.await.map_err(std::io::Error::other)??,
+            None => {}
+        }
+        *ctx.saving.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(tokio::task::spawn_blocking(save));
         Ok(())
     }
 }

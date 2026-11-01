@@ -79,15 +79,34 @@ impl State {
 
     /// Writes atomically and durably: the new file is on the disk before it replaces the old
     /// one, so a crash or a power loss leaves either the old or the new file, never half of
-    /// one. A few KB: the flush costs nothing worth measuring (unlike the data file's).
+    /// one. A few KB, but a slow disk can take a while to confirm the flush.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        self.save_unless(path, &std::sync::Mutex::new(false))
+    }
+
+    /// [`State::save`], unless `finished` is set once the new file is on the disk: the
+    /// download ended meanwhile and its state file is gone, so it must not come back. The
+    /// flush happens outside the lock; only the last step (the rename) holds it.
+    pub fn save_unless(
+        &self,
+        path: &Path,
+        finished: &std::sync::Mutex<bool>,
+    ) -> std::io::Result<()> {
         use std::io::Write;
         let tmp = sibling(path, ".tmp");
         let mut file = std::fs::File::create(&tmp)?;
         file.write_all(&serde_json::to_vec(self).map_err(std::io::Error::other)?)?;
         file.sync_all()?;
         drop(file);
+        let finished = finished
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *finished {
+            std::fs::remove_file(&tmp).ok();
+            return Ok(());
+        }
         std::fs::rename(&tmp, path)?;
+        drop(finished);
         // The rename itself is in the folder: on Unix it is made durable by syncing the
         // folder. Windows has no such call for folders; NTFS journals the rename.
         #[cfg(unix)]
@@ -175,6 +194,22 @@ mod tests {
             .map(|s| s.written)
             .collect();
         assert_eq!(got, vec![20 * MB, 45 * MB, 60 * MB + 1000, 100 * MB]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_save_that_ends_after_the_download_leaves_no_state() {
+        let dir = std::env::temp_dir().join(format!("shardload-unless-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("f.shardload-state");
+        state(10)
+            .save_unless(&path, &std::sync::Mutex::new(true))
+            .expect("save");
+        assert!(!path.exists() && !sibling(&path, ".tmp").exists());
+        state(10)
+            .save_unless(&path, &std::sync::Mutex::new(false))
+            .expect("save");
+        assert!(path.exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 
