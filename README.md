@@ -307,11 +307,18 @@ file), *in RAM* their private working set. Details, method and raw numbers:
 | Downloading 1 GiB (at 10 MiB/s, or as fast as loopback goes) | 240–275 MB private, ~110 MB in RAM |
 | Closed to the tray | 18 MB private, 15 MB in RAM, 1 process (no WebView2) |
 
-For comparison, IDM 6.43 on the same machine: about 11 MB private with its window open,
-15–20 MB while downloading, 10–14 MB in the tray, in one process. Most of Shardload's memory is
-the WebView2 runtime that every Tauri app shares with Edge; IDM's native window needs far less.
-In the tray Shardload closes its window and the WebView with it, so that price is only paid
-while the window is open; the engine itself stays around 13 MB.
+The same states for other download managers on the same machine (private, MB; median of 3 runs):
+
+| | Shardload | IDM 6.43 | FDM 6.35 | AB DM 1.11 |
+|---|---|---|---|---|
+| Window open, idle | 200 | 11 | 210 | 443 |
+| Downloading 1 GiB | 240–275 | 15–20 | – | 530–670 |
+| Closed to the tray | 18 | 14 | 210 | 593 |
+
+IDM's native window needs far less than any of them. Most of Shardload's memory is the WebView2
+runtime that every Tauri app shares with Edge; in the tray Shardload closes its window and the
+WebView with it, so that price is only paid while the window is open, and the engine itself
+stays around 13 MB. FDM (Qt) and AB DM (JVM) keep theirs in the tray.
 
 ### How it works
 
