@@ -23,4 +23,9 @@ blocked every write to the file meanwhile: a download that should take ~2 s took
 - After an OS crash or power loss, the state may claim up to a few seconds of bytes that never
   reached the disk, and resuming would leave zeros there. Accepted: rare, and a checksum, when
   the user supplies one, catches it.
+  Since 2026-11-02 resuming closes this without a checksum: a state saved by a checkpoint
+  while downloading is marked not clean, and resuming from it downloads each segment's last
+  seconds again (2 s at its speed when saved, at least 1 MiB). A state saved when stopping
+  early (pause, cancel, an error), after the real flush, is clean and trusted as it is. A
+  killed process therefore also downloads those few seconds again.
 - Download speed is no longer capped by flush stalls.

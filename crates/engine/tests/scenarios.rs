@@ -158,7 +158,7 @@ fn saved(out: &Path) -> u64 {
 /// Runs the download until its state file records at least `saved_at_least` bytes, then
 /// cancels it or drops it like a killed process. Waiting for the checkpoint instead of a fixed
 /// time keeps a slow CI machine from interrupting before anything was saved.
-async fn interrupt(url: &str, out: &Path, saved_at_least: u64, cancel: bool) {
+async fn interrupt(url: &str, out: &Path, saved_at_least: u64, cancel: bool) -> u64 {
     let o = Options {
         checkpoint_every: Duration::from_millis(200),
         ..opts(4)
@@ -183,6 +183,7 @@ async fn interrupt(url: &str, out: &Path, saved_at_least: u64, cancel: bool) {
         assert!(matches!(r, Err(Error::Cancelled)), "{r:?}");
     }
     // Otherwise `run` is dropped here without a final checkpoint.
+    saved(out)
 }
 
 async fn interrupted_then_resumed(name: &str, cancel: bool) {
@@ -192,16 +193,27 @@ async fn interrupted_then_resumed(name: &str, cancel: bool) {
     let size = 16 * MB;
     // 4 connections at 1 MiB/s: about 4 s in total.
     let url = format!("{base}/file/f.bin?size={size}&seed=3&rate=1M");
-    interrupt(&url, &out, 2 * MB, cancel).await;
+    let saved = interrupt(&url, &out, 10 * MB, cancel).await;
     assert!(PathBuf::from(format!("{}.shardload-state", out.display())).exists());
 
     let started = Instant::now();
     let done = get(&request(url, &out), &opts(4)).await.expect("resume");
-    assert!(
-        done.resumed_from >= 2 * MB,
-        "resumed from only {} bytes",
-        done.resumed_from
-    );
+    if cancel {
+        // Stopped cleanly, the data flushed: all of it counts.
+        assert!(
+            done.resumed_from >= saved,
+            "{} of {saved}",
+            done.resumed_from
+        );
+    } else {
+        // Killed: the last seconds of each part may never have reached the disk, and are
+        // downloaded again (at most 2 s of each part at its speed: about 8 MiB here).
+        assert!(
+            done.resumed_from < saved,
+            "resumed from {} of {saved}",
+            done.resumed_from
+        );
+    }
     assert!(started.elapsed() < Duration::from_secs(10));
     assert_verified(&out, 3, size);
 }
@@ -214,6 +226,44 @@ async fn cancel_then_resume() {
 #[tokio::test(flavor = "multi_thread")]
 async fn killed_then_resume() {
     interrupted_then_resumed("kill-resume", false).await;
+}
+
+/// A power loss: the state file counts bytes that never reached the disk (they read as zeros).
+/// Resuming downloads each part's last seconds again, so the file still comes out right.
+#[tokio::test(flavor = "multi_thread")]
+async fn bytes_lost_with_the_power_are_downloaded_again() {
+    use std::io::{Seek, SeekFrom, Write};
+    let base = start().await;
+    let dir = workdir("power-loss");
+    let out = dir.join("f.bin");
+    let size = 16 * MB;
+    let url = format!("{base}/file/f.bin?size={size}&seed=5&rate=1M");
+    interrupt(&url, &out, 10 * MB, false).await;
+    let state: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(format!("{}.shardload-state", out.display())).expect("state"),
+    )
+    .expect("json");
+    assert_eq!(
+        state["clean"], false,
+        "a checkpoint while running is not clean"
+    );
+    // The last 512 KiB each part counts were lost.
+    let mut part = std::fs::OpenOptions::new()
+        .write(true)
+        .open(format!("{}.shardload-part", out.display()))
+        .expect("part");
+    for s in state["segments"].as_array().expect("segments") {
+        let (start, written) = (
+            s["start"].as_u64().expect("start"),
+            s["written"].as_u64().expect("written"),
+        );
+        let lost = (written - start).min(512 << 10);
+        part.seek(SeekFrom::Start(written - lost)).expect("seek");
+        part.write_all(&vec![0; lost as usize]).expect("zero");
+    }
+    drop(part);
+    get(&request(url, &out), &opts(4)).await.expect("resume");
+    assert_verified(&out, 5, size);
 }
 
 #[tokio::test(flavor = "multi_thread")]

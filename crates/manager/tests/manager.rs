@@ -301,15 +301,30 @@ async fn close_then_open_resumes() {
     m.close().await;
 }
 
+/// Bytes the state file at `state` records as written, 0 while there is none.
+fn checkpointed(state: &Path) -> u64 {
+    let Ok(text) = std::fs::read_to_string(state) else {
+        return 0;
+    };
+    serde_json::from_str::<serde_json::Value>(&text)
+        .ok()
+        .and_then(|s| s["segments"].as_array().cloned())
+        .into_iter()
+        .flatten()
+        .map(|s| s["written"].as_u64().unwrap_or(0) - s["start"].as_u64().unwrap_or(0))
+        .sum()
+}
+
 /// The process dies mid-download (here: its runtime is dropped, nothing is closed). The next
 /// open finds the task still marked downloading and resumes from the state file.
 #[tokio::test(flavor = "multi_thread")]
 async fn killed_manager_resumes_on_next_open() {
     let base = start_server().await;
     let w = WorkDir::new("killed");
-    // 4 connections at 1 MiB/s: about 4 s; killed after the first checkpoint (2 s), which
-    // a busy machine may write a little later.
-    let size = 16 * MB;
+    // 4 connections at 1 MiB/s: about 8 s; killed once 20 MiB are checkpointed. Resuming
+    // after a kill downloads each part's last 2 s again (about 8 MiB here, see the engine's
+    // `State::load`), so it must have got well past that.
+    let size = 32 * MB;
     let url = format!("{base}/file/k.bin?size={size}&seed=5&rate=1M");
     let (db, config) = (w.db(), w.config(3));
     let state = w.path().join("downloads/k.bin.shardload-state");
@@ -318,8 +333,8 @@ async fn killed_manager_resumes_on_next_open() {
         let id = rt.block_on(async {
             let m = Manager::open(&db, config).await.expect("open");
             let task = m.add(new_task(url)).await.expect("add");
-            let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-            while !state.exists() {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+            while checkpointed(&state) < 20 * MB {
                 assert!(tokio::time::Instant::now() < deadline, "no checkpoint");
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
@@ -340,11 +355,11 @@ async fn killed_manager_resumes_on_next_open() {
     let m = Manager::open(&w.db(), w.config(3)).await.expect("reopen");
     let done = wait_done(&m, id).await;
     assert_file(&done, 5, size);
-    // Starting over would fetch the whole file again; at least the first checkpoint's
-    // worth (2 s at up to 4 MiB/s, minus ramp-up) was kept.
+    // Starting over would fetch the whole file again; at least 20 MiB checkpointed, less
+    // what is downloaded again after a kill, was kept.
     let again = bytes_sent(&base).await - before;
     assert!(
-        again < size - 2 * MB,
+        again < size - 8 * MB,
         "fetched {} of {} MiB again",
         again / MB,
         size / MB

@@ -16,6 +16,11 @@ use crate::segments::SavedSegment;
 
 const VERSION: u32 = 1;
 
+/// After an attempt that did not stop cleanly, each segment's last this many seconds of data
+/// are downloaded again (at its speed when saved), and at least [`REWIND_MIN`].
+const REWIND_SECS: u64 = 2;
+const REWIND_MIN: u64 = 1 << 20;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct State {
     pub version: u32,
@@ -24,6 +29,11 @@ pub struct State {
     pub size: u64,
     pub validators: Validators,
     pub segments: Vec<SavedSegment>,
+    /// Saved when the download stopped early (pause, cancel, an error), after the data was
+    /// flushed to the disk: every byte it counts is there. A checkpoint while downloading is
+    /// not clean: after a power loss its last seconds may be missing (ADR 0002).
+    #[serde(default)]
+    pub clean: bool,
 }
 
 impl State {
@@ -34,19 +44,37 @@ impl State {
             size,
             validators,
             segments,
+            clean: false,
         }
     }
 
-    /// Loads a state file; anything unreadable or from another version counts as absent.
+    /// Loads a state file; anything unreadable or from another version counts as absent. A
+    /// state not saved cleanly (see [`State::clean`]) comes back with each segment's last
+    /// seconds taken off, so they are downloaded again: bytes that may never have reached the
+    /// disk are not trusted. Without it, a power loss could leave zeros in a "finished" file.
     pub fn load(path: &Path) -> Option<Self> {
         let text = std::fs::read_to_string(path).ok()?;
-        let state: State = serde_json::from_str(&text).ok()?;
+        let mut state: State = serde_json::from_str(&text).ok()?;
+        if !state.clean {
+            state.rewind();
+            // What is left can be trusted: saved again as it is (a new link for the download
+            // keeps the state), it must not be rewound a second time.
+            state.clean = true;
+        }
         let consistent = state.version == VERSION
             && state
                 .segments
                 .iter()
                 .all(|s| s.start <= s.written && s.written <= s.end && s.end <= state.size);
         consistent.then_some(state)
+    }
+
+    /// Takes each segment's last seconds off what it counts as written.
+    fn rewind(&mut self) {
+        for s in &mut self.segments {
+            let back = (s.speed * REWIND_SECS).max(REWIND_MIN);
+            s.written = s.written.saturating_sub(back).max(s.start);
+        }
     }
 
     /// Writes atomically and durably: the new file is on the disk before it replaces the old
@@ -90,8 +118,64 @@ mod tests {
                 start: 0,
                 written,
                 end: 100,
+                speed: 0,
             }],
         )
+    }
+
+    #[test]
+    fn an_unclean_state_comes_back_with_its_last_seconds_taken_off() {
+        const MB: u64 = 1 << 20;
+        let dir = std::env::temp_dir().join(format!("shardload-rewind-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("f.shardload-state");
+        let seg = |start, written, end, speed| SavedSegment {
+            start,
+            written,
+            end,
+            speed,
+        };
+        let mut s = State::new(
+            "https://e.x/f",
+            100 * MB,
+            Validators::default(),
+            vec![
+                // 3 MB/s: two seconds back.
+                seg(0, 20 * MB, 40 * MB, 3 * MB),
+                // Slow: at least 1 MiB back.
+                seg(40 * MB, 45 * MB, 60 * MB, 1000),
+                // Barely started: not back past its start.
+                seg(60 * MB, 60 * MB + 1000, 80 * MB, 2 * MB),
+                // Finished: its tail is downloaded again too.
+                seg(80 * MB, 100 * MB, 100 * MB, MB),
+            ],
+        );
+        s.save(&path).expect("save");
+        let got: Vec<u64> = State::load(&path)
+            .expect("load")
+            .segments
+            .iter()
+            .map(|s| s.written)
+            .collect();
+        assert_eq!(got, vec![14 * MB, 44 * MB, 60 * MB, 98 * MB]);
+        // Loaded and saved again unchanged: not rewound twice.
+        State::load(&path).expect("load").save(&path).expect("save");
+        assert_eq!(
+            State::load(&path).expect("load").segments[0].written,
+            14 * MB
+        );
+
+        // Saved cleanly (stopped with the data flushed): trusted as it is.
+        s.clean = true;
+        s.save(&path).expect("save");
+        let got: Vec<u64> = State::load(&path)
+            .expect("load")
+            .segments
+            .iter()
+            .map(|s| s.written)
+            .collect();
+        assert_eq!(got, vec![20 * MB, 45 * MB, 60 * MB + 1000, 100 * MB]);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -99,9 +183,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("shardload-state-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let path = dir.join("f.shardload-state");
-        state(10).save(&path).expect("save");
+        let clean = |w| {
+            let mut s = state(w);
+            s.clean = true;
+            s
+        };
+        clean(10).save(&path).expect("save");
         assert_eq!(State::load(&path).expect("load").segments[0].written, 10);
-        state(60).save(&path).expect("save again");
+        clean(60).save(&path).expect("save again");
         assert_eq!(State::load(&path).expect("load").segments[0].written, 60);
         assert!(!sibling(&path, ".tmp").exists(), "no temporary file left");
         std::fs::remove_dir_all(&dir).ok();

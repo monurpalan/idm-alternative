@@ -1265,8 +1265,9 @@ impl Job<'_> {
         if durable {
             ctx.file.sync().await?;
         }
-        State::new(&self.req.url, size, ctx.remote().0.validators, segments)
-            .save(self.state_path)?;
+        let mut state = State::new(&self.req.url, size, ctx.remote().0.validators, segments);
+        state.clean = durable;
+        state.save(self.state_path)?;
         Ok(())
     }
 }

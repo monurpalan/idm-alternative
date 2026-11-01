@@ -69,6 +69,10 @@ pub struct SavedSegment {
     pub start: u64,
     pub end: u64,
     pub written: u64,
+    /// Bytes per second when it was saved: how much to download again when the last attempt
+    /// did not stop cleanly (see [`crate::state::State::load`]).
+    #[serde(default)]
+    pub speed: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +135,7 @@ impl Table {
                 start: s.start,
                 end: s.end,
                 written: s.written,
+                speed: s.speed as u64,
             })
             .collect()
     }
