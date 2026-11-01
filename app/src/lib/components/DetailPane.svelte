@@ -290,6 +290,11 @@
 				     one file without ffmpeg: worth knowing, not a failure. -->
 				<dt>{t('Note')}</dt>
 				<dd class="note" title={task.error}>{task.error}</dd>
+			{:else if task.error_kind === 'disk' && task.status === 'paused'}
+				<dt>{t('Problem')}</dt>
+				<dd class="error wrap" title={task.error ?? ''}>
+					{t('Paused before the drive filled up: free some space or move it to another drive, then resume.')}
+				</dd>
 			{:else if fromPage && task.error_kind === 'checksum'}
 				<dt>{t('Problem')}</dt>
 				<dd class="error wrap" title={task.error ?? ''}>

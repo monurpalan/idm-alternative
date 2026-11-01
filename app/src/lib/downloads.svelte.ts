@@ -11,6 +11,7 @@ import {
 	onManagerEvent,
 	relocateTask,
 	type Category,
+	type DiskLow,
 	type Group,
 	type LinkWarning,
 	type Task,
@@ -149,6 +150,8 @@ class Downloads {
 	opened = new SvelteSet<number>();
 	loaded = $state(false);
 	error = $state<string | null>(null);
+	/** The last drive that ran low while downloads wrote to it, until the user dismisses it. */
+	diskLow = $state<DiskLow | null>(null);
 	/** Waiting downloads whose links may soon expire, or already have, by id. */
 	links = $state<Record<TaskId, LinkWarning>>({});
 	#linksTimer: ReturnType<typeof setTimeout> | undefined;
@@ -200,6 +203,9 @@ class Downloads {
 					}
 					case 'moving':
 						this.moving[e.data.id] = e.data.total ? e.data.copied / e.data.total : 0;
+						break;
+					case 'disklow':
+						this.diskLow = e.data;
 						break;
 					case 'removed':
 						this.tasks = this.tasks.filter((t) => t.id !== e.data);

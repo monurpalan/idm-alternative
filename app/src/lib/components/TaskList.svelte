@@ -242,6 +242,7 @@
 				return linkNote(task) ?? t('Waiting');
 			}
 			case 'paused':
+				if (task.error_kind === 'disk') return t('Disk full');
 				return linkNote(task) ?? t('Paused');
 			case 'done':
 				return t('Done');

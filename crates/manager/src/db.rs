@@ -35,6 +35,7 @@ pub(crate) struct Insert<'a> {
     pub pieces: Option<&'a shardload_engine::Pieces>,
     pub page_title: Option<&'a str>,
     pub page_checksum: Option<&'a str>,
+    pub size: Option<u64>,
 }
 
 impl Db {
@@ -86,8 +87,8 @@ impl Db {
             "INSERT INTO tasks (url, headers, dir, name, status, category, connections,
                                 speed_limit, checksum, added_at, stream, mirrors, group_id,
                                 pieces, name_given, page_title, page_checksum,
-                                queue_pos)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                size, queue_pos)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                      (SELECT COALESCE(MAX(queue_pos), 0) + 1 FROM tasks))",
         )
         .bind(t.url)
@@ -111,6 +112,7 @@ impl Db {
         .bind(t.name.is_some())
         .bind(t.page_title)
         .bind(t.page_checksum)
+        .bind(t.size.map(|v| v as i64))
         .execute(&self.pool)
         .await?
         .last_insert_rowid();

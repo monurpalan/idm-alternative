@@ -5823,6 +5823,7 @@ dependencies = [
  "anyhow",
  "axum",
  "base64 0.22.1",
+ "fs4",
  "futures-util",
  "httpdate",
  "librqbit",

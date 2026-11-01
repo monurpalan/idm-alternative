@@ -215,6 +215,9 @@ struct AddRequest {
     /// A checksum shown next to the link on that page.
     #[serde(default)]
     page_checksum: Option<String>,
+    /// The size the server said when asked.
+    #[serde(default)]
+    size: Option<u64>,
     /// One of a group added together.
     #[serde(default)]
     group: Option<i64>,
@@ -390,6 +393,7 @@ async fn add_task(app: State<'_, App>, request: AddRequest) -> CmdResult<Task> {
             group: request.group,
             title: request.title,
             page_checksum: request.page_checksum,
+            size: request.size,
             ..NewTask::default()
         })
         .await
@@ -475,6 +479,26 @@ async fn add_batch(app: State<'_, App>, request: AddRequest) -> CmdResult<usize>
             .map_err(msg)?;
     }
     Ok(urls.len())
+}
+
+/// What `ids` (and the running downloads) need on each drive, before a queue starts.
+#[tauri::command]
+async fn disk_needs(app: State<'_, App>, ids: Vec<TaskId>) -> CmdResult<Vec<serde_json::Value>> {
+    let needs = app.manager.disk_needs(&ids).await.map_err(msg)?;
+    Ok(needs.iter().map(drive_view).collect())
+}
+
+/// A drive's need with what it is short of.
+fn drive_view(n: &shardload_manager::disk::DriveNeed) -> serde_json::Value {
+    serde_json::json!({
+        "volume": n.volume,
+        "need": n.need,
+        "free": n.free,
+        "unknown": n.unknown,
+        "tasks": n.tasks,
+        "short": n.short(),
+        "reserve": shardload_manager::disk::RESERVE,
+    })
 }
 
 /// A `curl`, `wget` or `Invoke-WebRequest` command pasted in the "New download" window.
@@ -1617,6 +1641,7 @@ async fn forward_events(handle: AppHandle, mut events: broadcast::Receiver<Event
                             lock(&handle.state::<App>().live).remove(id);
                             statuses.remove(id);
                         }
+                        Event::DiskLow(low) => notify_disk_low(&handle, low),
                         Event::Progress(_) | Event::Moving(_) => {}
                     }
                     handle.emit("manager", &e).ok();
@@ -1642,6 +1667,29 @@ async fn forward_events(handle: AppHandle, mut events: broadcast::Receiver<Event
                 }
             }
         }
+    }
+}
+
+/// Always said, whatever the notification setting: downloads stopped and wait for the user.
+fn notify_disk_low(handle: &AppHandle, low: &shardload_manager::disk::DiskLow) {
+    let lang = lang(handle);
+    let body = i18n::t(
+        lang,
+        "{n} downloads paused: {volume} has {free} MB left. Free some space or move them, then resume.",
+        &[
+            ("n", &low.paused.len().to_string()),
+            ("volume", &low.volume.display().to_string()),
+            ("free", &(low.free >> 20).to_string()),
+        ],
+    );
+    if let Err(e) = handle
+        .notification()
+        .builder()
+        .title(i18n::t(lang, "The drive is almost full", &[]))
+        .body(body)
+        .show()
+    {
+        tracing::warn!("could not show a notification: {e}");
     }
 }
 
@@ -2001,6 +2049,20 @@ async fn bridge_reply(
             match app.manager.relocate(id, &dir).await {
                 Ok(t) => Reply {
                     data: Some(task_view(&t, None)),
+                    ..Reply::ok()
+                },
+                Err(e) => Reply::error(e.to_string()),
+            }
+        }
+        Request::DiskSpace => {
+            let app = handle.state::<App>();
+            let ids: Vec<TaskId> = match app.manager.list().await {
+                Ok(tasks) => tasks.iter().map(|t| t.id).collect(),
+                Err(e) => return Reply::error(e.to_string()),
+            };
+            match app.manager.disk_needs(&ids).await {
+                Ok(needs) => Reply {
+                    data: Some(needs.iter().map(drive_view).collect()),
                     ..Reply::ok()
                 },
                 Err(e) => Reply::error(e.to_string()),
@@ -2755,6 +2817,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             list_tasks,
+            disk_needs,
             parse_command,
             parse_headers,
             set_headers,

@@ -36,8 +36,11 @@
 		removeTasks,
 		restartTask,
 		showInFolder,
+		diskNeeds,
+		relocateTask,
 		startAll,
 		startTasks,
+		type DriveNeed,
 		type CapturedLinks,
 		type CapturedMedia,
 		type Headers,
@@ -46,6 +49,8 @@
 	} from '#lib/api.ts';
 	import AddDialog from '#lib/components/AddDialog.svelte';
 	import ConfirmRemove from '#lib/components/ConfirmRemove.svelte';
+	import { bytes } from '#lib/format.ts';
+	import DiskDialog from '#lib/components/DiskDialog.svelte';
 	import Countdown from '#lib/components/Countdown.svelte';
 	import ContextMenu, { type Item } from '#lib/components/ContextMenu.svelte';
 	import DetailPane from '#lib/components/DetailPane.svelte';
@@ -87,6 +92,8 @@
 	let streaming = $state<CapturedMedia | null>(null);
 	let pageMedia = $state<CapturedMedia | null>(null);
 	let removing = $state<TaskId[] | null>(null);
+	/** A queue about to start on a drive without room for it: what to do. */
+	let diskAsk = $state<{ needs: DriveNeed[]; go: () => Promise<unknown> } | null>(null);
 	let renaming = $state<Task | null>(null);
 	/** "Where did this file come from?": what is known, or the dropped file's name. */
 	let tracing = $state<{ origin: Origin | null; dropped: string | null } | null>(null);
@@ -213,6 +220,30 @@
 	}
 
 	/** Runs an action, showing its error in the status bar instead of losing it. */
+	/** Starts `ids` with `go`, first asking when a drive has not enough room for them. */
+	async function startChecked(ids: TaskId[], go: () => Promise<unknown>) {
+		const needs = await diskNeeds(ids).catch(() => [] as DriveNeed[]);
+		const short = needs.filter((n) => n.short !== null && n.tasks.some((id) => ids.includes(id)));
+		if (short.length === 0) return run(go());
+		diskAsk = { needs: short, go };
+	}
+
+	/** Moves the downloads on the short drives (that are about to start) into `dir`. */
+	async function moveThenStart(dir: string) {
+		const ask = diskAsk;
+		if (!ask) return;
+		const moving = ask.needs.flatMap((n) => n.tasks);
+		const starting = downloads.tasks
+			.filter((t) => moving.includes(t.id) && t.status !== 'downloading')
+			.map((t) => t.id);
+		await run(
+			(async () => {
+				for (const id of starting) await relocateTask(id, dir);
+				await ask.go();
+			})()
+		);
+	}
+
 	async function run(p: Promise<unknown>) {
 		try {
 			await p;
@@ -250,7 +281,7 @@
 				},
 				{
 					label: msg('Resume'),
-					action: () => run(startTasks(ids(canStart))),
+					action: () => startChecked(ids(canStart), () => startTasks(ids(canStart))),
 					disabled: !sel.some(canStart),
 					separated: true
 				},
@@ -433,7 +464,7 @@
 			{#if selectedTasks.length}
 				<Text variant="label">{t('{n} selected', { n: selectedTasks.length })}</Text>
 				<div class="actions">
-					<Button icon="play" onclick={() => run(startTasks(ids(canStart)))} disabled={!selectedTasks.some(canStart)}
+					<Button icon="play" onclick={() => startChecked(ids(canStart), () => startTasks(ids(canStart)))} disabled={!selectedTasks.some(canStart)}
 						>{t('Resume')}</Button
 					>
 					<Button icon="pause" onclick={() => run(pauseTasks(ids(canPause)))} disabled={!selectedTasks.some(canPause)}
@@ -455,7 +486,11 @@
 				<Text variant="caption" mono inline>{visible.length}</Text>
 				<div class="actions">
 					{#if anyToStart}
-						<Button variant="ghost" icon="play" onclick={() => run(startAll())}>{t('Resume all')}</Button>
+						<Button variant="ghost" icon="play" onclick={() =>
+							startChecked(
+								downloads.tasks.filter((t) => t.status === 'paused' || t.status === 'error').map((t) => t.id),
+								startAll
+							)}>{t('Resume all')}</Button>
 					{/if}
 					{#if anyToPause}
 						<Button variant="ghost" icon="pause" onclick={() => run(pauseAll())}>{t('Pause all')}</Button>
@@ -481,7 +516,18 @@
 			{/if}
 		</main>
 
-		{#if notice || downloads.error}
+		{#if downloads.diskLow && !notice}
+			<div class="message error" role="alert">
+				<span
+					>{t('{n} downloads paused: {volume} has {free} left. Free some space or move them, then resume.', {
+						n: downloads.diskLow.paused.length,
+						volume: downloads.diskLow.volume,
+						free: bytes(downloads.diskLow.free)
+					})}</span
+				>
+				<Button variant="ghost" icon="close" onclick={() => (downloads.diskLow = null)} label={t('Dismiss')} />
+			</div>
+		{:else if notice || downloads.error}
 			<div class="message error" role="alert">
 				<span>{notice ?? downloads.error}</span>
 				<Button variant="ghost" icon="close" onclick={() => (notice = null)} label={t('Dismiss')} />
@@ -553,6 +599,15 @@
 
 {#if tracing}
 	<OriginDialog origin={tracing.origin} dropped={tracing.dropped} onclose={() => (tracing = null)} />
+{/if}
+
+{#if diskAsk}
+	<DiskDialog
+		needs={diskAsk.needs}
+		onmove={moveThenStart}
+		onstart={() => diskAsk && run(diskAsk.go())}
+		onclose={() => (diskAsk = null)}
+	/>
 {/if}
 
 {#if removing}

@@ -14,6 +14,7 @@ pub mod batch;
 pub mod clip;
 pub mod command;
 mod db;
+pub mod disk;
 pub mod eta;
 pub mod folder;
 pub mod grabber;
@@ -129,6 +130,21 @@ pub struct Config {
     pub deno: Option<PathBuf>,
     /// Torrents and magnet links; read when the first one starts.
     pub torrent: TorrentConfig,
+    /// The drive a folder is on and the space free there (see [`disk::FreeSpace`]); `None`
+    /// reads the real disks.
+    pub free_space: Option<Space>,
+    /// How often the drives running downloads write to are looked at.
+    pub disk_watch: Duration,
+}
+
+/// A [`disk::FreeSpace`] in the configuration.
+#[derive(Clone)]
+pub struct Space(pub disk::FreeSpace);
+
+impl std::fmt::Debug for Space {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Space")
+    }
 }
 
 impl Default for Config {
@@ -147,6 +163,8 @@ impl Default for Config {
             ytdlp: None,
             deno: None,
             torrent: TorrentConfig::default(),
+            free_space: None,
+            disk_watch: Duration::from_secs(2),
         }
     }
 }
@@ -163,6 +181,9 @@ pub enum Event {
     /// A download's files are being copied to another drive (see [`Manager::relocate`]);
     /// an [`Event::Updated`] follows when they are in place, or the move failed.
     Moving(MoveProgress),
+    /// A drive came within [`disk::RESERVE`] of full: the downloads writing to it (and
+    /// those waiting to) were paused.
+    DiskLow(disk::DiskLow),
 }
 
 /// How far the copy of a download's files has come.
@@ -558,7 +579,36 @@ impl Manager {
             }
         }
         inner.fill().await?;
+        // Looks at the drives while downloads run; ends with the manager.
+        let weak = Arc::downgrade(&inner);
+        let every = lock(&inner.config).disk_watch;
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(every);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tick.tick().await;
+                let Some(inner) = weak.upgrade() else { return };
+                if inner.closed.load(Ordering::SeqCst) {
+                    return;
+                }
+                if let Err(e) = inner.watch_disks().await {
+                    tracing::warn!("could not look at the free disk space: {e}");
+                }
+            }
+        });
         Ok(Self { inner })
+    }
+
+    /// What `ids` (and the downloads running now, which write to the same drives) still
+    /// need on each drive, against the space free there: for asking before a queue starts.
+    pub async fn disk_needs(&self, ids: &[TaskId]) -> Result<Vec<disk::DriveNeed>> {
+        let tasks: Vec<Task> = self
+            .list()
+            .await?
+            .into_iter()
+            .filter(|t| ids.contains(&t.id) || t.status == Status::Downloading)
+            .collect();
+        Ok(disk::needs(&tasks, &self.inner.free_space()))
     }
 
     /// Events for every change from now on. A receiver that falls far behind skips events
@@ -707,6 +757,7 @@ impl Manager {
                 pieces: new.pieces.as_ref(),
                 page_title: new.title.as_deref(),
                 page_checksum: page_checksum.as_deref(),
+                size: new.size,
             })
             .await?;
         let task = self.get(id).await?;
@@ -1423,6 +1474,60 @@ impl Manager {
 }
 
 impl Inner {
+    fn free_space(&self) -> disk::FreeSpace {
+        lock(&self.config).free_space.as_ref().map_or_else(
+            || Arc::new(disk::free_space) as disk::FreeSpace,
+            |s| s.0.clone(),
+        )
+    }
+
+    /// Pauses the downloads on a drive that has come within [`disk::RESERVE`] of full, and
+    /// the ones waiting to start there, before writing fails half way.
+    async fn watch_disks(self: &Arc<Self>) -> Result<()> {
+        if lock(&self.running).is_empty() {
+            return Ok(());
+        }
+        let tasks: Vec<Task> = self
+            .db
+            .list()
+            .await?
+            .into_iter()
+            .filter(|t| matches!(t.status, Status::Downloading | Status::Queued))
+            .collect();
+        for drive in disk::needs(&tasks, &self.free_space()) {
+            let Some(free) = drive.free.filter(|f| *f < disk::RESERVE) else {
+                continue;
+            };
+            let running = lock(&self.running).keys().copied().collect::<HashSet<_>>();
+            if !drive.tasks.iter().any(|id| running.contains(id)) {
+                continue;
+            }
+            let note = format!(
+                "paused: only {} MB left on {}; free some space or move it to another drive, \
+                 then resume",
+                free >> 20,
+                drive.volume.display()
+            );
+            tracing::warn!("{note}");
+            for &id in &drive.tasks {
+                lock(&self.retries).remove(&id);
+                self.stop(id, Stop::Pause).await;
+                self.db
+                    .set_failure(id, Status::Paused, Some(&note), Some(ErrorKind::Disk))
+                    .await?;
+                if let Some(t) = self.db.get(id).await? {
+                    self.emit(Event::Updated(t));
+                }
+            }
+            self.emit(Event::DiskLow(disk::DiskLow {
+                volume: drive.volume,
+                free,
+                paused: drive.tasks,
+            }));
+        }
+        Ok(())
+    }
+
     fn emit(&self, e: Event) {
         // No receivers is fine.
         let _ = self.events.send(e);

@@ -417,6 +417,13 @@ impl Downloads {
     }
 
     #[tool(
+        description = "Disk space for the unfinished downloads, per drive: volume (a drive such as D: or a mount point), need (bytes still to download of the ones with a known size), free (bytes free there), unknown (how many have no known size yet, so need more), tasks (their ids), reserve (bytes always kept free) and short (bytes missing to fit them all and keep the reserve; null when they fit). Ask before resuming a large queue; move downloads to a drive with room with relocate_download. While downloading, Shardload pauses the downloads on a drive that comes within the reserve of full (error_kind disk)."
+    )]
+    async fn check_disk_space(&self) -> Result<CallToolResult, ErrorData> {
+        self.ask(Request::DiskSpace).await
+    }
+
+    #[tool(
         description = "Where did this file come from? Finds a file's download in Shardload's history (by its path, or by its size and SHA-256 if it was moved or copied), or else reads the mark the browser left on it (Windows Zone.Identifier, Linux user.xdg.origin.url): address, page, date and checksum. traced says how: path, content, mark or unknown. With check_checksum it hashes the file again; with check_update it asks the address whether there is a newer version."
     )]
     async fn file_origin(

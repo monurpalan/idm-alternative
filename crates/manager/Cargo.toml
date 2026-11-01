@@ -22,6 +22,7 @@ tokio.workspace = true
 tracing.workspace = true
 url = "2"
 httpdate = "1"
+fs4 = "1.1.0"
 
 [dev-dependencies]
 tracing-subscriber.workspace = true

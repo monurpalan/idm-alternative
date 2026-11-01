@@ -296,7 +296,15 @@ export type ManagerEvent =
 	| { type: 'updated'; data: Task }
 	| { type: 'removed'; data: TaskId }
 	/** Files being copied to another drive; an `updated` follows when they are in place. */
-	| { type: 'moving'; data: { id: TaskId; copied: number; total: number } };
+	| { type: 'moving'; data: { id: TaskId; copied: number; total: number } }
+	/** A drive came within the reserve of full: the downloads writing to it were paused. */
+	| { type: 'disklow'; data: DiskLow };
+
+export interface DiskLow {
+	volume: string;
+	free: number;
+	paused: TaskId[];
+}
 
 export const listTasks = () => invoke<Task[]>('list_tasks');
 export type Headers = [string, string][];
@@ -335,6 +343,8 @@ export const addTask = (request: {
 	title?: string | null;
 	/** A checksum shown next to the link on that page; checked when the publisher posts none. */
 	page_checksum?: string | null;
+	/** The size the server said when asked, for the disk check before it starts. */
+	size?: number | null;
 }) => invoke<Task>('add_task', { request });
 
 /** Video sites whose pages yt-dlp reads (a pasted link opens the page window). */
@@ -628,6 +638,23 @@ export const restartTask = (id: TaskId) => invoke<void>('restart_task', { id });
 export const renameTask = (id: TaskId, name: string) => invoke<Task>('rename_task', { id, name });
 /** Another folder; the files on disk follow, copied and checked when it is another drive. */
 export const relocateTask = (id: TaskId, dir: string) => invoke<Task>('relocate_task', { id, dir });
+
+/** What downloads about to run need on one drive. */
+export interface DriveNeed {
+	/** `D:\`, or a mount point. */
+	volume: string;
+	/** Bytes still to download of the ones with a known size. */
+	need: number;
+	free: number | null;
+	/** How many have no known size yet. */
+	unknown: number;
+	tasks: TaskId[];
+	/** Bytes missing to fit them and keep `reserve` free; null when they fit. */
+	short: number | null;
+	reserve: number;
+}
+/** Per drive, what `ids` (and the running downloads) need against the space free. */
+export const diskNeeds = (ids: TaskId[]) => invoke<DriveNeed[]>('disk_needs', { ids });
 export const openFile = (id: TaskId) => invoke<void>('open_file', { id });
 export const showInFolder = (id: TaskId) => invoke<void>('show_in_folder', { id });
 export const setSpeedLimit = (id: TaskId, rate: number | null) =>

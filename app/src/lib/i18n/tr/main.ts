@@ -116,5 +116,19 @@ export default {
 	'Another file…': 'Başka bir dosya…',
 	'Check the checksum': 'Sağlama toplamını denetle',
 	'Newer version?': 'Yeni sürüm var mı?',
-	'Where did it come from?': 'Nereden geldi?'
+	'Where did it come from?': 'Nereden geldi?',
+	// Disk space
+	'Disk full': 'Disk dolu',
+	'Not enough disk space': 'Yeterli disk alanı yok',
+	'{missing} short on {volume}': '{volume} üzerinde {missing} eksik',
+	'{need} to download, {free} free, {reserve} kept free': '{need} indirilecek, {free} boş, {reserve} boş tutulur',
+	'and {n} of unknown size': 've boyutu bilinmeyen {n} indirme',
+	'Started anyway, downloads pause by themselves before the drive fills up.':
+		'Yine de başlatılırsa indirmeler sürücü dolmadan kendiliğinden duraklar.',
+	'Start anyway': 'Yine de başlat',
+	'Move to another drive…': 'Başka bir sürücüye taşı…',
+	'{n} downloads paused: {volume} has {free} left. Free some space or move them, then resume.':
+		'{n} indirme duraklatıldı: {volume} üzerinde {free} kaldı. Yer açın ya da taşıyın, sonra sürdürün.',
+	'Paused before the drive filled up: free some space or move it to another drive, then resume.':
+		'Sürücü dolmadan duraklatıldı: yer açın ya da başka bir sürücüye taşıyın, sonra sürdürün.'
 } satisfies Record<string, string>;

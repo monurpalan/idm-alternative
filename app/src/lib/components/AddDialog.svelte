@@ -241,6 +241,8 @@
 				onclose();
 				return;
 			}
+			// What the chosen files of a torrent or an archive add up to, for the disk check.
+			const chosenSize = files.length ? files.reduce((s, f, i) => s + (chosen[i] ? f.size : 0), 0) : null;
 			if (torrent || isTorrent(u)) {
 				const all = !torrent || chosen.every((c) => c);
 				await addTask({
@@ -249,6 +251,7 @@
 					dir: dir || null,
 					start,
 					login: null,
+					size: torrent ? chosenSize : null,
 					stream: {
 						audio: null,
 						torrent: {
@@ -267,6 +270,7 @@
 					start,
 					login: login(),
 					headers: await sentHeaders(),
+					size: chosenSize,
 					stream: {
 						audio: null,
 						archive: { entries: files.filter((_, i) => chosen[i]).map((f) => f.name) }
@@ -286,7 +290,8 @@
 				headers: await sentHeaders(),
 				mirrors: mirrorList(),
 				title,
-				page_checksum: pageChecksum
+				page_checksum: pageChecksum,
+				size: info?.size ?? null
 			});
 			onclose();
 		} catch (e) {

@@ -157,6 +157,7 @@ async fn tools_reach_the_app() {
         names,
         [
             "add_download",
+            "check_disk_space",
             "file_origin",
             "find_site_files",
             "forget_site",
@@ -305,6 +306,11 @@ async fn tools_reach_the_app() {
             json!({ "type": "relocate", "id": 7, "dir": "D:\\Downloads\\iso" }),
         ),
         ("list_sites", json!({}), json!({ "type": "sites" })),
+        (
+            "check_disk_space",
+            json!({}),
+            json!({ "type": "disk_space" }),
+        ),
         (
             "forget_site",
             json!({ "site": "example.com" }),

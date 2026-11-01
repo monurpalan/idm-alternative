@@ -101,6 +101,9 @@ pub enum Request {
     /// What downloads learned about each site (connections allowed, ranges, identity, how
     /// long links last), answered in [`Reply::data`] as an array.
     Sites,
+    /// What the unfinished downloads need on each drive against the space free there,
+    /// answered in [`Reply::data`] as an array.
+    DiskSpace,
     /// Forgets what was learned about a site (`host` or `host:port`).
     ForgetSite {
         site: String,

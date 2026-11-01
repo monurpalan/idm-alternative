@@ -413,6 +413,9 @@ pub struct NewTask {
     /// `checksum` or a publisher's checksum file, so it is checked only when neither exists.
     /// One that does not parse is left out.
     pub page_checksum: Option<String>,
+    /// The size the server (or the browser, or a torrent's file list) said when asked before
+    /// adding: what the queue's disk check counts until the download starts and knows.
+    pub size: Option<u64>,
 }
 
 /// Live progress of a running download, sent about four times a second.

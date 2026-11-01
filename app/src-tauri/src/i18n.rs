@@ -80,6 +80,10 @@ fn turkish(text: &str) -> Option<&'static str> {
         "{a}–{b} h" => "{a}–{b} sa",
         "{n} downloading, {time} left" => "{n} indiriliyor, {time} kaldı",
         "{n} downloading" => "{n} indiriliyor",
+        "The drive is almost full" => "Sürücü dolmak üzere",
+        "{n} downloads paused: {volume} has {free} MB left. Free some space or move them, then resume." => {
+            "{n} indirme duraklatıldı: {volume} üzerinde {free} MB kaldı. Yer açın ya da taşıyın, sonra sürdürün."
+        }
         _ => return None,
     })
 }
