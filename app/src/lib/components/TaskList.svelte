@@ -222,7 +222,7 @@
 					return t('Rec. {time}', { time: clock(r.live.recorded) });
 				if (r.live?.phase === 'verifying') {
 					const v = r.size ? Math.floor((r.live.verified / r.size) * 100) : 0;
-					const from = r.live.checksum_from;
+					const from = r.live.checksum_from === 'page' ? t('the page') : r.live.checksum_from;
 					return from
 						? t('Verifying (checksum from {from}) {v}%', { from, v })
 						: t('Verifying {v}%', { v });

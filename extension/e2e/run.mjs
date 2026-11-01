@@ -122,6 +122,23 @@ function sent(log) {
 
 // ---- The web server -----------------------------------------------------------------------
 
+/** Made-up checksums for the hash page: `h(1)`, `h(2)`… of the given length. */
+const h = (n, len = 64) => (n.toString(16) + 'a1b2c3d4e5f6').repeat(len).slice(0, len);
+
+/** Checksums shown next to links the way download pages show them. */
+const HASH_PAGE = `<!doctype html><title>hashes</title><style>a{font-size:20px}</style>
+<p><a id="side" href="/files/side.zip">side.zip</a> &middot; SHA-256: <code>${h(1)}</code></p>
+<table>
+<tr><th>File</th><th>Size</th><th>SHA-256</th><th></th></tr>
+<tr><td><a id="row1" href="/files/row1.tar.gz">row1.tar.gz</a></td><td>12 MB</td><td><code>${h(2)}</code></td><td><a href="/files/row1.tar.gz.asc">sig</a></td></tr>
+<tr><td><a id="row2" href="/files/row2.zip">row2.zip</a></td><td>14 MB</td><td><code>${h(3)}</code></td><td><a href="/files/row2.zip.asc">sig</a></td></tr>
+</table>
+<ul><li><a id="listed" href="/files/listed-1.0.zip">listed-1.0.zip</a></li><li><a href="/files/listed-1.0.tar.xz">listed-1.0.tar.xz</a></li></ul>
+<pre>${h(4)}  listed-1.0.tar.xz
+${h(5)}  listed-1.0.zip</pre>
+<div><h3><a id="below" href="/files/below.iso">below.iso</a></h3><p>Checksum (SHA-1): ${h(6, 40)}</p></div>
+<p><a id="none" href="/files/none.zip">none.zip</a> built from commit ${h(7, 40)}</p>`;
+
 function serve() {
 	const file = (res, name, type = 'application/zip') => {
 		res.writeHead(200, {
@@ -159,6 +176,9 @@ function serve() {
 		} else if (url.pathname === '/redirect' && req.method === 'POST') {
 			res.writeHead(303, { location: '/files/after-post.zip' });
 			res.end();
+		} else if (url.pathname === '/hashes.html') {
+			res.writeHead(200, { 'content-type': 'text/html' });
+			res.end(HASH_PAGE);
 		} else if (url.pathname === '/video.html') {
 			res.writeHead(200, { 'content-type': 'text/html' });
 			res.end(`<!doctype html><title>video</title><body style="margin:0">
@@ -389,6 +409,27 @@ async function main() {
 			if (!m.items?.some((i) => i.url === `${base}/clip.mp4`)) throw new Error(JSON.stringify(m.items));
 			if (m.page !== `${base}/video.html`) throw new Error(`page ${m.page}`);
 		});
+
+		const hashes = await open(cdp, `${base}/hashes.html`);
+		for (const [id, want] of [
+			['side', `sha256:${h(1)}`],
+			['row2', `sha256:${h(3)}`],
+			['row1', `sha256:${h(2)}`],
+			['listed', `sha256:${h(5)}`],
+			['below', `sha1:${h(6, 40)}`],
+			['none', null]
+		]) {
+			await test(`the checksum shown next to a link: ${id}`, async () => {
+				const file = await evaluate(cdp, hashes, `document.getElementById('${id}').getAttribute('href')`);
+				await click(cdp, hashes, await centre(cdp, hashes, `#${id}`));
+				await waitFor(() => message((m) => m.url?.endsWith(file)), 'the download at the host');
+				const m = message((m) => m.url?.endsWith(file));
+				if ((m.checksum ?? null) !== want) throw new Error(`checksum ${m.checksum}, wanted ${want}`);
+				// Only the checksum leaves the page, never its text.
+				const text = JSON.stringify(m);
+				if (/SHA-256|Checksum|commit|12 MB|listed-1\.0\.tar/.test(text)) throw new Error(`page text sent: ${text}`);
+			});
+		}
 
 		await test('the options page reaches the app and saves', async () => {
 			const options = await open(cdp, `chrome-extension://${EXTENSION_ID}/options.html`);

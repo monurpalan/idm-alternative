@@ -38,6 +38,10 @@ export default {
 	'The server sent a web page, not the file: often a sign-in page or an expired link. Get a fresh link below.':
 		'Sunucu dosya yerine bir web sayfası gönderdi: çoğu zaman bir giriş sayfası ya da süresi dolmuş bir bağlantı. Aşağıdan yeni bir bağlantı alın.',
 	'Not what its name says: open the details': 'Adının söylediği şey değil: ayrıntıları açın',
+	'Matches the {algorithm} checksum shown on the page': 'Sayfada gösterilen {algorithm} sağlama toplamıyla eşleşiyor',
+	'The file does not match the {algorithm} checksum shown on the page: the page may be out of date, or the file not the one it describes.':
+		'Dosya, sayfada gösterilen {algorithm} sağlama toplamıyla eşleşmiyor: sayfa eskimiş ya da dosya sayfanın anlattığı dosya olmayabilir.',
+	'the page': 'sayfadaki',
 	Apply: 'Uygula',
 	'Downloads from this site sign in by themselves':
 		'Bu sitedeki indirmeler kendiliğinden giriş yapar',

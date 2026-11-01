@@ -35,7 +35,7 @@ mod subtitles;
 mod zip;
 mod zone;
 
-pub use checksum::{Algorithm, Checksum, file_checksum};
+pub use checksum::{Algorithm, Checksum, FROM_PAGE, file_checksum};
 pub use dash::{DashRequest, download_dash, record_dash};
 pub use download::{
     Learned, Learning, Options, Outcome, Phase, Probe, Progress, Request, SegmentView, download,

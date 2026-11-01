@@ -88,6 +88,11 @@ struct AddParams {
     /// computer), single-file only. Its piece hashes check the download, and a corrupt piece
     /// is downloaded again alone. The file is still downloaded over HTTP, not from peers.
     pieces_from: Option<String>,
+    /// A direct link: a checksum shown on the page the link is on (`sha256:<hex>`, `sha1:`,
+    /// `md5:`, `sha512:`), when the user did not give one as `checksum`. It is checked only if
+    /// the publisher posts none (SHA256SUMS, GitHub digest); a mismatch is reported as not
+    /// matching the page, not as a corrupt file. One that does not parse is left out.
+    page_checksum: Option<String>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -244,6 +249,7 @@ impl Downloads {
             record_from_start: p.record_from_start,
             record_in_minutes: p.record_in_minutes,
             pieces_from: p.pieces_from,
+            page_checksum: p.page_checksum,
         }))
         .await
     }

@@ -15,7 +15,7 @@
 		type Task
 	} from '../api.ts';
 	import { downloads, HISTORY, moveToFolder, row } from '../downloads.svelte.ts';
-	import { bytes, date, duration, percent, siteFacts, speed } from '../format.ts';
+	import { algorithmName, bytes, date, duration, percent, siteFacts, speed } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
 
 	let {
@@ -30,6 +30,8 @@
 	// bytes; or a web page (a sign-in page, an error) saved where the name promised a file.
 	const disguised = $derived(task.status === 'done' && task.warning?.kind === 'disguised');
 	const webPage = $derived(task.status === 'error' && task.warning?.kind === 'webpage');
+	/** Checked against a checksum read off the page: a weaker promise than a publisher's. */
+	const fromPage = $derived(task.checksum_from === 'page' && task.checksum !== null);
 
 	/** What earlier downloads learned about the download's site. */
 	let site = $state<SiteMemory | null>(null);
@@ -257,6 +259,13 @@
 				     one file without ffmpeg: worth knowing, not a failure. -->
 				<dt>{t('Note')}</dt>
 				<dd class="note" title={task.error}>{task.error}</dd>
+			{:else if fromPage && task.error_kind === 'checksum'}
+				<dt>{t('Problem')}</dt>
+				<dd class="error wrap" title={task.error ?? ''}>
+					{t('The file does not match the {algorithm} checksum shown on the page: the page may be out of date, or the file not the one it describes.', {
+						algorithm: algorithmName(task.checksum ?? '')
+					})}
+				</dd>
 			{:else if webPage}
 				<dt>{t('Problem')}</dt>
 				<dd class="error wrap" title={task.error}>
@@ -265,6 +274,12 @@
 			{:else if task.error}
 				<dt>{t('Problem')}</dt>
 				<dd class="error" title={task.error}>{task.error}</dd>
+			{/if}
+			{#if fromPage && task.status === 'done'}
+				<dt>{t('Checksum')}</dt>
+				<dd title={task.checksum ?? ''}>
+					{t('Matches the {algorithm} checksum shown on the page', { algorithm: algorithmName(task.checksum ?? '') })}
+				</dd>
 			{/if}
 			{#if disguised}
 				<dt>{t('Warning')}</dt>

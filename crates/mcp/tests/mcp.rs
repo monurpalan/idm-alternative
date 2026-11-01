@@ -195,7 +195,8 @@ async fn tools_reach_the_app() {
             "mirrors": [], "checksum": null, "video_height": null, "audio_only": null,
             "torrent_files": null, "archive_entries": null, "allow_duplicate": null,
             "playlist_items": null, "clip_start": null, "clip_end": null, "exact_cut": null, "record": null, "record_minutes": null,
-            "record_from_start": null, "record_in_minutes": null, "pieces_from": null
+            "record_from_start": null, "record_in_minutes": null, "pieces_from": null,
+            "page_checksum": null
         })
     );
     // Adding again what was downloaded before is on the caller's word.
@@ -258,7 +259,7 @@ async fn tools_reach_the_app() {
                 "audio_only": true, "torrent_files": null, "archive_entries": null,
                 "allow_duplicate": null, "playlist_items": [1, 2, 3], "clip_start": null, "clip_end": null,
                 "exact_cut": null, "record": null, "record_minutes": null,
-            "record_from_start": null, "record_in_minutes": null, "pieces_from": null
+            "record_from_start": null, "record_in_minutes": null, "pieces_from": null, "page_checksum": null
             }),
         ),
         (
@@ -270,7 +271,7 @@ async fn tools_reach_the_app() {
                 "audio_only": null, "torrent_files": null, "archive_entries": null,
                 "allow_duplicate": null, "playlist_items": null, "clip_start": "1:05", "clip_end": "2:30",
                 "exact_cut": null, "record": null, "record_minutes": null,
-            "record_from_start": null, "record_in_minutes": null, "pieces_from": null
+            "record_from_start": null, "record_in_minutes": null, "pieces_from": null, "page_checksum": null
             }),
         ),
         (

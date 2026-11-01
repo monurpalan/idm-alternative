@@ -24,7 +24,7 @@
 		type TorrentInfo
 	} from '../api.ts';
 	import PreviousNotice from './PreviousNotice.svelte';
-	import { bytes } from '../format.ts';
+	import { algorithmName, bytes } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
 	import { Button, Checkbox, Dialog, Field, Input, Textarea } from './ui/index.ts';
 
@@ -33,6 +33,7 @@
 		name: initialName = null,
 		headers = null,
 		title = null,
+		pageChecksum = null,
 		onclose,
 		onshow
 	}: {
@@ -43,6 +44,8 @@
 		headers?: Headers | null;
 		/** The title of the page the download started from. */
 		title?: string | null;
+		/** A checksum the page shows next to the link. */
+		pageChecksum?: string | null;
 		onclose: () => void;
 		/** Goes to a download on the list (one found to be the same file). */
 		onshow: (id: TaskId) => void;
@@ -234,7 +237,8 @@
 				login: login(),
 				headers,
 				mirrors: mirrorList(),
-				title
+				title,
+				page_checksum: pageChecksum
 			});
 			onclose();
 		} catch (e) {
@@ -295,6 +299,14 @@
 			{#if info.saved_login}{t('Logs in as {user} (saved for this site)', { user: info.saved_login })} ·{/if}
 			{info.size !== null ? bytes(info.size) : t('Size unknown')}
 			· {info.resumable ? t('Can resume and use several connections') : t('Cannot resume (one connection)')}
+			{#if pageChecksum}
+				<br />
+				<span title={pageChecksum}
+					>{t('Checked against the {algorithm} checksum shown on the page, if the publisher posts none', {
+						algorithm: algorithmName(pageChecksum)
+					})}</span
+				>
+			{/if}
 			{#if isZip(url, info.name)}
 				<br />
 				{#if info.resumable}

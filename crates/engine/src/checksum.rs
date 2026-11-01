@@ -14,6 +14,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::{Error, Result};
 
+/// `checksum_from` of a checksum shown on the page a download was linked from (see
+/// [`crate::Options::page_checksum`]).
+pub const FROM_PAGE: &str = "page";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Algorithm {
     Md5,

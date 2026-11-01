@@ -49,7 +49,7 @@ pub enum Error {
     /// The finished file does not match the checksum the user gave, or one found for it
     /// (`origin` says where, e.g. `SHA256SUMS`). The file is kept (under its final name) so
     /// it can be inspected; downloading again starts over.
-    #[error("checksum mismatch: expected {expected}, got {actual}{}", .origin.as_ref().map(|o| format!(" (checksum from {o})")).unwrap_or_default())]
+    #[error("{}", mismatch(expected, actual, origin.as_deref()))]
     ChecksumMismatch {
         expected: String,
         actual: String,
@@ -69,6 +69,22 @@ pub enum Error {
     /// Not a ZIP archive, or one this reader cannot handle.
     #[error("not a readable ZIP archive: {0}")]
     Archive(String),
+}
+
+/// A checksum only shown on a web page is a weaker promise than a publisher's checksum file:
+/// a mismatch says the file differs from what the page shows, not that it is corrupt.
+fn mismatch(expected: &str, actual: &str, origin: Option<&str>) -> String {
+    match origin {
+        Some(crate::checksum::FROM_PAGE) => format!(
+            "the file does not match the checksum shown on the page it was linked from \
+             (expected {expected}, got {actual}): the page may be out of date, or the file \
+             not the one it describes"
+        ),
+        Some(o) => {
+            format!("checksum mismatch: expected {expected}, got {actual} (checksum from {o})")
+        }
+        None => format!("checksum mismatch: expected {expected}, got {actual}"),
+    }
 }
 
 impl Error {

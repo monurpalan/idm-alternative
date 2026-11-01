@@ -66,25 +66,39 @@ async function send(message: object): Promise<Reply> {
 	}
 }
 
-/** The title of an open tab showing `page`, if there is one. */
-async function titleOf(page: string | undefined): Promise<string | null> {
+/** An open tab showing `page`, if there is one. */
+async function tabOf(page: string | undefined): Promise<chrome.tabs.Tab | null> {
 	if (!page) return null;
 	try {
-		const tabs = await api.tabs.query({});
-		return tabs.find((t) => t.url === page)?.title || null;
+		return (await api.tabs.query({})).find((t) => t.url === page) ?? null;
 	} catch {
 		return null;
 	}
 }
 
-async function handOver(url: string, referrer: string | undefined, filename?: string, size?: number) {
+/** The checksum the page shows next to the link to `urls`, as `algorithm:hex`. */
+async function hashOnPage(tab: chrome.tabs.Tab | null, urls: string[]): Promise<string | null> {
+	if (tab?.id === undefined) return null;
+	const ask = api.tabs.sendMessage(tab.id, { hashFor: urls }) as Promise<string | null | undefined>;
+	const late = new Promise<null>((r) => setTimeout(() => r(null), 1000));
+	try {
+		const found = await Promise.race([ask, late]);
+		return typeof found === 'string' ? found : null;
+	} catch {
+		return null; // no frame has the link (or the page has no content script)
+	}
+}
+
+async function handOver(url: string, referrer: string | undefined, filename?: string, size?: number, links: string[] = []) {
+	const tab = await tabOf(referrer);
 	return send({
 		type: 'download',
 		url,
 		referrer: referrer || null,
 		filename: filename || null,
 		size: size && size > 0 ? size : null,
-		title: await titleOf(referrer),
+		title: tab?.title || null,
+		checksum: await hashOnPage(tab, [...new Set([url, ...links])]),
 		cookies: await cookiesFor(url),
 		user_agent: navigator.userAgent
 	});
@@ -112,7 +126,7 @@ api.downloads.onCreated.addListener(async (item) => {
 	api.downloads.erase({ id: item.id }).catch(() => {});
 	let reply: Reply;
 	try {
-		reply = await handOver(url, item.referrer, baseName(item.filename ?? ''), candidate.size);
+		reply = await handOver(url, item.referrer, baseName(item.filename ?? ''), candidate.size, [item.url]);
 	} catch (e) {
 		reply = { ok: false, error: String(e) };
 	}

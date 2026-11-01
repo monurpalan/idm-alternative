@@ -647,6 +647,17 @@ impl Manager {
         if let Some(c) = &new.checksum {
             c.parse::<Checksum>().map_err(Error::BadChecksum)?;
         }
+        // Read off a page, so never a reason to refuse the download.
+        let page_checksum = new
+            .page_checksum
+            .take()
+            .filter(|c| match c.parse::<Checksum>() {
+                Ok(_) => true,
+                Err(e) => {
+                    tracing::warn!("left out a checksum from the page: {e}");
+                    false
+                }
+            });
         if let Some(c) = new.stream.as_ref().and_then(|s| s.clip.as_ref()) {
             clip::check(c, None).map_err(Error::BadClip)?;
         }
@@ -690,6 +701,7 @@ impl Manager {
                 group: new.group,
                 pieces: new.pieces.as_ref(),
                 page_title: new.title.as_deref(),
+                page_checksum: page_checksum.as_deref(),
             })
             .await?;
         let task = self.get(id).await?;
@@ -2340,6 +2352,7 @@ impl Inner {
             .transpose()
             .map_err(Error::BadChecksum)?;
         opts.checksum_from = task.checksum_from.clone();
+        opts.page_checksum = task.page_checksum.as_deref().and_then(|c| c.parse().ok());
         opts.pieces = task.pieces.clone();
 
         let page_format = task.stream.as_ref().and_then(|s| s.ytdlp.clone());

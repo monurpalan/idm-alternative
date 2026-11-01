@@ -212,6 +212,9 @@ struct AddRequest {
     /// The title of the page the link came from.
     #[serde(default)]
     title: Option<String>,
+    /// A checksum shown next to the link on that page.
+    #[serde(default)]
+    page_checksum: Option<String>,
     /// One of a group added together.
     #[serde(default)]
     group: Option<i64>,
@@ -386,6 +389,7 @@ async fn add_task(app: State<'_, App>, request: AddRequest) -> CmdResult<Task> {
             mirrors: clean_mirrors(request.mirrors),
             group: request.group,
             title: request.title,
+            page_checksum: request.page_checksum,
             ..NewTask::default()
         })
         .await
@@ -1800,6 +1804,7 @@ async fn bridge_reply(
                     "filename": capture.filename,
                     "size": capture.size,
                     "title": capture.title,
+                    "checksum": capture.checksum,
                     "headers": capture.request_headers(),
                 }),
                 true,
@@ -2167,6 +2172,7 @@ async fn tool_add(handle: &AppHandle, add: shardload_bridge::AddDownload) -> Cmd
             start: add.start.unwrap_or(true),
             checksum: add.checksum.filter(|c| !c.trim().is_empty()),
             pieces_from: add.pieces_from.filter(|p| !p.trim().is_empty()),
+            page_checksum: add.page_checksum.filter(|c| !c.trim().is_empty()),
             stream,
             ..NewTask::default()
         })

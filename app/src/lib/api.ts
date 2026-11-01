@@ -329,6 +329,8 @@ export const addTask = (request: {
 	group?: number | null;
 	/** The title of the page the link came from: names a file whose name says nothing. */
 	title?: string | null;
+	/** A checksum shown next to the link on that page; checked when the publisher posts none. */
+	page_checksum?: string | null;
 }) => invoke<Task>('add_task', { request });
 
 /** Video sites whose pages yt-dlp reads (a pasted link opens the page window). */
@@ -481,6 +483,8 @@ export interface Capture {
 	size: number | null;
 	/** The title of the page the download started from. */
 	title: string | null;
+	/** A checksum the page shows next to the link, `sha256:<hex>`. */
+	checksum: string | null;
 	/** Cookies, referrer, user agent: what the browser would have sent. */
 	headers: Headers;
 }

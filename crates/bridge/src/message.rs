@@ -209,6 +209,9 @@ pub struct AddDownload {
     pub record_in_minutes: Option<u64>,
     /// A `.torrent` of the same file (a link or a path): its piece hashes check the download.
     pub pieces_from: Option<String>,
+    /// A checksum shown on the page the link is on, checked when the publisher posts none.
+    #[serde(default)]
+    pub page_checksum: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -261,6 +264,9 @@ pub struct Capture {
     /// The title of the page the download started from: names a file whose name says
     /// nothing (`download.php`).
     pub title: Option<String>,
+    /// A checksum the page shows next to the link (`sha256:<hex>`…): only that, never the
+    /// page's text.
+    pub checksum: Option<String>,
     /// `Cookie` header value for the URL, from the browser's cookie store.
     pub cookies: Option<String>,
     pub user_agent: Option<String>,

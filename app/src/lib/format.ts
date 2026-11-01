@@ -108,3 +108,7 @@ export function clock(seconds: number): string {
 		? `${Math.floor(s / 3600)}:${two(Math.floor(s / 60) % 60)}:${two(s % 60)}`
 		: `${Math.floor(s / 60)}:${two(s % 60)}`;
 }
+
+/** `SHA-256` for a checksum `sha256:<hex>` (or its algorithm alone). */
+export const algorithmName = (checksum: string): string =>
+	checksum.split(':')[0].toUpperCase().replace(/^SHA(\d)/, 'SHA-$1');

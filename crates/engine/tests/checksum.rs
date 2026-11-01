@@ -390,3 +390,69 @@ async fn pieces_that_stay_corrupt_fail_the_download() {
         other => panic!("{other:?}"),
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_checksum_from_the_page_is_checked_when_none_is_published() {
+    let size = 2 * MB;
+    let base = start().await;
+    let dir = workdir("checksum-page");
+    let page = |c: &str| Options {
+        page_checksum: Some(c.parse::<Checksum>().expect("checksum")),
+        ..searching(2)
+    };
+
+    let out = dir.join("p.bin");
+    let req = request(format!("{base}/file/p.bin?size={size}&seed=27"), &out);
+    let good = sha256_of(27, size);
+    let done = get(&req, &page(&good)).await.expect("download");
+    assert_eq!(done.checksum.map(|c| c.to_string()), Some(good));
+    assert_eq!(
+        done.checksum_from.as_deref(),
+        Some(shardload_engine::FROM_PAGE)
+    );
+
+    // A page out of date: said as such, not as a corrupt file.
+    let out = dir.join("q.bin");
+    let req = request(format!("{base}/file/q.bin?size={size}&seed=28"), &out);
+    let stale = sha256_of(29, size);
+    match get(&req, &page(&stale)).await {
+        Err(e @ Error::ChecksumMismatch { .. }) => {
+            assert!(e.to_string().contains("shown on the page"), "{e}");
+            assert!(!e.to_string().contains("checksum mismatch"), "{e}");
+            assert!(!e.to_string().contains("  "), "one line: {e}");
+        }
+        other => panic!("expected a mismatch, got {other:?}"),
+    }
+    assert_verified(&out, 28, size);
+
+    // Even with looking for published ones turned off.
+    let out = dir.join("r.bin");
+    let req = request(format!("{base}/file/r.bin?size={size}&seed=27"), &out);
+    let off = Options {
+        find_checksum: false,
+        ..page(&sha256_of(27, size))
+    };
+    let done = get(&req, &off).await.expect("download");
+    assert_eq!(
+        done.checksum_from.as_deref(),
+        Some(shardload_engine::FROM_PAGE)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_publishers_checksum_comes_before_the_pages() {
+    let size = 2 * MB;
+    let good = sha256_of(30, size);
+    let base = start_with_sums(format!("{}  s.bin\n", hex_of(&good))).await;
+    let dir = workdir("checksum-page-published");
+    let out = dir.join("s.bin");
+    let req = request(format!("{base}/file/s.bin?size={size}&seed=30"), &out);
+    // The page shows a stale one; the publisher's list has the right one.
+    let opts = Options {
+        page_checksum: Some(sha256_of(31, size).parse().expect("checksum")),
+        ..searching(2)
+    };
+    let done = get(&req, &opts).await.expect("download");
+    assert_eq!(done.checksum.map(|c| c.to_string()), Some(good));
+    assert_eq!(done.checksum_from.as_deref(), Some("SHA256SUMS"));
+}

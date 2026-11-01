@@ -313,6 +313,10 @@ pub struct Task {
     /// The title of the page the download came from.
     #[serde(skip)]
     pub page_title: Option<String>,
+    /// A checksum shown on that page (`algorithm:hex`), checked when the publisher posts
+    /// none; once used it is `checksum`, with `checksum_from` [`shardload_engine::FROM_PAGE`].
+    #[serde(skip)]
+    pub page_checksum: Option<String>,
 }
 
 /// A finished file that may not be what it says.
@@ -405,6 +409,10 @@ pub struct NewTask {
     /// The title of the page the link was on: names a file whose name says nothing
     /// (`download.php`).
     pub title: Option<String>,
+    /// A checksum shown next to the link on that page (`sha256:<hex>`…): a weaker promise than
+    /// `checksum` or a publisher's checksum file, so it is checked only when neither exists.
+    /// One that does not parse is left out.
+    pub page_checksum: Option<String>,
 }
 
 /// Live progress of a running download, sent about four times a second.

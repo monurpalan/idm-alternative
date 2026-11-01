@@ -64,16 +64,20 @@ async fn finished(m: &Manager, id: TaskId) -> Task {
 }
 
 async fn download(m: &Manager, url: String, name: Option<&str>, title: Option<&str>) -> Task {
-    let t = m
-        .add(NewTask {
+    add(
+        m,
+        NewTask {
             url,
             name: name.map(str::to_owned),
             title: title.map(str::to_owned),
-            start: true,
             ..NewTask::default()
-        })
-        .await
-        .expect("add");
+        },
+    )
+    .await
+}
+
+async fn add(m: &Manager, new: NewTask) -> Task {
+    let t = m.add(NewTask { start: true, ..new }).await.expect("add");
     finished(m, t.id).await
 }
 
@@ -258,5 +262,98 @@ async fn names_that_say_nothing() {
     .await;
     assert_eq!(t.name.as_deref(), Some("mine.php"));
     assert_eq!(t.content.as_deref(), Some("document:pdf"));
+    m.close().await;
+}
+
+/// SHA-256 of the test server's bytes for `seed` and `size`, as `sha256:<hex>`.
+fn sha256_of(seed: u64, size: usize) -> String {
+    use sha2::{Digest, Sha256};
+    let mut bytes = vec![0u8; size];
+    shardload_testserver::content::fill(seed, 0, &mut bytes);
+    let hex: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("sha256:{hex}")
+}
+
+#[tokio::test]
+async fn a_checksum_shown_on_the_page() {
+    let base = start_server().await;
+    let dir = WorkDir::new("content-page-checksum");
+    let m = Manager::open(&dir.path().join("list.db"), dir.config())
+        .await
+        .expect("open");
+    let size = 256 * 1024;
+    let page = |url: String, checksum: String| NewTask {
+        url,
+        page_checksum: Some(checksum),
+        ..NewTask::default()
+    };
+
+    let t = add(
+        &m,
+        page(
+            format!("{base}/file/a.bin?size=256K&seed=41"),
+            sha256_of(41, size),
+        ),
+    )
+    .await;
+    assert_eq!(t.status, Status::Done, "{:?}", t.error);
+    assert_eq!(t.checksum, Some(sha256_of(41, size)));
+    assert_eq!(
+        t.checksum_from.as_deref(),
+        Some(shardload_engine::FROM_PAGE)
+    );
+
+    // The page shows another file's: said as the page's, not as a corrupt file.
+    let t = add(
+        &m,
+        page(
+            format!("{base}/file/b.bin?size=256K&seed=42"),
+            sha256_of(43, size),
+        ),
+    )
+    .await;
+    assert_eq!(t.status, Status::Error);
+    assert_eq!(t.error_kind, Some(ErrorKind::Checksum));
+    assert_eq!(
+        t.checksum_from.as_deref(),
+        Some(shardload_engine::FROM_PAGE)
+    );
+    assert!(
+        t.error
+            .as_deref()
+            .is_some_and(|e| e.contains("shown on the page")),
+        "{:?}",
+        t.error
+    );
+
+    // One that does not parse is left out; the download goes on without it.
+    let t = add(
+        &m,
+        page(
+            format!("{base}/file/c.bin?size=256K&seed=44"),
+            "sha256:nothex".into(),
+        ),
+    )
+    .await;
+    assert_eq!(t.status, Status::Done);
+    assert_eq!(t.checksum, None);
+
+    // A checksum the user gave wins.
+    let t = add(
+        &m,
+        NewTask {
+            checksum: Some(sha256_of(45, size)),
+            ..page(
+                format!("{base}/file/d.bin?size=256K&seed=45"),
+                sha256_of(46, size),
+            )
+        },
+    )
+    .await;
+    assert_eq!(t.status, Status::Done, "{:?}", t.error);
+    assert_eq!(t.checksum_from, None);
     m.close().await;
 }

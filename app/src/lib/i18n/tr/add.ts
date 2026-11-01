@@ -33,6 +33,8 @@ export default {
 	'The server asks for a user name and password.': 'Sunucu kullanıcı adı ve parola istiyor.',
 	'Logs in as {user} (saved for this site)': '{user} olarak giriş yapılır (bu site için kayıtlı)',
 	'Size unknown': 'Boyut bilinmiyor',
+	'Checked against the {algorithm} checksum shown on the page, if the publisher posts none':
+		'Yayıncı yayımlamıyorsa sayfada gösterilen {algorithm} sağlama toplamıyla doğrulanır',
 	'Can resume and use several connections':
 		'Devam ettirilebilir, birden çok bağlantı kullanılabilir',
 	'Cannot resume (one connection)': 'Devam ettirilemez (tek bağlantı)',

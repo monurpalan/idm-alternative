@@ -34,6 +34,7 @@ pub(crate) struct Insert<'a> {
     pub group: Option<i64>,
     pub pieces: Option<&'a shardload_engine::Pieces>,
     pub page_title: Option<&'a str>,
+    pub page_checksum: Option<&'a str>,
 }
 
 impl Db {
@@ -84,8 +85,9 @@ impl Db {
         let id = sqlx::query(
             "INSERT INTO tasks (url, headers, dir, name, status, category, connections,
                                 speed_limit, checksum, added_at, stream, mirrors, group_id,
-                                pieces, name_given, page_title, queue_pos)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                pieces, name_given, page_title, page_checksum,
+                                queue_pos)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                      (SELECT COALESCE(MAX(queue_pos), 0) + 1 FROM tasks))",
         )
         .bind(t.url)
@@ -108,6 +110,7 @@ impl Db {
         .bind(t.pieces.map(serde_json::to_string).transpose()?)
         .bind(t.name.is_some())
         .bind(t.page_title)
+        .bind(t.page_checksum)
         .execute(&self.pool)
         .await?
         .last_insert_rowid();
@@ -682,6 +685,7 @@ fn task(r: &SqliteRow) -> Result<Task> {
         name,
         name_given: r.try_get("name_given")?,
         page_title: r.try_get("page_title")?,
+        page_checksum: r.try_get("page_checksum")?,
         path: r.try_get::<Option<String>, _>("path")?.map(PathBuf::from),
         size: u64_opt("size")?,
         received: r.try_get::<i64, _>("received")? as u64,

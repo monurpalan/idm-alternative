@@ -108,6 +108,9 @@ pub struct Options {
     /// release asset, or a checksum file next to the file (`<file>.sha256`, `SHA256SUMS`…).
     /// A checksum found is checked like a given one.
     pub find_checksum: bool,
+    /// Without `checksum`: one shown on the page the link was on, checked when the publisher
+    /// posted none (a published one comes first). Reported as from [`crate::FROM_PAGE`].
+    pub page_checksum: Option<Checksum>,
     /// Where the download notes what it learned about the server (see [`Learned`]); each
     /// clone of the options shares it.
     pub learn: Learning,
@@ -171,6 +174,7 @@ impl Default for Options {
             mark_of_the_web: true,
             checksum_from: None,
             find_checksum: true,
+            page_checksum: None,
             learn: Learning::default(),
             pieces: None,
         }
@@ -306,9 +310,12 @@ pub async fn download(
                             f = discovery.join_next() => f.and_then(Result::ok).flatten(),
                             () = cancel.cancelled() => return Err(Error::Cancelled),
                         };
-                        match found {
-                            Some(f) => (Some(f.checksum), Some(f.from)),
-                            None => (None, None),
+                        match (found, &opts.page_checksum) {
+                            (Some(f), _) => (Some(f.checksum), Some(f.from)),
+                            (None, Some(page)) => {
+                                (Some(page.clone()), Some(crate::FROM_PAGE.to_owned()))
+                            }
+                            (None, None) => (None, None),
                         }
                     }
                 };
