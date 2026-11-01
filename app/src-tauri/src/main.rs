@@ -477,6 +477,25 @@ async fn add_batch(app: State<'_, App>, request: AddRequest) -> CmdResult<usize>
     Ok(urls.len())
 }
 
+/// A `curl`, `wget` or `Invoke-WebRequest` command pasted in the "New download" window.
+#[tauri::command]
+fn parse_command(text: String) -> CmdResult<shardload_manager::command::Pasted> {
+    shardload_manager::command::parse_command(&text)
+}
+
+/// `Name: value` lines typed by the user, checked.
+#[tauri::command]
+fn parse_headers(text: String) -> CmdResult<Vec<(String, String)>> {
+    shardload_manager::command::parse_header_lines(&text)
+}
+
+/// The request headers a download is sent with from now on, as `Name: value` lines.
+#[tauri::command]
+async fn set_headers(app: State<'_, App>, id: TaskId, text: String) -> CmdResult<Task> {
+    let headers = shardload_manager::command::parse_header_lines(&text)?;
+    app.manager.set_headers(id, &headers).await.map_err(msg)
+}
+
 /// Credentials for a download whose server asked for them; it continues with them.
 #[tauri::command]
 async fn set_login(app: State<'_, App>, id: TaskId, login: Login) -> CmdResult<()> {
@@ -2055,6 +2074,7 @@ async fn bridge_reply(
 /// archive (with `archive_entries`).
 async fn tool_add(handle: &AppHandle, add: shardload_bridge::AddDownload) -> CmdResult<Task> {
     let app = handle.state::<App>();
+    let headers = shardload_manager::command::parse_header_lines(&add.headers.join("\n"))?;
     let mut name = add.name.filter(|n| !n.trim().is_empty());
     let mut stream = None;
     let clip_asked = add.clip_start.is_some() || add.clip_end.is_some();
@@ -2173,6 +2193,7 @@ async fn tool_add(handle: &AppHandle, add: shardload_bridge::AddDownload) -> Cmd
             checksum: add.checksum.filter(|c| !c.trim().is_empty()),
             pieces_from: add.pieces_from.filter(|p| !p.trim().is_empty()),
             page_checksum: add.page_checksum.filter(|c| !c.trim().is_empty()),
+            headers,
             stream,
             ..NewTask::default()
         })
@@ -2680,6 +2701,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             list_tasks,
+            parse_command,
+            parse_headers,
+            set_headers,
             probe,
             add_task,
             start_tasks,

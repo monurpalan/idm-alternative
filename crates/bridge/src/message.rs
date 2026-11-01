@@ -212,6 +212,9 @@ pub struct AddDownload {
     /// A checksum shown on the page the link is on, checked when the publisher posts none.
     #[serde(default)]
     pub page_checksum: Option<String>,
+    /// Request headers, `Name: value` each: cookies, referrer, a token.
+    #[serde(default)]
+    pub headers: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

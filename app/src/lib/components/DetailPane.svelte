@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Checkbox, Input, Text } from './ui/index.ts';
+	import { Button, Checkbox, Input, Text, Textarea } from './ui/index.ts';
 	// Details of one download: where it goes, live numbers, a speed graph, the segment map
 	// (the engine's live splitting, one bar per connection's range), its own speed limit and
 	// "refresh link" for links that expired.
@@ -7,6 +7,8 @@
 	import {
 		refreshInBrowser,
 		refreshLink,
+		headerLines,
+		setHeaders,
 		setLogin,
 		setSpeedLimit,
 		siteMemory,
@@ -47,6 +49,24 @@
 	const learned = $derived(site ? siteFacts(site).join(' · ') : '');
 	/** Set when the link, by how long the site's links lasted, is about to expire. */
 	const link = $derived(downloads.links[task.id]);
+
+	let editingHeaders = $state(false);
+	let headersText = $state('');
+	// Another download selected: its own headers, not the edit of the last one.
+	$effect(() => {
+		void task.id;
+		editingHeaders = false;
+	});
+	async function saveHeaders(e: SubmitEvent) {
+		e.preventDefault();
+		try {
+			await setHeaders(task.id, headersText);
+			editingHeaders = false;
+			onerror(null);
+		} catch (err) {
+			onerror(String(err));
+		}
+	}
 
 	let limitKb = $state('');
 	let newUrl = $state('');
@@ -239,6 +259,17 @@
 				<dt>{t('Site')}</dt>
 				<dd title={site?.site}>{t('This site {facts} (learned)', { facts: learned })}</dd>
 			{/if}
+			<dt>{t('Request headers')}</dt>
+			<dd class="wrap">
+				{task.headers.length ? task.headers.map(([k]) => k).join(', ') : t('none')}
+				<Button
+					variant="link"
+					onclick={() => {
+						headersText = headerLines(task.headers);
+						editingHeaders = !editingHeaders;
+					}}>{editingHeaders ? t('Cancel') : t('Edit…')}</Button
+				>
+			</dd>
 			{#if link}
 				<dt>{t('Link')}</dt>
 				<dd class:error={link.expired}>
@@ -293,6 +324,15 @@
 				</dd>
 			{/if}
 		</dl>
+		{#if editingHeaders}
+			<form class="headers" onsubmit={saveHeaders}>
+				<Textarea bind:value={headersText} rows={4} placeholder="Cookie: sid=…" />
+				<span>
+					<Button type="submit" variant="primary">{t('Save headers')}</Button>
+					<Text variant="caption" inline>{t('Kept encrypted; a running download continues with them')}</Text>
+				</span>
+			</form>
+		{/if}
 		<form class="inline" onsubmit={applyLimit}>
 			<label for="limit">{t('Speed limit')}</label>
 			<Input id="limit" inputmode="numeric" bind:value={limitKb} placeholder={t('none')} />
@@ -430,6 +470,11 @@
 	}
 	.note {
 		color: var(--muted);
+	}
+	.headers {
+		display: grid;
+		gap: var(--space-2);
+		margin-bottom: var(--space-3);
 	}
 	/* A warning is read whole, not from a tooltip. */
 	.wrap {

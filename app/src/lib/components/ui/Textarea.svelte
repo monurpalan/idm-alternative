@@ -4,16 +4,20 @@
 		value = $bindable(''),
 		rows = 3,
 		placeholder,
-		disabled = false
+		disabled = false,
+		onblur,
+		onpaste
 	}: {
 		value?: string;
 		rows?: number;
 		placeholder?: string;
 		disabled?: boolean;
+		onblur?: (e: FocusEvent) => void;
+		onpaste?: (e: ClipboardEvent) => void;
 	} = $props();
 </script>
 
-<textarea bind:value {rows} {placeholder} {disabled}></textarea>
+<textarea bind:value {rows} {placeholder} {disabled} {onblur} {onpaste}></textarea>
 
 <style>
 	textarea {

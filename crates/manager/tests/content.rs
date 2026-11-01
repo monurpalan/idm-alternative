@@ -357,3 +357,62 @@ async fn a_checksum_shown_on_the_page() {
     assert_eq!(t.checksum_from, None);
     m.close().await;
 }
+
+#[tokio::test]
+async fn headers_given_by_hand_or_by_a_command() {
+    use shardload_manager::command::parse_command;
+    let base = start_server().await;
+    let dir = WorkDir::new("content-headers");
+    let m = Manager::open(&dir.path().join("list.db"), dir.config())
+        .await
+        .expect("open");
+
+    // A file only served with the site's cookie and its page as the referrer, the way a
+    // browser's "Copy as cURL" gives it.
+    let url = format!("{base}/file/locked.bin?size=256K&seed=47&only_header=Cookie:sid=abc");
+    let pasted = parse_command(&format!(
+        "curl '{url}' \\n  -b 'theme=dark; sid=abc' \\n  -H 'referer: {base}/page' --compressed"
+    ))
+    .expect("parse");
+    let t = add(
+        &m,
+        NewTask {
+            url: pasted.url,
+            headers: pasted.headers,
+            ..NewTask::default()
+        },
+    )
+    .await;
+    assert_eq!(t.status, Status::Done, "{:?}", t.error);
+
+    // Without the cookie it fails; given later, it is tried again and finishes.
+    let url = format!("{base}/file/locked2.bin?size=256K&seed=48&only_header=Cookie:sid=xyz");
+    let t = m
+        .add(NewTask {
+            url,
+            start: true,
+            ..NewTask::default()
+        })
+        .await
+        .expect("add");
+    let failed = finished(&m, t.id).await;
+    assert_eq!(failed.status, Status::Error);
+    let t = m
+        .set_headers(t.id, &[("Cookie".into(), "sid=xyz".into())])
+        .await
+        .expect("set headers");
+    assert_eq!(t.headers, vec![("Cookie".to_owned(), "sid=xyz".to_owned())]);
+    let done = finished(&m, t.id).await;
+    assert_eq!(done.status, Status::Done, "{:?}", done.error);
+
+    // Headers that cannot be sent are refused, and the old ones stay.
+    for bad in [
+        ("Range".to_owned(), "bytes=0-".to_owned()),
+        ("Bad Name".to_owned(), "x".to_owned()),
+        ("X-Line".to_owned(), "a\r\nInjected: 1".to_owned()),
+    ] {
+        assert!(m.set_headers(t.id, &[bad]).await.is_err());
+    }
+    assert_eq!(m.get(t.id).await.expect("get").headers, done.headers);
+    m.close().await;
+}

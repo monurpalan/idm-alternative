@@ -93,6 +93,11 @@ struct AddParams {
     /// the publisher posts none (SHA256SUMS, GitHub digest); a mismatch is reported as not
     /// matching the page, not as a corrupt file. One that does not parse is left out.
     page_checksum: Option<String>,
+    /// A direct link: request headers sent with every request, each `Name: value`, e.g.
+    /// `Cookie: sid=...`, `Referer: https://site/page`, `Authorization: Bearer ...`,
+    /// `User-Agent: ...`. Checked: a name that is not a header name, a value over several
+    /// lines, or a header the download sets itself (Range, Accept-Encoding, Host...) is refused.
+    headers: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -250,6 +255,7 @@ impl Downloads {
             record_in_minutes: p.record_in_minutes,
             pieces_from: p.pieces_from,
             page_checksum: p.page_checksum,
+            headers: p.headers.unwrap_or_default(),
         }))
         .await
     }

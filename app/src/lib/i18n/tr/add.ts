@@ -35,6 +35,14 @@ export default {
 	'Size unknown': 'Boyut bilinmiyor',
 	'Checked against the {algorithm} checksum shown on the page, if the publisher posts none':
 		'Yayıncı yayımlamıyorsa sayfada gösterilen {algorithm} sağlama toplamıyla doğrulanır',
+	'It sends data (POST): Shardload downloads with GET, which may not give the same file.':
+		'Komut veri gönderiyor (POST): Shardload GET ile indirir, bu aynı dosyayı vermeyebilir.',
+	'Left out, as the download sets them itself: {names}': 'İndirme kendisi ayarladığı için çıkarıldı: {names}',
+	'Paste a curl, wget or PowerShell command (from the browser: Copy as cURL)':
+		'curl, wget ya da PowerShell komutu yapıştırın (tarayıcıda: cURL olarak kopyala)',
+	'Request headers, one per line (Referer, Cookie, Authorization, User-Agent…)':
+		'İstek başlıkları, satır başına bir tane (Referer, Cookie, Authorization, User-Agent…)',
+	'Request headers or a curl command…': 'İstek başlıkları ya da curl komutu…',
 	'Can resume and use several connections':
 		'Devam ettirilebilir, birden çok bağlantı kullanılabilir',
 	'Cannot resume (one connection)': 'Devam ettirilemez (tek bağlantı)',

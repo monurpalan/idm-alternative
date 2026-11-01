@@ -133,6 +133,10 @@ pub struct Scenario {
     pub kind: Option<String>,
     /// `Content-Type` to send instead of `application/octet-stream`.
     pub ctype: Option<String>,
+    /// `Name:value`: requests without this header (the value contained in theirs) get `403`,
+    /// like a file host that wants its cookie or its page as the referrer. Given more than
+    /// once in the query, the last counts.
+    pub only_header: Option<String>,
 }
 
 impl Default for Scenario {
@@ -162,6 +166,7 @@ impl Default for Scenario {
             corrupt_at: None,
             kind: None,
             ctype: None,
+            only_header: None,
         }
     }
 }

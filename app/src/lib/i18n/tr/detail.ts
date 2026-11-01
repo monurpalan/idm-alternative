@@ -42,6 +42,10 @@ export default {
 	'The file does not match the {algorithm} checksum shown on the page: the page may be out of date, or the file not the one it describes.':
 		'Dosya, sayfada gösterilen {algorithm} sağlama toplamıyla eşleşmiyor: sayfa eskimiş ya da dosya sayfanın anlattığı dosya olmayabilir.',
 	'the page': 'sayfadaki',
+	'Request headers': 'İstek başlıkları',
+	'Edit…': 'Düzenle…',
+	'Save headers': 'Başlıkları kaydet',
+	'Kept encrypted; a running download continues with them': 'Şifreli saklanır; süren indirme bunlarla devam eder',
 	Apply: 'Uygula',
 	'Downloads from this site sign in by themselves':
 		'Bu sitedeki indirmeler kendiliğinden giriş yapar',

@@ -12,6 +12,7 @@
 
 pub mod batch;
 pub mod clip;
+pub mod command;
 mod db;
 pub mod folder;
 pub mod grabber;
@@ -70,6 +71,9 @@ pub enum Error {
     /// A `.torrent` given to check a download that cannot be used.
     #[error("{0}")]
     BadTorrent(String),
+    /// Request headers that cannot be sent (see [`command::check_headers`]).
+    #[error("{0}")]
+    BadHeaders(String),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -1298,6 +1302,24 @@ impl Manager {
             self.inner.set_status(id, Status::Queued, None).await?;
         }
         self.inner.fill().await
+    }
+
+    /// Sends these request headers with the download from now on, in place of the ones it
+    /// had (cookies, referrer, a login…). A running download continues with them where it
+    /// was; a failed one is tried again.
+    pub async fn set_headers(&self, id: TaskId, headers: &[(String, String)]) -> Result<Task> {
+        command::check_headers(headers).map_err(Error::BadHeaders)?;
+        let task = self.get(id).await?;
+        let was_running = self.inner.stop(id, Stop::Pause).await;
+        self.inner.db.set_headers(id, headers).await?;
+        if was_running || task.status == Status::Error {
+            lock(&self.inner.retries).remove(&id);
+            self.inner.set_status(id, Status::Queued, None).await?;
+        }
+        let task = self.get(id).await?;
+        self.inner.emit(Event::Updated(task.clone()));
+        self.inner.fill().await?;
+        Ok(task)
     }
 
     /// Remembers a login for `site` (see [`site_of`]); a download there that the server asks

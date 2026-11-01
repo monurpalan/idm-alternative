@@ -592,6 +592,25 @@ export const onCapture = (handler: (c: Capture) => void): Promise<UnlistenFn> =>
 export const onCapturedLinks = (handler: (l: CapturedLinks) => void): Promise<UnlistenFn> =>
 	listen<CapturedLinks>('capture-links', (e) => handler(e.payload));
 export const setLogin = (id: TaskId, login: Login) => invoke<void>('set_login', { id, login });
+
+/** What a pasted `curl`, `wget` or `Invoke-WebRequest` command asks for. */
+export interface Pasted {
+	url: string;
+	headers: Headers;
+	/** `-o name` and the like. */
+	name: string | null;
+	/** It sends data (POST): downloaded with GET, which may not give the same answer. */
+	post: boolean;
+	/** Headers the download sets itself, left out. */
+	dropped: string[];
+}
+export const parseCommand = (text: string) => invoke<Pasted>('parse_command', { text });
+/** `Name: value` lines, checked. */
+export const parseHeaders = (text: string) => invoke<Headers>('parse_headers', { text });
+/** The headers a download is sent with from now on, as `Name: value` lines. */
+export const setHeaders = (id: TaskId, text: string) => invoke<Task>('set_headers', { id, text });
+/** Headers as `Name: value` lines, for editing. */
+export const headerLines = (headers: Headers) => headers.map(([k, v]) => `${k}: ${v}`).join('\n');
 export const startTasks = (ids: TaskId[]) => invoke<void>('start_tasks', { ids });
 export const pauseTasks = (ids: TaskId[]) => invoke<void>('pause_tasks', { ids });
 export const removeTasks = (ids: TaskId[], deleteFiles: boolean) =>

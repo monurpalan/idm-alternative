@@ -14,6 +14,9 @@
 		isZip,
 		probe,
 		findPrevious,
+		headerLines,
+		parseCommand,
+		parseHeaders,
 		type ArchiveInfo,
 		type Batch,
 		type Headers,
@@ -95,6 +98,45 @@
 			.split(/\r?\n/)
 			.map((m) => m.trim())
 			.filter(Boolean);
+	/** Request headers the user gave, `Name: value` per line, over the browser's. */
+	let ownHeaders = $state('');
+	let showHeaders = $state(false);
+	/** A pasted `curl`, `wget` or `Invoke-WebRequest` command, and what reading it said. */
+	let command = $state('');
+	let commandNote = $state<string | null>(null);
+	/** The browser's headers with the user's on top (a name given twice: the user's). */
+	async function sentHeaders(): Promise<Headers | null> {
+		if (!ownHeaders.trim()) return headers;
+		const own = await parseHeaders(ownHeaders);
+		const names = new Set(own.map(([k]) => k.toLowerCase()));
+		return [...(headers ?? []).filter(([k]) => !names.has(k.toLowerCase())), ...own];
+	}
+	const COMMAND = /^\s*(&\s*)?(curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod)(\.exe)?\s|^\s*\$session\b/i;
+
+	/** Fills the address, headers and name from a pasted command. */
+	async function readCommand() {
+		commandNote = null;
+		if (!command.trim()) return;
+		try {
+			const p = await parseCommand(command);
+			url = p.url;
+			ownHeaders = headerLines(p.headers);
+			showHeaders = true;
+			if (p.name) name = p.name;
+			const notes = [];
+			if (p.post)
+				notes.push(t('It sends data (POST): Shardload downloads with GET, which may not give the same file.'));
+			if (p.dropped.length)
+				notes.push(t('Left out, as the download sets them itself: {names}', { names: p.dropped.join(', ') }));
+			commandNote = notes.join(' ') || null;
+			error = null;
+			await check(true);
+			if (p.name) name = p.name;
+		} catch (e) {
+			error = String(e);
+		}
+	}
+
 	/** Credentials for a server that asked for them. */
 	let user = $state('');
 	let password = $state('');
@@ -112,6 +154,12 @@
 	});
 
 	async function check(force = false) {
+		// A command pasted where the link goes.
+		if (COMMAND.test(url)) {
+			command = url;
+			url = '';
+			return readCommand();
+		}
 		const u = url.trim();
 		if (!u || (u === asked && !force)) return;
 		asked = u;
@@ -139,7 +187,7 @@
 				batch = b;
 				return;
 			}
-			const p = await probe(u, login(), headers);
+			const p = await probe(u, login(), await sentHeaders());
 			if (asked !== u) return; // the URL changed meanwhile
 			info = p;
 			if (!p.needs_login) {
@@ -160,7 +208,7 @@
 		readingArchive = true;
 		error = null;
 		try {
-			const a = await inspectArchive(u, login(), headers);
+			const a = await inspectArchive(u, login(), await sentHeaders());
 			if (asked !== u) return;
 			archive = a;
 			chosen = a.entries.filter((e) => !e.is_dir).map(() => false);
@@ -187,7 +235,7 @@
 					dir: dir || null,
 					start,
 					login: login(),
-					headers,
+					headers: await sentHeaders(),
 					skip_known: skipKnown
 				});
 				onclose();
@@ -218,7 +266,7 @@
 					dir: dir || null,
 					start,
 					login: login(),
-					headers,
+					headers: await sentHeaders(),
 					stream: {
 						audio: null,
 						archive: { entries: files.filter((_, i) => chosen[i]).map((f) => f.name) }
@@ -235,7 +283,7 @@
 				dir: dir || null,
 				start,
 				login: login(),
-				headers,
+				headers: await sentHeaders(),
 				mirrors: mirrorList(),
 				title,
 				page_checksum: pageChecksum
@@ -383,6 +431,27 @@
 		{:else}
 			<div>
 				<Button variant="link" onclick={() => (showMirrors = true)}>{t('Add mirror links…')}</Button>
+			</div>
+		{/if}
+		{#if showHeaders || ownHeaders}
+			<Field label={t('Paste a curl, wget or PowerShell command (from the browser: Copy as cURL)')}>
+				<Textarea
+					bind:value={command}
+					rows={2}
+					placeholder="curl 'https://…' -H 'Cookie: …'"
+					onblur={readCommand}
+					onpaste={() => setTimeout(readCommand)}
+				/>
+			</Field>
+			{#if commandNote}
+				<p class="muted">{commandNote}</p>
+			{/if}
+			<Field label={t('Request headers, one per line (Referer, Cookie, Authorization, User-Agent…)')}>
+				<Textarea bind:value={ownHeaders} rows={3} placeholder="Referer: https://example.org/page" />
+			</Field>
+		{:else}
+			<div>
+				<Button variant="link" onclick={() => (showHeaders = true)}>{t('Request headers or a curl command…')}</Button>
 			</div>
 		{/if}
 	{/if}

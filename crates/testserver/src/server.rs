@@ -200,6 +200,16 @@ async fn serve_file(
         }
     }
 
+    if let Some((name, wanted)) = sc.only_header.as_deref().and_then(|h| h.split_once(':')) {
+        let given = headers
+            .get(name.trim())
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        if !given.contains(wanted.trim()) {
+            return text(StatusCode::FORBIDDEN, "missing header\n");
+        }
+    }
+
     if let Some(expected) = &sc.auth {
         let given = headers
             .get(header::AUTHORIZATION)
