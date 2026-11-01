@@ -16,6 +16,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 chrono = "0.4.45"
+# Checks the signature yt-dlp puts on its checksum file, without a gpg program.
+pgp = { version = "0.21", default-features = false }
 shardload-bridge = { version = "0.1.3", path = "../../crates/bridge" }
 shardload-engine = { version = "0.1.3", path = "../../crates/engine" }
 shardload-manager = { path = "../../crates/manager" }

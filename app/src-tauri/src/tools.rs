@@ -32,6 +32,9 @@ enum Files {
     Fixed {
         url: &'static str,
         sums: &'static str,
+        /// The publisher's signature of the checksum file, checked with its key built into
+        /// the app (see [`crate::signature`]).
+        sig: Option<&'static str>,
         file: &'static str,
         zip_member: Option<&'static str>,
     },
@@ -55,6 +58,9 @@ fn source(tool: Tool) -> Source {
             files: Files::Fixed {
                 url: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
                 sums: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS",
+                sig: Some(
+                    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS.sig",
+                ),
                 file: "yt-dlp.exe",
                 zip_member: None,
             },
@@ -66,6 +72,7 @@ fn source(tool: Tool) -> Source {
                 url: "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip",
                 sums: "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip.sha256sum",
                 file: "deno-x86_64-pc-windows-msvc.zip",
+                sig: None,
                 zip_member: Some("deno.exe"),
             },
         },
@@ -91,6 +98,9 @@ fn source(tool: Tool) -> Source {
             files: Files::Fixed {
                 url: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux",
                 sums: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS",
+                sig: Some(
+                    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS.sig",
+                ),
                 file: "yt-dlp_linux",
                 zip_member: None,
             },
@@ -102,6 +112,7 @@ fn source(tool: Tool) -> Source {
                 url: "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip",
                 sums: "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip.sha256sum",
                 file: "deno-x86_64-unknown-linux-gnu.zip",
+                sig: None,
                 zip_member: Some("deno"),
             },
         },
@@ -207,6 +218,8 @@ fn branch(version: &str) -> Option<String> {
 struct Release {
     url: String,
     sums: String,
+    /// The publisher's signature of `sums` (yt-dlp's), when it signs them.
+    sig: Option<String>,
     file: String,
     /// The version the release's file is, when known before running it (ffmpeg's branch).
     version: Option<String>,
@@ -242,6 +255,7 @@ fn ffmpeg_release(release: &serde_json::Value, build: &str, ext: &str) -> Option
     Some(Release {
         url: url_of(&file)?,
         sums: url_of("checksums.sha256")?,
+        sig: None,
         file,
         version: Some(version),
     })
@@ -261,10 +275,15 @@ async fn latest_release(tool: Tool, opts: &Options) -> Result<serde_json::Value,
 async fn release(tool: Tool, opts: &Options) -> Result<Release, String> {
     match source(tool).files {
         Files::Fixed {
-            url, sums, file, ..
+            url,
+            sums,
+            sig,
+            file,
+            ..
         } => Ok(Release {
             url: url.to_owned(),
             sums: sums.to_owned(),
+            sig: sig.map(str::to_owned),
             file: file.to_owned(),
             version: None,
         }),
@@ -324,9 +343,19 @@ pub async fn install(
     let tools = dir(data);
     std::fs::create_dir_all(&tools).map_err(|e| e.to_string())?;
     let release = release(tool, opts).await?;
-    let (sums, _) = shardload_engine::fetch_text(&release.sums, &[], opts, 1 << 20)
+    let sums = shardload_engine::fetch_bytes(&release.sums, &[], opts, 1 << 20)
         .await
         .map_err(|e| format!("could not read the release's checksums: {e}"))?;
+    // Signed by the publisher (yt-dlp): the checksums are its own, not a changed page's.
+    if let Some(sig) = &release.sig {
+        let sig = shardload_engine::fetch_bytes(sig, &[], opts, 64 << 10)
+            .await
+            .map_err(|e| format!("could not read the signature of the release's checksums: {e}"))?;
+        crate::signature::verify_ytdlp(&sums, &sig).map_err(|e| {
+            format!("the release's checksums are not signed with yt-dlp's key ({e}); not set up")
+        })?;
+    }
+    let sums = String::from_utf8_lossy(&sums);
     let hash = checksum_for(&sums, &release.file)
         .ok_or_else(|| "the release lists no checksum for this system".to_owned())?;
 
@@ -517,6 +546,31 @@ mod tests {
 
     /// Against GitHub: an older yt-dlp in `SHARDLOAD_TOOLS_TEST` (a folder with `tools/yt-dlp.exe`)
     /// is replaced by the latest release, and a second run finds nothing to do.
+    /// Against GitHub: the latest yt-dlp release's checksums carry yt-dlp's signature, and
+    /// the setup goes through with it into an empty folder.
+    #[tokio::test]
+    #[ignore = "downloads yt-dlp from GitHub (about 18 MB)"]
+    async fn the_latest_ytdlp_is_set_up_with_its_signature_checked() {
+        let data = std::env::temp_dir().join(format!("shardload-ytdlp-{}", std::process::id()));
+        std::fs::remove_dir_all(&data).ok();
+        let opts = Options::default();
+        let Files::Fixed { sums, sig, .. } = source(Tool::Ytdlp).files else {
+            panic!("yt-dlp has fixed addresses");
+        };
+        let sums = shardload_engine::fetch_bytes(sums, &[], &opts, 1 << 20)
+            .await
+            .expect("sums");
+        let sig = shardload_engine::fetch_bytes(sig.expect("signed"), &[], &opts, 64 << 10)
+            .await
+            .expect("sig");
+        crate::signature::verify_ytdlp(&sums, &sig).expect("yt-dlp's signature");
+        let exe = install(&data, Tool::Ytdlp, &opts, None, &CancellationToken::new())
+            .await
+            .expect("install");
+        assert!(version(&exe).await.is_some(), "it runs");
+        std::fs::remove_dir_all(&data).ok();
+    }
+
     #[tokio::test]
     #[ignore = "downloads from GitHub"]
     async fn updates_an_old_ytdlp() {

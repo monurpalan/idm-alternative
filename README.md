@@ -130,10 +130,13 @@ For those who want to know exactly what it does, how it was measured and how it 
   An expired link is refreshed by starting the download again in the browser.
 - **Video.** A download button over videos in the page; HLS and DASH downloaded by the engine
   itself (parallel segments, AES-128) with quality, audio track and subtitle choice; sites such
-  as YouTube and X through yt-dlp, which the app installs and keeps up to date. ffmpeg, which
-  joins separate video and audio, is the one on `PATH` if there is one; otherwise the app sets
-  up an official build (BtbN's, checked against its published SHA-256) the first time a download
-  needs it, with the download showing its progress. Until it can (offline, say), a page is saved
+  as YouTube and X through yt-dlp, which the app installs and keeps up to date (each release
+  only once its checksum file carries yt-dlp's signature, checked with yt-dlp's key built into
+  the app). ffmpeg, which joins separate video and audio, is the one on `PATH` if there is one;
+  otherwise the app sets up an official build (BtbN's, checked against its published SHA-256)
+  the first time a download needs it, with the download showing its progress. BtbN and deno
+  (which yt-dlp needs) publish checksums but no signatures, so for them the checksum is all
+  there is to check. Until it can (offline, say), a page is saved
   as one file that has both, which may be lower quality, and the download says why. Tried on
   2026-10-18 with public pages: YouTube, X, TikTok, Instagram, Facebook, Twitch, Dailymotion,
   Bilibili, VK, Bluesky, SoundCloud, Bandcamp, Internet Archive, PeerTube, Streamable and Odysee

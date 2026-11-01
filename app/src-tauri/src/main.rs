@@ -11,6 +11,7 @@ mod i18n;
 mod scan;
 mod schedule;
 mod settings;
+mod signature;
 mod tools;
 mod tray;
 

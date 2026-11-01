@@ -46,7 +46,9 @@ AppImage (`chmod +x` ve çalıştırın).
   çerezleriyle birlikte; giriş gerektiren indirmeler de çalışır. Süresi dolan bir bağlantı,
   indirme tarayıcıda yeniden başlatılarak yenilenir.
 - **Video.** Sayfadaki videoların üstünde bir İndir düğmesi. YouTube, X, Instagram, TikTok,
-  Twitch ve daha birçok site yt-dlp ile; uygulama onu kendisi kurar ve günceller. HLS ve DASH
+  Twitch ve daha birçok site yt-dlp ile; uygulama onu kendisi kurar ve günceller (her sürümü,
+  sağlama dosyası yt-dlp'nin uygulamaya gömülü anahtarıyla doğrulanan imzasını taşıyorsa;
+  ffmpeg ve deno imza yayımlamadığı için onlarda yalnız sağlama toplamı denetlenir). HLS ve DASH
   yayınlarında kalite, ses ve altyazı seçimi.
 - **Oynatma listeleri, kanallar, klipler ve canlı yayınlar.** Bir YouTube listesi ya da kanalı
   videolarını seçmeniz için listeler; bir videonun yalnızca bir bölümü (ör. 1:05–2:30) istenirse

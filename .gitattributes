@@ -2,3 +2,5 @@
 *.png binary
 *.ico binary
 *.exe binary
+# Signed bytes: checked against their signatures as they are.
+app/src-tauri/keys/testdata/** binary
