@@ -1,0 +1,18 @@
+{
+	"app/src/lib/api.ts": {
+		"lines": 720,
+		"reason": "Every command the UI calls and its types in one place; can be split into modules per area behind the same import, not done yet."
+	},
+	"app/src/routes/+page.svelte": {
+		"lines": 725,
+		"reason": "The main window's layout, keyboard and context menu; its menus and dialogs' wiring can move into components, not done yet."
+	},
+	"crates/cli/src/main.rs": {
+		"lines": 604,
+		"reason": "The command line's arguments and its few commands; just over the limit, to split by command when it next grows."
+	},
+	"crates/testserver/src/server.rs": {
+		"lines": 610,
+		"reason": "The test server's file route with every misbehaviour it can be asked for; just over the limit, to split when it next grows."
+	}
+}

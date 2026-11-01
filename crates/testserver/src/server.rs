@@ -131,6 +131,11 @@ fn text(status: StatusCode, body: &'static str) -> Response {
     (status, body).into_response()
 }
 
+#[allow(
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    reason = "one long sequence kept together; to be split when it next changes"
+)]
 async fn serve_file(
     State(app): State<Arc<AppState>>,
     Query(sc): Query<Scenario>,

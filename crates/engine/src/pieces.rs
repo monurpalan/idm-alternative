@@ -76,6 +76,11 @@ pub(crate) async fn bad_pieces(
 
 /// Checks a complete `part` of `size` bytes against `pieces` and downloads the corrupt ones
 /// again from `urls` (the first that serves them), written in place; then checks again.
+#[allow(
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    reason = "one long sequence kept together; to be split when it next changes"
+)]
 pub(crate) async fn repair(
     http: &Http,
     urls: &[String],

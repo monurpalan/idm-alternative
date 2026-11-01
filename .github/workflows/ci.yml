@@ -47,6 +47,8 @@ jobs:
         run: cargo fmt --all --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: File size
+        run: node scripts/check-size.mjs
       - name: Test
         run: cargo test --workspace
 
@@ -85,6 +87,8 @@ jobs:
           npm run e2e
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: File size
+        run: node scripts/check-size.mjs
       - name: Test
         run: cargo test --workspace
       - name: Packages (.deb, AppImage)

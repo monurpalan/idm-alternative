@@ -103,6 +103,11 @@ fn msg(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
+#[allow(
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    reason = "one long sequence kept together; to be split when it next changes"
+)]
 fn main() {
     log_panics();
     let _log = init_logging();

@@ -212,6 +212,11 @@ impl Inner {
     }
 
     /// One download from start to end, then records how it ended and starts the next.
+    #[allow(
+        clippy::too_many_lines,
+        clippy::cognitive_complexity,
+        reason = "one long sequence kept together; to be split when it next changes"
+    )]
     pub(crate) async fn run(
         self: Arc<Self>,
         task: Task,

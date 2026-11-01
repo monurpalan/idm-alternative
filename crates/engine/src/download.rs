@@ -253,6 +253,11 @@ pub struct Outcome {
 ///
 /// On error or cancellation the partial file and the state file are kept (except when the
 /// remote file changed), so calling again resumes.
+#[allow(
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    reason = "one long sequence kept together; to be split when it next changes"
+)]
 pub async fn download(
     req: &Request,
     opts: &Options,

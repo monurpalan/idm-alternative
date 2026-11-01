@@ -90,6 +90,11 @@ pub(crate) fn parse_playlist(url: &str, text: &str) -> Result<Playlist> {
 }
 
 /// A playlist, a live one too.
+#[allow(
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    reason = "one long sequence kept together; to be split when it next changes"
+)]
 pub(crate) fn parse_any(url: &str, text: &str) -> Result<Playlist> {
     let lines: Vec<&str> = text
         .lines()

@@ -50,6 +50,11 @@ pub async fn fetch_metalink(
 }
 
 /// Reads a metalink document. Only metalinks of one file are supported.
+#[allow(
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    reason = "one long sequence kept together; to be split when it next changes"
+)]
 pub fn parse(xml: &str) -> Result<Metalink> {
     let bad = |e: &dyn std::fmt::Display| Error::State(format!("not a metalink: {e}"));
     let mut reader = Reader::from_str(xml);

@@ -16,6 +16,11 @@ pub(crate) struct Job<'a> {
 
 impl Job<'_> {
     /// Returns the file size and how many bytes were resumed.
+    #[allow(
+        clippy::too_many_lines,
+        clippy::cognitive_complexity,
+        reason = "one long sequence kept together; to be split when it next changes"
+    )]
     pub(crate) async fn run(
         &self,
         progress: Option<&watch::Sender<Progress>>,

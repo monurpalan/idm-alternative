@@ -28,6 +28,11 @@ pub(crate) fn touch(stamp: &Path) {
 /// download runs through them (Windows cannot replace a running program), and offers a new
 /// version of the app while `check_updates` is on. The times of the last checks are kept in
 /// files, so restarting the app does not check again.
+#[allow(
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    reason = "one long sequence kept together; to be split when it next changes"
+)]
 pub(crate) async fn daily_checks(handle: AppHandle) {
     tokio::time::sleep(CHECK_DELAY).await;
     loop {

@@ -151,6 +151,11 @@ impl Inner {
         Ok(())
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        clippy::cognitive_complexity,
+        reason = "one long sequence kept together; to be split when it next changes"
+    )]
     pub(crate) async fn download(
         &self,
         mut task: Task,

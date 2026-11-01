@@ -255,6 +255,11 @@ pub(crate) enum Source {
 /// the first (video) and the second (audio, if any) into `output`, with ffmpeg when given.
 /// With `clip` (and ffmpeg), only the segments it falls in, and the result cut to it.
 #[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    reason = "one long sequence kept together; to be split when it next changes"
+)]
 pub(crate) async fn segmented(
     http: Http,
     output: &Path,

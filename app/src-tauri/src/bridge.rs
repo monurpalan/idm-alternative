@@ -4,6 +4,11 @@ use super::*;
 
 /// Answers the browser extension (through the native host): pings and hellos, and downloads
 /// or link lists it hands over, which open in the window for the user to confirm.
+#[allow(
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    reason = "one long sequence kept together; to be split when it next changes"
+)]
 pub(crate) async fn bridge_reply(
     handle: &AppHandle,
     request: shardload_bridge::Request,

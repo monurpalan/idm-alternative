@@ -133,6 +133,11 @@ pub async fn record_hls(
 }
 
 /// Records the live tracks (video, then audio) of `req` (see [`record_hls`]).
+#[allow(
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    reason = "one long sequence kept together; to be split when it next changes"
+)]
 pub(crate) async fn record(
     req: &RecordRequest,
     sources: Vec<LiveSource>,

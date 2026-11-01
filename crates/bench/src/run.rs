@@ -109,6 +109,11 @@ fn slug(s: &str) -> String {
         .collect()
 }
 
+#[allow(
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    reason = "one long sequence kept together; to be split when it next changes"
+)]
 pub async fn run_once(
     base: &str,
     scenario: &Scenario,

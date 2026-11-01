@@ -113,6 +113,11 @@ pub fn read_head(path: &Path) -> std::io::Result<Vec<u8>> {
 
 /// What `head` (the start of a file) is, when its bytes say so for certain; `None` for text,
 /// unknown formats and anything too short to tell.
+#[allow(
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    reason = "one long sequence kept together; to be split when it next changes"
+)]
 pub fn sniff(head: &[u8]) -> Option<Content> {
     use Kind::*;
     let at = |offset: usize, magic: &[u8]| head.get(offset..offset + magic.len()) == Some(magic);

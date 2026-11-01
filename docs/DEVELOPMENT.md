@@ -82,4 +82,24 @@ On Linux the app talks to the browser host and the MCP server over a Unix socket
 by writing its manifest into each browser's folder (not Snap or Flatpak browsers), opens
 magnet links through a desktop entry, sleeps and shuts down through `systemctl`, and scans
 with ClamAV (`clamscan`) when virus scanning is on. Watching the clipboard is Windows-only
-for now, and request headers are kept as they are (no DPAPI): the data folder is the user's.
+for now. Request headers and the proxy's password are encrypted with a key the app keeps in
+the Secret Service (GNOME Keyring, KWallet); without one they are kept as they are, in the
+user's own data folder.
+
+## File and function size
+
+So that no file or function grows into one nobody wants to touch, CI checks both:
+
+- **Files:** at most 600 lines of code (`.rs`, `.ts`, `.svelte`, `.mjs`, `.js`); a Rust
+  file's own `#[cfg(test)]` module and test files (`tests/`, `e2e/`, `*.test.ts`) at most
+  1000. `node scripts/check-size.mjs` says which file is over and by how much. Split a file by
+  what its parts do, a module per part (as the engine's `download/`, `hls/` and `zip/`, or the
+  app's `add.rs`, `tasks.rs`, `bridge.rs`); moved code stays as it was, no fixes on the way.
+- **The allowlist:** a file that cannot be split yet is in `size-allowlist.json` with its
+  current size and why. It may not grow, and when it shrinks the script asks for its new size
+  (or for it to come off the list once it is within the limit), so the list only goes down.
+- **Functions:** clippy's `too_many_lines` (120 lines, `clippy.toml`) and
+  `cognitive_complexity`, errors under `-D warnings`. The functions that were longer when the
+  rule came in carry an `#[allow]` with a reason; split one when it next changes, and do not
+  add new ones.
+

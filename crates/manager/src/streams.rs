@@ -6,6 +6,11 @@ impl Inner {
     /// A stream (HLS or DASH): the name comes from the page title (or the playlist URL) with
     /// the extension of what will be written: `.mp4` with ffmpeg or for DASH (fragmented
     /// MP4), `.ts` for HLS without ffmpeg.
+    #[allow(
+        clippy::too_many_lines,
+        clippy::cognitive_complexity,
+        reason = "one long sequence kept together; to be split when it next changes"
+    )]
     pub(crate) async fn download_stream(
         &self,
         mut task: Task,

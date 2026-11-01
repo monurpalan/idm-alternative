@@ -56,6 +56,11 @@ impl Entry {
 /// extra fields and the archive ends with a ZIP64 end of central directory record and
 /// locator, as tools write for archives past 4 GiB. `prefix` comes before the archive (like
 /// the program part of a self-extracting archive) and offsets do not account for it.
+#[allow(
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    reason = "one long sequence kept together; to be split when it next changes"
+)]
 pub fn write(entries: &[Entry], zip64: bool, prefix: &[u8], comment: &[u8]) -> Vec<u8> {
     let mut out = prefix.to_vec();
     let mut central = Vec::new();

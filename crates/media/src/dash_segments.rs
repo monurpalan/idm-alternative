@@ -134,6 +134,11 @@ pub fn dash_live(url: &str, text: &str, rep_id: &str, now: f64) -> Result<DashLi
 }
 
 /// `now` is set for a live manifest.
+#[allow(
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    reason = "one long sequence kept together; to be split when it next changes"
+)]
 fn track(url: &str, mpd: Node, rep_id: &str, now: Option<f64>) -> Result<DashTrack, Error> {
     let period = child(mpd, "Period").ok_or_else(|| Error("the manifest has no period".into()))?;
     let (set, rep) = children(period, "AdaptationSet")
