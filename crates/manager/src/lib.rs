@@ -1569,15 +1569,11 @@ impl Inner {
                     }
                     Err(e) => tracing::warn!(id, "could not check what the file is: {e}"),
                 }
-                let finished = match self.db.finish(id, outcome.size, now_ms()).await {
-                    Ok(()) if note.is_some() => {
-                        self.db.set_status(id, Status::Done, note.as_deref()).await
-                    }
-                    other => other,
-                };
-                if finished.is_ok()
-                    && let Ok(Some(task)) = self.db.get(id).await
-                {
+                let at = now_ms();
+                // In the history before it shows as done: whatever sees it done finds it there.
+                if let Ok(Some(mut task)) = self.db.get(id).await {
+                    task.size = Some(outcome.size);
+                    task.finished_at = Some(at);
                     let page = task
                         .headers
                         .iter()
@@ -1587,7 +1583,12 @@ impl Inner {
                         tracing::warn!(id, "could not keep the download in the history: {e}");
                     }
                 }
-                finished
+                match self.db.finish(id, outcome.size, at).await {
+                    Ok(()) if note.is_some() => {
+                        self.db.set_status(id, Status::Done, note.as_deref()).await
+                    }
+                    other => other,
+                }
             }
             (Err(Error::Engine(shardload_engine::Error::Cancelled)), Some(Stop::Pause)) => {
                 self.db.set_status(id, Status::Paused, None).await
