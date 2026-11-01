@@ -186,8 +186,8 @@ async fn downloads_pause_before_the_drive_fills() {
 
     // The small drive is down to 400 MB: below the reserve.
     d.small_free.store(400 * MB, Ordering::SeqCst);
-    let paused = wait_for(&m, running.id, |t| t.status == Status::Paused).await;
-    assert_eq!(paused.error_kind, Some(ErrorKind::Disk));
+    let disk = |t: &Task| t.status == Status::Paused && t.error_kind == Some(ErrorKind::Disk);
+    let paused = wait_for(&m, running.id, disk).await;
     assert!(
         paused
             .error
@@ -195,12 +195,9 @@ async fn downloads_pause_before_the_drive_fills() {
             .is_some_and(|e| e.contains("400 MB left")),
         "{paused:?}"
     );
-    let w = wait_for(&m, waiting.id, |t| t.status == Status::Paused).await;
-    assert_eq!(
-        w.error_kind,
-        Some(ErrorKind::Disk),
-        "the one waiting to start there too"
-    );
+    // The one waiting to start there too, and it never started in the slot the other left.
+    let w = wait_for(&m, waiting.id, disk).await;
+    assert_eq!(w.received, 0, "{w:?}");
     let low = loop {
         match tokio::time::timeout(Duration::from_secs(5), events.recv()).await {
             Ok(Ok(Event::DiskLow(low))) => break low,

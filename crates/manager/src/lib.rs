@@ -1509,7 +1509,11 @@ impl Inner {
                 drive.volume.display()
             );
             tracing::warn!("{note}");
-            for &id in &drive.tasks {
+            // The waiting ones first: a running one stopped first frees its slot, and the
+            // queue would start one of them in it.
+            let mut order = drive.tasks.clone();
+            order.sort_by_key(|id| running.contains(id));
+            for &id in &order {
                 lock(&self.retries).remove(&id);
                 self.stop(id, Stop::Pause).await;
                 self.db
