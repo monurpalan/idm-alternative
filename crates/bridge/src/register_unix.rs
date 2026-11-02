@@ -28,8 +28,16 @@ pub fn manifest_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("native-messaging")
 }
 
+/// The browsers' configuration folder. In a Flatpak `XDG_CONFIG_HOME` is the app's own
+/// folder; the browsers outside use the user's, which Flatpak passes as
+/// `HOST_XDG_CONFIG_HOME` when it is not the default.
 fn config_home() -> Option<PathBuf> {
-    std::env::var_os("XDG_CONFIG_HOME")
+    let var = if std::env::var_os("FLATPAK_ID").is_some() {
+        "HOST_XDG_CONFIG_HOME"
+    } else {
+        "XDG_CONFIG_HOME"
+    };
+    std::env::var_os(var)
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .or_else(|| home().map(|h| h.join(".config")))
