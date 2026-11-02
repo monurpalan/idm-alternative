@@ -61,6 +61,19 @@ fn turkish(text: &str) -> Option<&'static str> {
         "Scheduler: started the queue" => "Zamanlayıcı: kuyruk başlatıldı",
         "Scheduler: paused the queue" => "Zamanlayıcı: kuyruk duraklatıldı",
         "Link refreshed: {name} continues" => "Link yenilendi: {name} devam ediyor",
+        "{name} continues from where the browser stopped" => {
+            "{name}, tarayıcının kaldığı yerden devam ediyor"
+        }
+        "{name} starts over: {why}" => "{name} baştan iniyor: {why}",
+        // Why a rescued download starts over (see `shardload_manager::rescue`).
+        "the server does not send parts of the file" => "sunucu dosyanın parçalarını göndermiyor",
+        "the file on the server has another size now" => "sunucudaki dosyanın boyutu artık farklı",
+        "the partial file is empty" => "kısmi dosya boş",
+        "the server sends a different file now" => "sunucu artık başka bir dosya gönderiyor",
+        "the browser's partial file is not there" => "tarayıcının kısmi dosyası yok",
+        "another download on the list goes there" => {
+            "listedeki başka bir indirme oraya kaydediliyor"
+        }
         "That link leads to a different file, so it opens as a new download" => {
             "Bu link başka bir dosyaya gidiyor, yeni bir indirme olarak açılıyor"
         }

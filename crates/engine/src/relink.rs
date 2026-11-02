@@ -85,3 +85,82 @@ pub async fn patch_url(req: &Request, opts: &Options) -> Result<()> {
     state.save(&state_path)?;
     Ok(())
 }
+
+/// What became of a partial file another program (a browser) left behind.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Adopted {
+    /// Its first `bytes` are kept; the download goes on from there. `size`: the whole file's.
+    Kept { bytes: u64, size: u64 },
+    /// Nothing is kept, for this reason; the download starts from the beginning.
+    StartOver(String),
+}
+
+/// Takes over `partial`, the first `received` bytes of `req.url` that another program wrote,
+/// as the interrupted download of `req.output`: when the server sends parts of files, gives
+/// the size the other program was told (`size`, when it knows one) and serves the same bytes
+/// at the start and just before the end of what is there, the file becomes this download's
+/// partial file with a state that resumes it. Otherwise nothing is touched and the reason is
+/// returned.
+pub async fn adopt_partial(
+    req: &Request,
+    partial: &Path,
+    received: u64,
+    size: Option<u64>,
+    opts: &Options,
+) -> Result<Adopted> {
+    let on_disk = std::fs::metadata(partial)?.len();
+    let have = received.min(on_disk);
+    let len = have.min(SAMPLE);
+    let http = Http::new(&crate::download::http_config(&req.headers, opts))?;
+    // Asks for the first sample only, so the server does not send the rest.
+    let (remote, head) = http.probe_sample(&req.url, len, 0).await?;
+    let Some(total) = remote.size.filter(|_| remote.ranges) else {
+        return Ok(Adopted::StartOver(
+            "the server does not send parts of the file".into(),
+        ));
+    };
+    if size.is_some_and(|s| s != total) || have > total {
+        return Ok(Adopted::StartOver(
+            "the file on the server has another size now".into(),
+        ));
+    }
+    if have == 0 {
+        return Ok(Adopted::StartOver("the partial file is empty".into()));
+    }
+    let file = std::fs::File::open(partial)?;
+    for start in [0, have - len] {
+        let mine = crate::file::read_exact_at(&file, len as usize, start)?;
+        let theirs = match &head {
+            Some(head) if start == 0 => head.clone(),
+            _ => http.fetch(&remote, start, start + len, 1).await?,
+        };
+        if theirs != mine {
+            return Ok(Adopted::StartOver(
+                "the server sends a different file now".into(),
+            ));
+        }
+    }
+    drop(file);
+    let part = sibling(&req.output, ".shardload-part");
+    let state_path = sibling(&req.output, ".shardload-state");
+    if part.exists() || state_path.exists() || req.output.exists() {
+        return Err(Error::State(format!("{} is taken", req.output.display())));
+    }
+    if std::fs::rename(partial, &part).is_err() {
+        // Another drive: a copy, and the browser's partial file goes.
+        std::fs::copy(partial, &part)?;
+        std::fs::remove_file(partial).ok();
+    }
+    let segments = vec![SavedSegment {
+        start: 0,
+        end: total,
+        written: have,
+        speed: 0,
+    }];
+    // Not clean: what the other program wrote last is downloaded again (see `State::load`).
+    State::new(&req.url, total, remote.validators, segments).save(&state_path)?;
+    Ok(Adopted::Kept {
+        bytes: have,
+        size: total,
+    })
+}

@@ -27,6 +27,7 @@ pub mod origin;
 mod pages;
 mod queue;
 mod relocate;
+pub mod rescue;
 mod retry;
 mod secret;
 pub mod sites;

@@ -68,7 +68,7 @@ pub(crate) fn same_path(a: &Path, b: &Path) -> bool {
     }
 }
 
-fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+pub(crate) fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     let mut p = path.as_os_str().to_owned();
     p.push(suffix);
     PathBuf::from(p)

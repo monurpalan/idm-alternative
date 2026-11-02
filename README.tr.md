@@ -64,6 +64,9 @@ AppImage (`chmod +x` ve çalıştırın).
 - **ZIP arşivinden yalnızca istediğiniz dosyalar**, arşivin tamamını indirmeden.
 - **Site tarayıcı.** Bir sitenin bağlantı verdiği bütün dosyaları (arşiv, belge, video, resim)
   listeler; hangilerinin indirileceğini siz seçersiniz.
+- **Tarayıcının yarıda bıraktığını kurtarır:** eklentinin penceresi tarayıcıda yarım kalan
+  indirmeleri listeler; "Shardload'da devam et", sunucu aynı dosyayı veriyorsa tarayıcının
+  indirdiği kısmı korur, yalnız kalanını çeker.
 - **İndirme bitince:** arşivi açar (ZIP, tar), kurallarınıza göre (tür, site, ad) taşır, kendi
   programınızı çalıştırır ya da bir webhook'a bildirir. Program yalnızca Ayarlar'da sizin
   yazdığınız kurallarla çalışır; bir web sayfası ya da yapay zekâ asistanı çalıştıramaz.

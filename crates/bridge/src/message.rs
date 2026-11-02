@@ -18,6 +18,10 @@ pub enum Request {
     Extension(ExtensionHello),
     /// The browser started a download and handed it over.
     Download(Capture),
+    /// A download the browser left interrupted, which the user chose (in the extension's
+    /// popup) to continue in Shardload. Answered with `{id, kept}` in [`Reply::data`]: the
+    /// new download and the bytes of the browser's partial file it kept.
+    Rescue(Rescue),
     /// "Download all links": the links of a page, for the user to pick from.
     Links {
         referrer: Option<String>,
@@ -135,6 +139,7 @@ impl Request {
             Self::Ping
                 | Self::Extension(_)
                 | Self::Download(_)
+                | Self::Rescue(_)
                 | Self::Links { .. }
                 | Self::Media(_)
         )
@@ -284,6 +289,21 @@ pub struct Capture {
     pub headers: Vec<(String, String)>,
 }
 
+/// A download the browser left interrupted (see [`Request::Rescue`]).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Rescue {
+    /// The address, the page it came from, cookies and user agent, as for a capture; its
+    /// `filename` is unused and `size` is the size the browser was told.
+    #[serde(flatten)]
+    pub capture: Capture,
+    /// Where the browser was saving it: the full path. Its partial file is next to it
+    /// (`.crdownload`, `.part`).
+    pub target: String,
+    /// The bytes the browser had.
+    pub received: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Link {
     pub url: String,
@@ -354,6 +374,25 @@ impl Capture {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rescue_from_the_extension() {
+        let r: Request = serde_json::from_str(
+            r#"{"type":"rescue","url":"https://x/a.iso","referrer":"https://x/","size":100,
+                "target":"C:\\Users\\u\\Downloads\\a.iso","received":40,"cookies":"s=1"}"#,
+        )
+        .expect("parse");
+        assert!(r.from_browser());
+        let Request::Rescue(r) = r else {
+            panic!("not a rescue")
+        };
+        assert_eq!(r.target, r"C:\Users\u\Downloads\a.iso");
+        assert_eq!((r.received, r.capture.size), (40, Some(100)));
+        assert_eq!(
+            r.capture.request_headers()[0],
+            ("Cookie".into(), "s=1".into())
+        );
+    }
 
     #[test]
     fn json_shape() {

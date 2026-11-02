@@ -159,6 +159,22 @@ function serve() {
 		}, 150);
 		res.on('close', () => clearInterval(timer));
 	};
+	// A file whose every answer stops early, as a dropped line does: the browser (after its own
+	// retries) leaves the download interrupted, with its partial file.
+	const CUT_SIZE = 8 << 20;
+	const cut = (req, res) => {
+		const range = /bytes=(\d+)-/.exec(req.headers.range ?? '');
+		const start = range ? Number(range[1]) : 0;
+		res.writeHead(range ? 206 : 200, {
+			'content-type': 'application/octet-stream',
+			'content-disposition': 'attachment; filename="cut.bin"',
+			'accept-ranges': 'bytes',
+			etag: '"cut"',
+			'content-length': CUT_SIZE - start,
+			...(range ? { 'content-range': `bytes ${start}-${CUT_SIZE - 1}/${CUT_SIZE}` } : {})
+		});
+		res.write(Buffer.alloc(256 << 10, 3), () => setTimeout(() => res.destroy(), 100));
+	};
 	const server = createServer((req, res) => {
 		const url = new URL(req.url, 'http://x');
 		if (url.pathname === '/') {
@@ -167,8 +183,11 @@ function serve() {
 <a id="plain" href="/files/plain.zip">plain</a>
 <a id="refuse" href="/files/refuse.zip">refuse</a>
 <a id="alt" href="/files/alt.zip">alt</a>
+<a id="cut" href="/cut/cut.bin">cut</a>
 <form method="post" action="/export"><button id="post">post</button></form>
 <form method="post" action="/redirect"><button id="postredirect">post then redirect</button></form>`);
+		} else if (url.pathname === '/cut/cut.bin') {
+			cut(req, res);
 		} else if (url.pathname.startsWith('/files/')) {
 			file(res, url.pathname.slice('/files/'.length));
 		} else if (url.pathname === '/export' && req.method === 'POST') {
@@ -430,6 +449,32 @@ async function main() {
 				if (/SHA-256|Checksum|commit|12 MB|listed-1\.0\.tar/.test(text)) throw new Error(`page text sent: ${text}`);
 			});
 		}
+
+		await test('a download the browser left interrupted is offered to the app', async () => {
+			await sleep(1600); // past the Alt window of the last Alt+click
+			const page3 = await open(cdp, `${base}/`);
+			await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Alt', code: 'AltLeft', windowsVirtualKeyCode: 18, modifiers: 1 }, page3);
+			await click(cdp, page3, await centre(cdp, page3, '#cut'), 1);
+			await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Alt', code: 'AltLeft', windowsVirtualKeyCode: 18 }, page3);
+			const popup = await open(cdp, `chrome-extension://${EXTENSION_ID}/popup.html`);
+			const interrupted = `chrome.downloads.search({}).then((l) => l.filter((d) => d.state === 'interrupted' && d.filename.endsWith('cut.bin')))`;
+			await waitFor(async () => (await evaluate(cdp, popup, `${interrupted}.then((l) => l.length)`)) > 0, 'the browser to give up (after its own retries)', 120_000).catch(async (e) => {
+				const all = await evaluate(cdp, popup, "chrome.downloads.search({}).then((l) => l.map((d) => [d.filename, d.state, d.error, d.bytesReceived]))");
+				throw new Error(`${e.message}: ${JSON.stringify(all)}; host got ${JSON.stringify(sent(log).filter((m) => m.url?.includes('cut')))}`);
+			});
+			const [item] = await evaluate(cdp, popup, interrupted);
+			// What the app looks for: the partial file next to where it was going.
+			if (!existsSync(`${item.filename}.crdownload`)) throw new Error(`no ${item.filename}.crdownload: ${readdirSync(downloads)}`);
+			await cdp.send('Page.reload', {}, popup);
+			await waitFor(async () => (await evaluate(cdp, popup, "document.querySelectorAll('#rescue-list button').length")) > 0, 'the popup to list it');
+			await evaluate(cdp, popup, "document.querySelector('#rescue-list button').click(); true");
+			await waitFor(() => message((m) => m.type === 'rescue'), 'the rescue at the host');
+			const m = message((m) => m.type === 'rescue');
+			if (m.target !== item.filename) throw new Error(`target ${m.target}, wanted ${item.filename}`);
+			if (!(m.received > 0) || m.size !== 8 << 20) throw new Error(`received ${m.received}, size ${m.size}`);
+			if (!m.url.endsWith('/cut/cut.bin') || !m.cookies?.includes('sid=e2e')) throw new Error(JSON.stringify(m));
+			await waitFor(async () => (await evaluate(cdp, popup, `chrome.downloads.search({ id: ${item.id} }).then((l) => l.length)`)) === 0, "the browser's entry to go");
+		});
 
 		await test('the options page reaches the app and saves', async () => {
 			const options = await open(cdp, `chrome-extension://${EXTENSION_ID}/options.html`);

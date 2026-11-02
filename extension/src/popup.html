@@ -54,7 +54,8 @@
 				padding: var(--space-3);
 				border-bottom: 1px solid var(--line);
 			}
-			#missing[hidden] {
+			#missing[hidden],
+			#rescue[hidden] {
 				display: none;
 			}
 			#missing h1,
@@ -75,6 +76,10 @@
 				rel="noopener"
 				>Download Shardload</a
 			>
+		</section>
+		<section id="rescue" hidden>
+			<h1>Stopped in the browser</h1>
+			<ul id="rescue-list"></ul>
 		</section>
 		<h1>Media on this page</h1>
 		<ul id="list"></ul>

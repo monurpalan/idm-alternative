@@ -62,6 +62,9 @@ saves videos and torrents. No ads, no trial, no account.</p>
 - **Just the files you need out of a ZIP**, without downloading the whole archive.
 - **Site grabber.** Lists every file a site links to (archives, documents, video, pictures) so
   you can pick which to download.
+- **Rescue what the browser gave up on:** the extension's popup lists downloads the browser left
+  interrupted; "Continue in Shardload" keeps what the browser already has when the server still
+  sends the same file, and fetches only the rest.
 - **When a download finishes:** unpack it (ZIP, tar), move it by your rules (type, site, name),
   run your own program on it, or tell a webhook. Only rules you set in Settings can run a
   program; a web page or an AI assistant cannot.

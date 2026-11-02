@@ -106,6 +106,7 @@ pub(crate) async fn bridge_reply(
             );
             Reply::ok()
         }
+        Request::Rescue(r) => rescue(handle, r).await,
         Request::Media(media) => {
             to_page(
                 handle,
@@ -347,5 +348,45 @@ pub(crate) async fn bridge_reply(
             }
         }
         Request::Hello { .. } => Reply::error("unexpected hello"),
+    }
+}
+
+/// Continues a download the browser left interrupted, keeping what the browser had when the
+/// server still serves the same file, and says so in the window.
+async fn rescue(handle: &AppHandle, r: shardload_bridge::Rescue) -> shardload_bridge::Reply {
+    use shardload_bridge::Reply;
+    let manager = handle.state::<App>().manager.clone();
+    let rescue = shardload_manager::rescue::Rescue {
+        headers: r.capture.request_headers(),
+        url: r.capture.url,
+        target: r.target.into(),
+        received: r.received,
+        size: r.capture.size,
+    };
+    match manager.rescue(rescue).await {
+        Ok(done) => {
+            let name = done.task.name.clone().unwrap_or_default();
+            let lang = lang(handle);
+            let text = if done.kept > 0 {
+                i18n::t(
+                    lang,
+                    "{name} continues from where the browser stopped",
+                    &[("name", &name)],
+                )
+            } else {
+                let why = i18n::t(lang, done.why.as_deref().unwrap_or_default(), &[]);
+                i18n::t(
+                    lang,
+                    "{name} starts over: {why}",
+                    &[("name", &name), ("why", &why)],
+                )
+            };
+            to_page(handle, "notice", text, true);
+            Reply {
+                data: Some(serde_json::json!({ "id": done.task.id, "kept": done.kept })),
+                ..Reply::ok()
+            }
+        }
+        Err(e) => Reply::error(e.to_string()),
     }
 }

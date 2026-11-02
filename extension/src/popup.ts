@@ -1,10 +1,11 @@
 // The toolbar popup: media seen in the current tab, each with a button that hands it to the
-// app.
+// app; and downloads the browser left interrupted, which the app can continue.
 
 import { api } from './api.ts';
 import { cookieHeader } from './filter.ts';
 import { label, type MediaItem } from './media.ts';
 import { hostMissing } from './hello.ts';
+import { fileName, rescuable, rescueMessage, type Interrupted } from './rescue.ts';
 
 const HOST = 'io.github.monurpalan.shardload';
 
@@ -20,13 +21,22 @@ function size(bytes: number | null): string {
 	return `${v.toFixed(i ? 1 : 0)} ${units[i]}`;
 }
 
-async function send(tab: chrome.tabs.Tab, item: MediaItem) {
-	let cookies: string | null = null;
+async function cookiesFor(url: string): Promise<string | null> {
 	try {
-		cookies = cookieHeader(await api.cookies.getAll({ url: item.url }));
+		return cookieHeader(await api.cookies.getAll({ url }));
 	} catch {
-		// No access to the site's cookies: the app tries without them.
+		return null; // no access to the site's cookies: the app tries without them
 	}
+}
+
+function showError(text: string) {
+	const error = document.getElementById('error')!;
+	error.textContent = text;
+	error.hidden = false;
+}
+
+async function send(tab: chrome.tabs.Tab, item: MediaItem) {
+	const cookies = await cookiesFor(item.url);
 	const reply = (await api.runtime
 		.sendNativeMessage(HOST, {
 			type: 'media',
@@ -40,9 +50,55 @@ async function send(tab: chrome.tabs.Tab, item: MediaItem) {
 	if (reply?.ok) {
 		window.close();
 	} else {
-		const error = document.getElementById('error')!;
-		error.textContent = `The app could not take it: ${reply?.error ?? 'no answer'}`;
-		error.hidden = false;
+		showError(`The app could not take it: ${reply?.error ?? 'no answer'}`);
+	}
+}
+
+/** Hands an interrupted download to the app; once it has it, the browser's entry goes. */
+async function rescue(item: Interrupted, button: HTMLButtonElement) {
+	button.disabled = true;
+	button.textContent = 'Handing over…';
+	const url = item.finalUrl || item.url;
+	const reply = (await api.runtime
+		.sendNativeMessage(HOST, rescueMessage(item, await cookiesFor(url), navigator.userAgent))
+		.catch((e: unknown) => ({ ok: false, error: String(e) }))) as { ok: boolean; error?: string };
+	if (!reply?.ok) {
+		button.disabled = false;
+		button.textContent = 'Continue in Shardload';
+		showError(`The app could not take it: ${reply?.error ?? 'no answer'}`);
+		return;
+	}
+	await api.downloads.erase({ id: item.id }).catch(() => {});
+	button.closest('li')?.remove();
+	const left = document.getElementById('rescue-list')!.children.length;
+	document.getElementById('rescue')!.hidden = left === 0;
+}
+
+async function showInterrupted() {
+	// Not `state: 'interrupted'` in the query: Chrome leaves out downloads it gave up on after
+	// its own retries, which say "interrupted" all the same.
+	const recent = (await api.downloads.search({ orderBy: ['-startTime'], limit: 100 })) as Interrupted[];
+	const items = recent.filter(rescuable);
+	const list = document.getElementById('rescue-list')!;
+	document.getElementById('rescue')!.hidden = items.length === 0;
+	for (const item of items) {
+		const li = document.createElement('li');
+		const kind = document.createElement('span');
+		kind.className = 'kind';
+		kind.textContent = 'STOPPED';
+		const name = document.createElement('span');
+		name.className = 'name';
+		name.title = item.finalUrl || item.url;
+		name.textContent = fileName(item.filename);
+		const detail = document.createElement('span');
+		detail.className = 'size caption';
+		detail.textContent = item.totalBytes > 0 ? `${size(item.bytesReceived)} of ${size(item.totalBytes)}` : size(item.bytesReceived);
+		name.append(detail);
+		const button = document.createElement('button');
+		button.textContent = 'Continue in Shardload';
+		button.addEventListener('click', () => rescue(item, button));
+		li.append(kind, name, button);
+		list.append(li);
 	}
 }
 
@@ -91,3 +147,4 @@ async function checkApp() {
 
 checkApp();
 show();
+showInterrupted();

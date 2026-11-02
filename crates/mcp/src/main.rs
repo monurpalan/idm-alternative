@@ -185,6 +185,18 @@ struct RelocateParams {
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
+struct RescueParams {
+    /// The file's address (the browser's `finalUrl` when it was redirected).
+    url: String,
+    /// Absolute path the browser was saving to, e.g. `C:\Users\me\Downloads\big.iso`. Its
+    /// partial file is next to it: `big.iso.crdownload` (Chrome, Edge) or `big.iso.part`
+    /// (Firefox).
+    target: String,
+    /// The file's whole size, when known: a server that now gives another size starts over.
+    size: Option<u64>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
 struct SiteParams {
     /// The site as list_sites shows it: a host name, with `:port` when not the default.
     site: String,
@@ -411,6 +423,25 @@ impl Downloads {
             id: p.id,
             dir: p.dir,
         })
+        .await
+    }
+
+    #[tool(
+        description = "Continue a download a browser left interrupted, keeping what it already has: the browser's partial file next to `target` (`.crdownload`, `.part`) is taken over when the server still sends parts of the same file (same size, same bytes at the start and at the end of what is there), and only the rest is downloaded; otherwise the download starts over (the stale partial file is deleted). Without the partial file it goes to the download folder from the start. Returns {id, kept}: the new download and the bytes kept."
+    )]
+    async fn rescue_download(
+        &self,
+        Parameters(p): Parameters<RescueParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.ask(Request::Rescue(shardload_bridge::Rescue {
+            capture: shardload_bridge::Capture {
+                url: p.url,
+                size: p.size,
+                ..shardload_bridge::Capture::default()
+            },
+            target: p.target,
+            received: u64::MAX,
+        }))
         .await
     }
 

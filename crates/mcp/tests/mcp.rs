@@ -171,6 +171,7 @@ async fn tools_reach_the_app() {
             "relocate_download",
             "remove_downloads",
             "rename_download",
+            "rescue_download",
             "resume_downloads",
             "set_speed_limit",
             "set_when_done",
@@ -333,6 +334,15 @@ async fn tools_reach_the_app() {
                 "record": null, "record_minutes": null, "record_from_start": null,
                 "record_in_minutes": null, "pieces_from": null, "page_checksum": null,
                 "headers": [], "unpack": true
+            }),
+        ),
+        (
+            "rescue_download",
+            json!({ "url": "https://x/big.iso", "target": "/home/me/Downloads/big.iso" }),
+            json!({
+                "type": "rescue", "url": "https://x/big.iso", "target": "/home/me/Downloads/big.iso",
+                "received": u64::MAX, "size": null, "referrer": null, "filename": null,
+                "title": null, "checksum": null, "cookies": null, "user_agent": null, "headers": []
             }),
         ),
         // Over a connection of its own.

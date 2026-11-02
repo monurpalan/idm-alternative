@@ -48,7 +48,7 @@ pub use limit::Limiter;
 pub use pieces::Pieces;
 pub use place::{Conflict, target, target_avoiding};
 pub use post::post_json;
-pub use relink::patch_url;
+pub use relink::{Adopted, adopt_partial, patch_url};
 pub use remote::{Browser, basic_auth};
 pub use subtitles::{SubtitleSource, download_subtitles};
 pub use tokio_util::sync::CancellationToken;

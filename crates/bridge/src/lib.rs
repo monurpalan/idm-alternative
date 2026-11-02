@@ -29,7 +29,7 @@ pub use client::{Client, NOT_RUNNING};
 pub use frame::{MAX_FRAME, read_frame, read_json, write_frame, write_json};
 pub use message::{
     AddDownload, Capture, ExtensionHello, Link, MIN_EXTENSION_PROTOCOL, MediaCapture, MediaItem,
-    PROTOCOL, Reply, Request,
+    PROTOCOL, Reply, Request, Rescue,
 };
 pub use pipe::{Conn, connect, serve};
 pub use register::{installed_browsers, manifest_dir, register, registered_manifest, unregister};
