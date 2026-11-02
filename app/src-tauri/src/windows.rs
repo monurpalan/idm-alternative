@@ -12,6 +12,20 @@ pub(crate) const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,ms
     --enable-features=NetworkServiceInProcess2 --renderer-process-limit=1 \
     --disable-background-networking --disable-component-update";
 
+/// [`BROWSER_ARGS`], and for a test profile (`SHARDLOAD_HOME`) started with
+/// `SHARDLOAD_DEVTOOLS_PORT`, the DevTools Protocol on that port for the UI tests
+/// (`app/ui-test`). WebView2 no longer takes it from `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`
+/// once a program gives switches of its own.
+pub(crate) fn browser_args() -> String {
+    let port = std::env::var_os("SHARDLOAD_HOME")
+        .and_then(|_| std::env::var("SHARDLOAD_DEVTOOLS_PORT").ok())
+        .and_then(|p| p.parse::<u16>().ok());
+    match port {
+        Some(port) => format!("{BROWSER_ARGS} --remote-debugging-port={port}"),
+        None => BROWSER_ARGS.to_owned(),
+    }
+}
+
 /// Asks WebView2 to give memory back while the window is minimized (`low`), and to work as
 /// usual again once it is shown. What is on screen does not change.
 #[cfg(windows)]
@@ -72,7 +86,7 @@ pub(crate) fn show_main(app: &AppHandle) {
             return;
         }
         let built = tauri::WebviewWindowBuilder::from_config(&app, &config)
-            .and_then(|b| b.additional_browser_args(BROWSER_ARGS).build());
+            .and_then(|b| b.additional_browser_args(&browser_args()).build());
         match built {
             Ok(w) => {
                 w.set_focus().ok();
@@ -115,7 +129,7 @@ pub(crate) fn open_progress(handle: &AppHandle, id: TaskId, asked: bool) {
         .inner_size(440.0, 288.0)
         .resizable(false)
         .maximizable(false)
-        .additional_browser_args(BROWSER_ARGS)
+        .additional_browser_args(&browser_args())
         .build();
         if let Err(e) = built {
             tracing::warn!("could not open the progress window: {e}");

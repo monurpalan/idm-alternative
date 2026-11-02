@@ -366,7 +366,7 @@ async function main() {
 		const output = openSync(join(HERE, 'out', 'app-output.txt'), 'w');
 		start(exe('shardload'), [], {
 			stdio: ['ignore', output, output],
-			env: { ...process.env, SHARDLOAD_HOME: home, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}` }
+			env: { ...process.env, SHARDLOAD_HOME: home, SHARDLOAD_DEVTOOLS_PORT: String(CDP_PORT) }
 		});
 		let target;
 		let seen = 'nothing';
