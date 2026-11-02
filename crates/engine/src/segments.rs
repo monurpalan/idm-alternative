@@ -478,4 +478,251 @@ mod tests {
         assert_eq!(restored.segs[0].received, 3 * MB);
         assert_eq!(restored.received_total(), 3 * MB);
     }
+
+    /// A segment owned since `since`, `received` into it, at `speed` MiB/s.
+    fn running(range: (u64, u64), received: u64, speed: f64, since: Instant) -> Segment {
+        let mut s = Segment::new(range.0, range.1);
+        s.received = received;
+        s.written = received;
+        s.owner = Some(range.0);
+        s.owned_since = Some(since);
+        s.speed = speed * MB as f64;
+        s
+    }
+
+    fn table(segs: Vec<Segment>, best: f64) -> Table {
+        Table {
+            segs,
+            best_speed: best * MB as f64,
+        }
+    }
+
+    #[test]
+    fn speeds_are_smoothed_per_connection() {
+        let now = Instant::now();
+        let policy = SplitPolicy::default();
+        let mut t = Table::new(100 * MB);
+        t.assign(1, now, &policy, true);
+        t.assign(2, now, &policy, true);
+        t.segs[0].received += 2 * MB;
+        t.segs[1].received += MB;
+        t.sample_speeds(Duration::from_millis(500));
+        // The first sample is taken as it is: 2 MiB in half a second.
+        assert_eq!(t.segs[0].speed, 4.0 * MB as f64);
+        assert_eq!(t.segs[1].speed, 2.0 * MB as f64);
+        // Then each new one counts a quarter: 0.75 × 4 + 0.25 × 8 MiB/s, and 0.75 × 2.
+        t.segs[0].received += 4 * MB;
+        t.sample_speeds(Duration::from_millis(500));
+        assert_eq!(t.segs[0].speed, 5.0 * MB as f64);
+        assert_eq!(t.segs[1].speed, 1.5 * MB as f64);
+        assert_eq!(t.total_speed(), 6.5 * MB as f64);
+        assert_eq!(t.best_speed(), 5.0 * MB as f64);
+        // A released segment has no speed; the best one seen stays.
+        t.release(0, false, now);
+        t.sample_speeds(Duration::from_millis(500));
+        assert_eq!(t.segs[0].speed, 0.0);
+        assert_eq!(t.best_speed(), 5.0 * MB as f64);
+    }
+
+    #[test]
+    fn typical_speed_is_the_median_of_measured_connections() {
+        let now = Instant::now();
+        let r =
+            |i: u64, speed: f64| running((i * 10 * MB, (i + 1) * 10 * MB), i * 10 * MB, speed, now);
+        let mut t = table(
+            vec![r(0, 3.0), r(1, 1.0), r(2, 0.0), r(3, 4.0), r(4, 2.0)],
+            0.0,
+        );
+        // Measured: 1, 2, 3, 4 MiB/s; of an even number, the upper middle one.
+        assert_eq!(t.typical_speed(), Some(3.0 * MB as f64));
+        assert_eq!(t.unmeasured(), 1);
+        // A segment nobody owns does not count, whatever speed it last had.
+        t.segs[3].owner = None;
+        assert_eq!(t.typical_speed(), Some(2.0 * MB as f64));
+        assert_eq!(t.unmeasured(), 1);
+        let none = table(vec![r(0, 0.0)], 0.0);
+        assert_eq!((none.typical_speed(), none.unmeasured()), (None, 1));
+    }
+
+    #[test]
+    fn a_split_lets_victim_and_thief_finish_together() {
+        let now = Instant::now();
+        let policy = SplitPolicy::default();
+        // The victim has 40 MiB left at 2 MiB/s; the thief is expected to go at the median of
+        // the other measured connections (4 and 8: 8 MiB/s), so the victim keeps a fifth. One
+        // not measured yet is assumed to go at the best speed seen and finishes sooner.
+        let mut t = table(
+            vec![
+                running((0, 50 * MB), 10 * MB, 2.0, now),
+                running((50 * MB, 60 * MB), 59 * MB, 4.0, now),
+                running((60 * MB, 70 * MB), 69 * MB, 8.0, now),
+                running((70 * MB, 80 * MB), 70 * MB, 0.0, now),
+            ],
+            8.0,
+        );
+        assert_eq!(t.assign(9, now, &policy, true), Some(4));
+        assert_eq!(t.segs[0].end, 18 * MB);
+        assert_eq!((t.segs[4].start, t.segs[4].end), (18 * MB, 50 * MB));
+
+        // No other connection measured: the best speed seen stands for the thief.
+        let mut t = table(vec![running((0, 50 * MB), 10 * MB, 2.0, now)], 6.0);
+        t.assign(9, now, &policy, true);
+        assert_eq!(t.segs[0].end, 20 * MB);
+
+        // A victim not measured yet is halved.
+        let mut t = table(vec![running((0, 100 * MB), 0, 0.0, now)], 4.0);
+        t.assign(9, now, &policy, true);
+        assert_eq!(t.segs[0].end, 50 * MB);
+    }
+
+    #[test]
+    fn a_slow_victim_keeps_what_may_be_in_flight() {
+        let now = Instant::now();
+        let policy = SplitPolicy::default();
+        // 0.3 s at its speed when that is more than the split gives it...
+        let mut t = table(
+            vec![
+                running((0, 50 * MB), 10 * MB, 1.0, now),
+                running((50 * MB, 60 * MB), 59 * MB, 199.0, now),
+            ],
+            199.0,
+        );
+        t.assign(9, now, &policy, true);
+        assert_eq!(t.segs[0].end, 10 * MB + 314_572);
+        // ...and never less than 64 KiB.
+        let mut t = table(
+            vec![
+                running((0, 20 * MB), 10 * MB, 0.1, now),
+                running((50 * MB, 60 * MB), 59 * MB, 50.0, now),
+            ],
+            50.0,
+        );
+        t.assign(9, now, &policy, true);
+        assert_eq!(t.segs[0].end, 10 * MB + (64 << 10));
+    }
+
+    #[test]
+    fn splits_stop_at_their_limits() {
+        let now = Instant::now();
+        let policy = SplitPolicy::default();
+        let piece = policy.min_piece;
+        // Exactly two pieces left: split in two.
+        let mut t = table(vec![running((0, 2 * piece), 0, 0.0, now)], 0.0);
+        assert_eq!(t.assign(9, now, &policy, true), Some(1));
+        assert_eq!(t.segs[0].end, piece);
+        // Less than two pieces left: not split, even when a crawling victim would keep little.
+        let mut t = table(
+            vec![
+                running((0, 2 * piece - 1), 0, 0.001, now),
+                running((MB, MB + piece), MB, 8.0, now),
+            ],
+            8.0,
+        );
+        assert_eq!(t.assign(9, now, &policy, true), None);
+        // Expected to finish in exactly the shortest time worth splitting (0.4 s): split, the
+        // victim keeping 0.3 s of it...
+        let mut t = table(vec![running((0, 4 * MB), 0, 10.0, now)], 10.0);
+        assert_eq!(t.assign(9, now, &policy, true), Some(1));
+        assert_eq!(t.segs[0].end, 3 * MB);
+        // ...sooner (0.35 s): left alone.
+        let mut t = table(vec![running((0, 3 * MB + MB / 2), 0, 10.0, now)], 10.0);
+        assert_eq!(t.assign(9, now, &policy, true), None);
+    }
+
+    #[test]
+    fn failures_without_progress_back_off_up_to_eight_seconds() {
+        let start = Instant::now();
+        let policy = SplitPolicy::default();
+        let mut t = Table::new(10 * MB);
+        let mut now = start;
+        for wait in [500, 1000, 2000, 4000, 8000, 8000] {
+            assert_eq!(t.assign(1, now, &policy, false), Some(0));
+            t.release(0, true, now);
+            assert_eq!(t.segs[0].retry_at, Some(now + Duration::from_millis(wait)));
+            now += Duration::from_millis(wait);
+        }
+        // A failure after progress is tried again at once, the count started over.
+        t.assign(1, now, &policy, false);
+        t.segs[0].received += MB;
+        t.segs[0].written += MB;
+        t.release(0, true, now);
+        assert_eq!((t.segs[0].retry_at, t.segs[0].failures), (None, 0));
+    }
+
+    #[test]
+    fn crawlers_are_dropped_only_when_a_fresh_connection_would_do_better() {
+        let start = Instant::now();
+        let now = start + Duration::from_secs(3);
+        let r = |i: u64, speed: f64, since: Instant| {
+            running(
+                (i * 50 * MB, (i + 1) * 50 * MB),
+                i * 50 * MB + 10 * MB,
+                speed,
+                since,
+            )
+        };
+        // Typical: the median of connections measured for a second or more (8 and 10 MiB/s
+        // with the crawler: 8); a young fast one and one not measured do not count.
+        let young = now - Duration::from_millis(500);
+        let crowd = |crawler: f64| {
+            table(
+                vec![
+                    r(0, crawler, start),
+                    r(1, 8.0, start),
+                    r(2, 10.0, start),
+                    r(3, 100.0, young),
+                    r(4, 100.0, young),
+                    r(5, 0.0, start),
+                ],
+                100.0,
+            )
+        };
+        assert_eq!(crowd(1.0).laggard(now), Some(0));
+        assert_eq!(crowd(1.3).laggard(now), None);
+        assert_eq!(crowd(2.0).laggard(now), None);
+        let at_the_limit = crowd(0.15 * 8.0);
+        assert_eq!(at_the_limit.laggard(now), None);
+        // Of an even number measured, the upper middle one: 1, 8, 10, 12 → 10.
+        let mut even = crowd(1.4);
+        even.segs[3].owned_since = Some(start);
+        even.segs[3].speed = 12.0 * MB as f64;
+        assert_eq!(even.laggard(now), Some(0));
+        // Two not measured for long do not drag the median down to the crawler.
+        let mut slow = crowd(1.0);
+        slow.segs[3].owned_since = Some(start);
+        slow.segs[3].speed = 0.0;
+        assert_eq!(slow.laggard(now), Some(0));
+        // Owned for exactly two seconds is long enough; dropped three times is enough.
+        let mut t = crowd(1.0);
+        t.segs[0].owned_since = Some(now - Duration::from_secs(2));
+        assert_eq!(t.laggard(now), Some(0));
+        t.segs[0].evictions = 3;
+        assert_eq!(t.laggard(now), None);
+        // Nearly done: reconnecting would cost more than the crawl.
+        let mut t = crowd(0.1);
+        t.segs[0].received = t.segs[0].end - (16 << 10);
+        assert_eq!(t.laggard(now), None);
+        t.segs[0].received = t.segs[0].end - (32 << 10);
+        assert_eq!(t.laggard(now), Some(0));
+        // Of two crawlers, the one with more left.
+        let mut t = crowd(1.0);
+        for i in [3, 4] {
+            t.segs[i].owned_since = Some(start);
+        }
+        t.segs[1].speed = MB as f64;
+        t.segs[1].received -= MB;
+        assert_eq!(t.laggard(now), Some(1));
+    }
+
+    #[test]
+    fn rewinding_starts_a_segment_over() {
+        let now = Instant::now();
+        let mut t = Table::new(10 * MB);
+        t.assign(1, now, &SplitPolicy::default(), false);
+        t.segs[0].received = 3 * MB;
+        t.segs[0].written = 2 * MB;
+        t.rewind(0);
+        assert_eq!((t.segs[0].received, t.segs[0].written), (0, 0));
+        assert_eq!(t.received_total(), 0);
+    }
 }

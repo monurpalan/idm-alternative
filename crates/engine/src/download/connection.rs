@@ -292,3 +292,49 @@ impl Writer {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::segments::SplitPolicy;
+
+    #[test]
+    fn a_mirror_is_slow_once_all_its_settled_connections_crawl() {
+        let start = Instant::now();
+        let policy = SplitPolicy::default();
+        let mut t = Table::new(1 << 30);
+        for id in 0..6 {
+            t.assign(id, start, &policy, true);
+        }
+        // The best a connection has done: 10 MiB/s.
+        t.segs[0].received += 10 << 20;
+        t.sample_speeds(Duration::from_secs(1));
+        let best = t.best_speed();
+        let mut running = HashMap::new();
+        for (idx, source, speed) in [
+            // The URL itself is never left out.
+            (0, 0, 0.1 * best),
+            // Mirror 1: both its connections crawl.
+            (1, 1, 0.1 * best),
+            (2, 1, 0.149 * best),
+            // Mirror 2: one crawls, the other is just fast enough.
+            (3, 2, 0.1 * best),
+            (4, 2, SLOW_MIRROR * best),
+            // Mirror 3: crawls, but has not had long enough to tell.
+            (5, 3, 0.1 * best),
+        ] {
+            t.segs[idx].speed = speed;
+            running.insert(idx, (CancellationToken::new(), 0, source));
+        }
+        t.segs[5].owned_since = Some(start + Duration::from_secs(1));
+        let mut slow = slow_mirrors(&t, &running, start + SETTLED);
+        slow.sort_unstable();
+        assert_eq!(slow, [1]);
+        // Before anything was measured, nothing is slow.
+        let mut fresh = Table::new(1 << 30);
+        for id in 0..6 {
+            fresh.assign(id, start, &policy, true);
+        }
+        assert!(slow_mirrors(&fresh, &running, start + SETTLED).is_empty());
+    }
+}

@@ -230,4 +230,36 @@ mod tests {
         assert!(!sibling(&path, ".tmp").exists(), "no temporary file left");
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    #[test]
+    fn a_state_that_does_not_add_up_is_ignored() {
+        let dir = std::env::temp_dir().join(format!("shardload-bad-state-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("f.shardload-state");
+        let load = |s: State| {
+            s.save(&path).expect("save");
+            State::load(&path)
+        };
+        let seg = |start, written, end| SavedSegment {
+            start,
+            written,
+            end,
+            speed: 0,
+        };
+        // Saved cleanly, so loading changes nothing in them.
+        let with = |segment| {
+            let mut s = State::new("https://e.x/f", 100, Validators::default(), vec![segment]);
+            s.clean = true;
+            s
+        };
+        assert!(load(with(seg(0, 10, 100))).is_some());
+        let mut other = with(seg(0, 10, 100));
+        other.version = VERSION + 1;
+        assert!(load(other).is_none(), "another version of the format");
+        // Written before its start, past its end; a segment past the end of the file.
+        for bad in [seg(20, 10, 100), seg(0, 110, 100), seg(0, 10, 120)] {
+            assert!(load(with(bad)).is_none(), "{bad:?}");
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

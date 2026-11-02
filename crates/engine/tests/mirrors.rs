@@ -66,8 +66,9 @@ async fn a_mirror_of_another_file_is_left_out() {
     let dir = workdir("mirrors-other");
     let out = dir.join("f.bin");
     let size = 4 * MB;
+    // The URL at 1 MiB/s a connection: long enough for a mirror let in to be used.
     let req = with_mirrors(
-        format!("{base}/file/a.bin?size=4M&seed=22"),
+        format!("{base}/file/a.bin?size=4M&seed=22&rate=1M"),
         vec![
             // Same size, other bytes.
             format!("{base}/file/other.bin?size=4M&seed=99"),
