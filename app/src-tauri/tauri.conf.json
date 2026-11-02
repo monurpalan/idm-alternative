@@ -48,6 +48,11 @@
         "installMode": "currentUser",
         "installerHooks": "nsis/hooks.nsh"
       }
+    },
+    "linux": {
+      "rpm": {
+        "depends": ["webkit2gtk4.1", "gtk3", "libayatana-appindicator-gtk3"]
+      }
     }
   },
   "plugins": {

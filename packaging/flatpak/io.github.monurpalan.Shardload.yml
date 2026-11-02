@@ -1,0 +1,41 @@
+# Shardload as a Flatpak, made from the .deb the release builds (and the tray icon's libraries
+# from Ubuntu, which the GNOME runtime does not have). See README.md here for how it is built
+# and what works differently in the sandbox.
+id: io.github.monurpalan.Shardload
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+command: shardload
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Downloads go wherever the user picks; the browsers' native messaging folders, where the
+  # app registers its browser host, are in it too.
+  - --filesystem=home
+  # The tray icon and the notifications.
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=org.freedesktop.Notifications
+modules:
+  - name: shardload
+    buildsystem: simple
+    sources:
+      - type: file
+        path: shardload.deb
+      # libayatana-appindicator3 and what it needs, as .so files (see build.sh).
+      - type: dir
+        path: indicator
+        dest: indicator
+      - type: file
+        path: io.github.monurpalan.Shardload.metainfo.xml
+    build-commands:
+      - ar -x shardload.deb
+      - tar -xf data.tar.*
+      - install -Dm755 -t /app/bin usr/bin/shardload usr/bin/shardload-host usr/bin/shardload-mcp
+      - install -Dm644 -t /app/lib indicator/*
+      - for size in 32x32 128x128 256x256@2; do install -Dm644 usr/share/icons/hicolor/$size/apps/shardload.png /app/share/icons/hicolor/${size%@2}/apps/io.github.monurpalan.Shardload.png; done
+      - install -Dm644 usr/share/applications/Shardload.desktop /app/share/applications/io.github.monurpalan.Shardload.desktop
+      - sed -i 's/^Icon=.*/Icon=io.github.monurpalan.Shardload/' /app/share/applications/io.github.monurpalan.Shardload.desktop
+      - install -Dm644 -t /app/share/metainfo io.github.monurpalan.Shardload.metainfo.xml

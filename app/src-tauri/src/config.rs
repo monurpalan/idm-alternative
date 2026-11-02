@@ -118,7 +118,9 @@ pub(crate) fn watch_clipboard(handle: &AppHandle, on: bool) {
 ///
 /// The host is installed next to the app. A profile started with `SHARDLOAD_HOME` registers a
 /// small script that starts the host with the same `SHARDLOAD_HOME`, so browsers reach that
-/// profile and not the real one.
+/// profile and not the real one. In a Flatpak the host is inside the sandbox, where a browser
+/// outside cannot start it: the script, in the app's data folder (which the host sees at the
+/// same path), starts it with `flatpak run`.
 pub(crate) fn set_browser_integration(data: &Path, on: bool) -> CmdResult<()> {
     if !on {
         return shardload_bridge::unregister(data).map_err(msg);
@@ -135,7 +137,18 @@ pub(crate) fn set_browser_integration(data: &Path, on: bool) -> CmdResult<()> {
             host.display()
         ));
     }
-    let target = if std::env::var_os("SHARDLOAD_HOME").is_some() {
+    let flatpak = std::env::var("FLATPAK_ID").ok().filter(|id| !id.is_empty());
+    let target = if let (Some(id), false) = (&flatpak, cfg!(windows)) {
+        let profile = std::env::var_os("SHARDLOAD_HOME").map_or_else(String::new, |_| {
+            let dir = data.display();
+            format!("--filesystem='{dir}' --env=SHARDLOAD_HOME='{dir}' ")
+        });
+        let script = data.join("shardload-host.sh");
+        let text =
+            format!("#!/bin/sh\nexec flatpak run --command=shardload-host {profile}{id} \"$@\"\n");
+        write_script(&script, &text)?;
+        script
+    } else if std::env::var_os("SHARDLOAD_HOME").is_some() {
         let (script, text) = if cfg!(windows) {
             (
                 data.join("shardload-host.cmd"),
@@ -157,18 +170,23 @@ pub(crate) fn set_browser_integration(data: &Path, on: bool) -> CmdResult<()> {
                 ),
             )
         };
-        std::fs::write(&script, text).map_err(msg)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
-                .map_err(msg)?;
-        }
+        write_script(&script, &text)?;
         script
     } else {
         host
     };
     shardload_bridge::register(&target, data).map_err(msg)
+}
+
+/// Writes a script that starts the host, runnable.
+fn write_script(script: &Path, text: &str) -> CmdResult<()> {
+    std::fs::write(script, text).map_err(msg)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(script, std::fs::Permissions::from_mode(0o755)).map_err(msg)?;
+    }
+    Ok(())
 }
 
 /// The manager's configuration: the settings plus the helper programs the app has. ffmpeg:

@@ -91,9 +91,9 @@ jobs:
         run: node scripts/check-size.mjs
       - name: Test
         run: cargo test --workspace
-      - name: Packages (.deb, AppImage)
+      - name: Packages (.deb, .rpm, AppImage)
         working-directory: app
-        run: npm run bundle -- --bundles deb,appimage
+        run: npm run bundle -- --bundles deb,rpm,appimage
       # Each package, installed or run as it comes, on a virtual display: the window loads,
       # the bridge socket is there, and a download through the MCP server works.
       - name: Smoke test of the packages
@@ -105,10 +105,61 @@ jobs:
           image=$(ls ../target/release/bundle/appimage/*.AppImage)
           chmod +x "$image"
           xvfb-run -a node scripts/linux-smoke.mjs             "APPIMAGE_EXTRACT_AND_RUN=1 exec $image" shardload-mcp ../target/debug/testserver
+      # The .rpm installed with dnf on Fedora (which brings what it requires), and the same
+      # smoke test, as a user.
+      - name: Smoke test of the .rpm on Fedora
+        run: |
+          rpm=$(ls target/release/bundle/rpm/*.rpm)
+          docker run --rm -v "$PWD:/w" fedora:41 bash -euc "
+            dnf install -y -q /w/$rpm xorg-x11-server-Xvfb xorg-x11-xauth nodejs > /dev/null
+            rpm -qpR /w/$rpm | grep -v '^rpmlib'
+            useradd -m smoke
+            cp /w/target/debug/testserver /home/smoke/testserver
+            su smoke -c 'cd /w/app && xvfb-run -a node scripts/linux-smoke.mjs shardload shardload-mcp /home/smoke/testserver'"
       - uses: actions/upload-artifact@v4
         with:
           name: linux-packages
           path: |
             target/release/bundle/deb/*.deb
+            target/release/bundle/rpm/*.rpm
             target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-testserver
+          path: target/debug/testserver
+          if-no-files-found: error
+
+  # The Flatpak, made from the .deb (see packaging/flatpak), installed and smoke-tested.
+  flatpak:
+    needs: linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-packages
+          path: packages
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-testserver
+          path: testserver
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build the bundle
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder xvfb xauth dbus
+          packaging/flatpak/build.sh packages/deb/*.deb packages/flatpak/Shardload.flatpak
+      - name: Smoke test of the Flatpak
+        run: |
+          flatpak install --user -y --noninteractive packages/flatpak/Shardload.flatpak
+          chmod +x testserver/testserver
+          cd app
+          dbus-run-session -- xvfb-run -a node scripts/linux-smoke.mjs             "exec flatpak run --filesystem=/tmp io.github.monurpalan.Shardload"             "exec flatpak run --filesystem=/tmp --command=shardload-mcp io.github.monurpalan.Shardload"             ../testserver/testserver
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-flatpak
+          path: packages/flatpak/Shardload.flatpak
           if-no-files-found: error

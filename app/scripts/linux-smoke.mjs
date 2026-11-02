@@ -1,16 +1,18 @@
 // Smoke test of an installed Linux package, on a (virtual) display: starts the app in a profile
 // of its own, waits until its window's page has loaded and reached the app, checks the bridge
-// socket the browser extension and the MCP server use, then downloads a file from the test
-// server through the MCP server and checks it on disk.
+// socket the browser extension and the MCP server use, starts the browser host the way Chrome
+// would (from the manifest the app registered) and pings the app through it, then downloads a
+// file from the test server through the MCP server and checks it on disk.
 //
 //   xvfb-run -a node scripts/linux-smoke.mjs <app command> <mcp command> <testserver>
 //
 // e.g. `shardload shardload-mcp ../target/debug/testserver` after installing the .deb; an
-// AppImage is run as `APPIMAGE_EXTRACT_AND_RUN=1 ./Shardload.AppImage`.
+// AppImage is run as `APPIMAGE_EXTRACT_AND_RUN=1 ./Shardload.AppImage`, a Flatpak as
+// `flatpak run --filesystem=/tmp io.github.monurpalan.Shardload` (its profile is in /tmp).
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -43,7 +45,7 @@ function log() {
 
 /** The MCP server over stdio: one JSON-RPC request at a time. */
 function mcp() {
-	const child = spawn(mcpCmd, [], { env, stdio: ['pipe', 'pipe', 'inherit'] });
+	const child = spawn('sh', ['-c', mcpCmd], { env, stdio: ['pipe', 'pipe', 'inherit'] });
 	children.push(child);
 	const lines = createInterface({ input: child.stdout });
 	const waiting = new Map();
@@ -71,7 +73,38 @@ function mcp() {
 	};
 }
 
+/** Starts the host the way Chrome does (the manifest's path, the extension's origin) and pings. */
+async function pingThroughHost() {
+	const manifest = join(homedir(), '.config', 'google-chrome', 'NativeMessagingHosts', 'io.github.monurpalan.shardload.json');
+	await waitFor(() => existsSync(manifest), 'the host manifest for Chrome', 30_000);
+	const { path } = JSON.parse(readFileSync(manifest, 'utf8'));
+	const host = spawn(path, ['chrome-extension://calgjlgiljgeegibddigkflnpegdhhle/'], {
+		stdio: ['pipe', 'pipe', 'inherit']
+	});
+	children.push(host);
+	const body = Buffer.from(JSON.stringify({ type: 'ping' }));
+	const head = Buffer.alloc(4);
+	head.writeUInt32LE(body.length);
+	host.stdin.write(Buffer.concat([head, body]));
+	let got = Buffer.alloc(0);
+	const reply = await new Promise((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error(`no answer from ${path}`)), 60_000);
+		host.stdout.on('data', (chunk) => {
+			got = Buffer.concat([got, chunk]);
+			if (got.length >= 4 && got.length >= 4 + got.readUInt32LE(0)) {
+				clearTimeout(timer);
+				resolve(JSON.parse(got.subarray(4, 4 + got.readUInt32LE(0)).toString()));
+			}
+		});
+	});
+	host.stdin.end();
+	if (!reply.ok) throw new Error(`the host answered ${JSON.stringify(reply)}`);
+	console.log(`ok    the browser host answers through ${path}`);
+}
+
 async function main() {
+	// The app registers its host with the browsers it finds: Chrome is "found" here.
+	mkdirSync(join(homedir(), '.config', 'google-chrome'), { recursive: true });
 	const server = spawn(testserver, ['serve', '--bind', '127.0.0.1:8771'], { stdio: 'ignore' });
 	children.push(server);
 	// In a process group of its own, so stopping it stops the app too, not only the shell.
@@ -83,6 +116,7 @@ async function main() {
 	console.log("ok    the window's page loaded and reached the app");
 	if (!existsSync(join(home, 'bridge.sock'))) throw new Error('no bridge socket');
 	console.log('ok    the bridge socket is there');
+	await pingThroughHost();
 
 	const client = mcp();
 	await client.request('initialize', {
