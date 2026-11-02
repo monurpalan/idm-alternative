@@ -4110,6 +4110,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lzma-rust2"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef1d73c59a56771343712b22ea5615092c612c16ba291c0979e3105dfeec4890"
+dependencies = [
+ "sha2 0.11.1",
+]
+
+[[package]]
 name = "mac-notification-sys"
 version = "0.6.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6697,7 +6706,7 @@ dependencies = [
  "httpdate",
  "keyring",
  "librqbit",
- "lzma-rs",
+ "lzma-rust2",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

@@ -12,6 +12,10 @@ use std::sync::atomic::AtomicBool;
 
 use shardload_engine::LocalZip;
 
+/// The memory an xz archive may ask for to be unpacked (its dictionary), in KiB: what xz's
+/// highest preset needs, with room. One that asks for more is refused rather than read.
+const XZ_MEMORY_KB: u32 = 256 << 10;
+
 /// What unpacking an archive came to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unpacked {
@@ -84,7 +88,11 @@ pub(crate) fn unpack(file: &Path, folder: &Path, free: Option<u64>) -> Result<Un
             let reader = || -> std::io::Result<Box<dyn Read>> {
                 Ok(match kind {
                     Kind::TarGz => Box::new(flate2::read::MultiGzDecoder::new(open()?)),
-                    Kind::TarXz => Box::new(XzReader::new(open()?)),
+                    Kind::TarXz => Box::new(lzma_rust2::XzReader::new_mem_limit(
+                        open()?,
+                        true,
+                        XZ_MEMORY_KB,
+                    )),
                     _ => Box::new(open()?),
                 })
             };
@@ -172,42 +180,6 @@ fn damaged(e: std::io::Error) -> String {
     format!("the archive is damaged: {e}")
 }
 
-/// xz, decompressed on a thread of its own into a pipe: lzma-rs takes a writer, tar a reader.
-struct XzReader {
-    pipe: std::io::PipeReader,
-    thread: Option<std::thread::JoinHandle<Result<(), String>>>,
-}
-
-impl XzReader {
-    fn new(mut input: impl std::io::BufRead + Send + 'static) -> Self {
-        let (pipe, mut writer) = std::io::pipe().expect("a pipe");
-        let thread = std::thread::spawn(move || {
-            lzma_rs::xz_decompress(&mut input, &mut writer).map_err(|e| e.to_string())
-        });
-        Self {
-            pipe,
-            thread: Some(thread),
-        }
-    }
-}
-
-impl Read for XzReader {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let n = self.pipe.read(buf)?;
-        if n == 0
-            && let Some(t) = self.thread.take()
-        {
-            // The end of the stream: whether it ended because the data was damaged.
-            match t.join() {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
-                Err(_) => return Err(std::io::Error::other("the xz reader stopped")),
-            }
-        }
-        Ok(n)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,8 +224,10 @@ mod tests {
         let tar = tar_bytes();
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         std::io::Write::write_all(&mut gz, &tar).expect("gz");
-        let mut xz = Vec::new();
-        lzma_rs::xz_compress(&mut &tar[..], &mut xz).expect("xz");
+        let mut xz = lzma_rust2::XzWriter::new(Vec::new(), lzma_rust2::XzOptions::with_preset(6))
+            .expect("xz");
+        std::io::Write::write_all(&mut xz, &tar).expect("xz");
+        let xz = xz.finish().expect("xz");
         for (name, bytes) in [
             ("a.tar", tar.clone()),
             ("b.tar.gz", gz.finish().expect("gz")),
@@ -288,6 +262,16 @@ mod tests {
         std::fs::write(&gz, b"\x1f\x8b\x08\x00garbage that is not gzip").expect("write");
         assert!(unpack(&gz, &d.join("out2"), None).is_err());
         assert!(unpack(&d.join("x.rar"), &d.join("out3"), None).is_err());
+        // A flipped byte inside xz data: its check says so.
+        let mut xz = lzma_rust2::XzWriter::new(Vec::new(), lzma_rust2::XzOptions::with_preset(6))
+            .expect("xz");
+        std::io::Write::write_all(&mut xz, &tar_bytes()).expect("xz");
+        let mut xz = xz.finish().expect("xz");
+        let middle = xz.len() / 2;
+        xz[middle] ^= 0x55;
+        let file = d.join("c.tar.xz");
+        std::fs::write(&file, xz).expect("write");
+        assert!(unpack(&file, &d.join("out4"), None).is_err());
         std::fs::remove_dir_all(&d).ok();
     }
 }
