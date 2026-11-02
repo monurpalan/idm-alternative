@@ -222,3 +222,53 @@ pub(crate) fn words_ps(text: &str) -> Result<Vec<String>, String> {
     flush(&mut out, &mut cur, &mut started);
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sh(text: &str) -> Vec<String> {
+        words_sh(text).unwrap_or_else(|e| panic!("{text:?}: {e}"))
+    }
+
+    #[test]
+    fn posix_shell() {
+        assert_eq!(sh(r"a\ b 'c d' e"), ["a b", "c d", "e"]);
+        // `$'…'` with its escapes; `\` at a line end, also after a carriage return.
+        assert_eq!(
+            sh(&(r"$'a\tb\nc\'d' x\".to_owned() + "\r\ny")),
+            ["a\tb\nc'd", "xy"]
+        );
+        // In double quotes `\` escapes only what the shell would, and keeps itself otherwise.
+        assert_eq!(sh(r#""\$x \"y\" \q \\""#), [r#"$x "y" \q \"#]);
+        assert_eq!(sh(&(r#""a\"#.to_owned() + "\nb\"")), ["ab"]);
+        assert_eq!(sh("'' x"), ["", "x"]);
+        for open in ["'a", "\"a", "$'a", "$'a\\", "\"a\\"] {
+            assert!(words_sh(open).is_err(), "{open}");
+        }
+        assert_eq!(sh("a\\"), ["a"]);
+    }
+
+    #[test]
+    fn windows_cmd() {
+        let w = |t: &str| words_cmd(t).expect("words");
+        assert_eq!(w("curl ^\r\n  \"a b\" ^\n c"), ["curl", "a b", "c"]);
+        assert_eq!(w("^^x ^&y \"\""), ["^x", "&y", ""]);
+        // `^"` reaches curl as a quote.
+        assert_eq!(w("-H ^\"a b^\""), ["-H", "a b"]);
+        assert_eq!(w("a^"), ["a"]);
+        assert!(words_cmd("\"a").is_err());
+    }
+
+    #[test]
+    fn powershell() {
+        let w = |t: &str| words_ps(t).expect("words");
+        assert_eq!(w("a`\r\n b `\n c"), ["a", "b", "c"]);
+        assert_eq!(w(r#""x ""y"" `"z`" `t`n`$""#), ["x \"y\" \"z\" \t\n$"]);
+        assert_eq!(w("'it''s' `$a"), ["it's", "$a"]);
+        assert_eq!(w("@{a=1;b=2}"), ["@{", "a", "=", "1", "b", "=", "2", "}"]);
+        for open in ["\"a", "'a", "\"a`"] {
+            assert!(words_ps(open).is_err(), "{open}");
+        }
+    }
+}

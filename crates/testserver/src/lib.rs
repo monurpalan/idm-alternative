@@ -7,7 +7,7 @@
 //!
 //! `GET /hls/master.m3u8?<params>` serves a synthetic HLS stream (see [`hls`]).
 //!
-//! `GET /zip/{name}?seed=&ranges=&zip64=` serves a sample ZIP archive (see [`zip`]).
+//! `GET /zip/{name}?seed=&ranges=&zip64=&damaged=` serves a sample ZIP archive (see [`zip`]).
 //!
 //! `GET /sample/{name}?kind=&seed=&corrupt_at=` serves a real file of a kind Shardload checks
 //! by its structure (see [`samples`]).

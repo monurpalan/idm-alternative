@@ -231,6 +231,9 @@ pub(crate) struct Params {
     ranges: bool,
     #[serde(deserialize_with = "crate::scenario::flag")]
     zip64: bool,
+    /// One byte of `data/raw.bin` (stored) changed after its CRC-32 was recorded.
+    #[serde(deserialize_with = "crate::scenario::flag")]
+    damaged: bool,
 }
 
 impl Default for Params {
@@ -239,6 +242,7 @@ impl Default for Params {
             seed: 1,
             ranges: true,
             zip64: false,
+            damaged: false,
         }
     }
 }
@@ -254,7 +258,13 @@ pub(crate) async fn serve(
     Query(p): Query<Params>,
     headers: HeaderMap,
 ) -> Response {
-    let data = sample(p.seed, p.zip64);
+    let mut data = sample(p.seed, p.zip64);
+    if p.damaged {
+        let raw = &sample_entries(p.seed)[3].data;
+        if let Some(at) = data.windows(64).position(|w| w == &raw[..64]) {
+            data[at + 1000] ^= 0xFF;
+        }
+    }
     let size = data.len() as u64;
     let (mut start, mut end, mut status) = (0, size, StatusCode::OK);
     if p.ranges

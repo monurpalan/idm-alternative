@@ -44,7 +44,9 @@ pub enum Error {
     Stalled(Duration),
     #[error("gave up after {attempts} failed attempts; last error: {last}")]
     TooManyFailures { attempts: u32, last: String },
-    #[error("state file: {0}")]
+    /// Something the download cannot go on with, said as it is: a playlist or a manifest it
+    /// cannot use, a tool that is missing. (It once said "state file:" before every one.)
+    #[error("{0}")]
     State(String),
     /// The finished file does not match the checksum the user gave, or one found for it
     /// (`origin` says where, e.g. `SHA256SUMS`). The file is kept (under its final name) so

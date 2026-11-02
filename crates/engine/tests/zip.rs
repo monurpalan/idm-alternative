@@ -148,3 +148,55 @@ async fn something_else_is_not_an_archive() {
         .expect("refused");
     assert!(matches!(err, Error::Archive(_)), "{err}");
 }
+
+/// One byte of a stored entry changed after its CRC-32 was recorded: that entry is reported
+/// and leaves no file, whether picked from the server or unpacked from a downloaded copy; the
+/// others come out whole.
+#[tokio::test]
+async fn a_damaged_entry_is_refused_and_the_rest_extracted() {
+    let base = start().await;
+    let dir = workdir("zip-damaged");
+    let url = format!("{base}/zip/sample.zip?seed=6&damaged=1");
+    let zip = open(&url).await.expect("open");
+    let out = dir.join("remote");
+    let chosen = pick(&zip, &["data/raw.bin", "readme.txt"]);
+    let done = zip
+        .extract(&chosen, &out, false, None, &CancellationToken::new())
+        .await
+        .expect("extract");
+    let error = |done: &[shardload_engine::Extracted], name: &str| {
+        done.iter()
+            .find(|d| d.name == name)
+            .and_then(|d| d.error.clone())
+            .unwrap_or_default()
+    };
+    assert!(
+        error(&done, "data/raw.bin").contains("CRC-32 mismatch"),
+        "{done:?}"
+    );
+    assert_eq!(error(&done, "readme.txt"), "");
+    assert!(!out.join("data").join("raw.bin").exists());
+    assert!(!out.join("data").join("raw.bin.shardload-part").exists());
+    assert!(out.join("readme.txt").is_file());
+
+    let archive = dir.join("sample.zip");
+    let bytes = reqwest::get(&url)
+        .await
+        .expect("get")
+        .bytes()
+        .await
+        .expect("body");
+    std::fs::write(&archive, &bytes).expect("write");
+    let out = dir.join("local");
+    let done = shardload_engine::LocalZip::open(&archive)
+        .expect("open")
+        .unpack(&out, &std::sync::atomic::AtomicBool::new(false))
+        .expect("unpack");
+    assert!(
+        error(&done, "data/raw.bin").contains("CRC-32 mismatch"),
+        "{done:?}"
+    );
+    assert_eq!(error(&done, "docs/notes.txt"), "");
+    assert!(!out.join("data").join("raw.bin").exists());
+    assert!(out.join("docs").join("notes.txt").is_file());
+}

@@ -165,6 +165,42 @@ jobs:
           name: fuzz-artifacts
           path: fuzz/artifacts
 
+  # Which lines the tests run, per file (crates/*; the app shell needs a window). A report to
+  # read, not a gate: no threshold.
+  coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain from rust-toolchain.toml, with the LLVM tools
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup component add llvm-tools-preview
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake clang libclang-dev libdbus-1-dev libssl-dev pkg-config
+      - name: Tests with coverage
+        run: |
+          cargo llvm-cov --no-report
+          cargo llvm-cov report --html --output-dir coverage
+          cargo llvm-cov report --lcov --output-path coverage/lcov.info
+          cargo llvm-cov report --summary-only | tee coverage/summary.txt
+          {
+            echo '### Line coverage'
+            echo '```'
+            tail -n 1 coverage/summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage
+          if-no-files-found: error
+
   # The Flatpak, made from the .deb (see packaging/flatpak), installed and smoke-tested.
   flatpak:
     needs: linux

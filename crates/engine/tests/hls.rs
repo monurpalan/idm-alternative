@@ -470,3 +470,31 @@ async fn segments_that_leave_the_window_are_counted_as_missed() {
     done.expect("record");
     assert!(last.missed >= 10, "missed {}", last.missed);
 }
+
+/// ffmpeg failing to put a recording into an MP4 must not lose it: a live stream cannot be
+/// recorded again, so the video is kept as it came, beside where the MP4 would have gone.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_recording_ffmpeg_cannot_join_is_kept_as_it_came() {
+    let base = start().await;
+    let dir = workdir("live-no-mux");
+    let out = dir.join("live.mp4");
+    let url =
+        format!("{base}/hls/v720.m3u8?live=1&seg_ms=200&window=5&end_after=4&seed=34&seg_size=16K");
+    let req = shardload_engine::RecordRequest {
+        ffmpeg: Some(dir.join("no-such-ffmpeg.exe")),
+        ..record(url, &out)
+    };
+    let (done, _) = record_with(&req, &CancellationToken::new()).await;
+    let Err(Error::State(why)) = done else {
+        panic!("{done:?}");
+    };
+    let kept = dir.join("live.ts");
+    assert!(why.contains(&kept.display().to_string()), "{why}");
+    assert!(!out.exists());
+    let size = std::fs::metadata(&kept).expect("kept").len();
+    assert_eq!(size, 4 * (16 << 10));
+    assert_eq!(
+        verify_file(&kept, track_seed(34, "v720"), size).expect("verify"),
+        Verdict::Ok
+    );
+}
