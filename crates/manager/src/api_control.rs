@@ -79,12 +79,16 @@ impl Manager {
         Ok(shardload_engine::probe(url, headers, &opts).await?)
     }
 
-    /// Queues every paused or failed download.
+    /// Queues every paused or failed download. No fill starts any of them until all are
+    /// queued, so the queue's order (the earliest deadline first) holds among them.
     pub async fn start_all(&self) -> Result<()> {
-        for t in self.list().await? {
-            if matches!(t.status, Status::Paused | Status::Error) {
-                lock(&self.inner.retries).remove(&t.id);
-                self.inner.set_status(t.id, Status::Queued, None).await?;
+        {
+            let _no_fill_meanwhile = self.inner.scheduling.lock().await;
+            for t in self.list().await? {
+                if matches!(t.status, Status::Paused | Status::Error) {
+                    lock(&self.inner.retries).remove(&t.id);
+                    self.inner.set_status(t.id, Status::Queued, None).await?;
+                }
             }
         }
         self.inner.fill().await
