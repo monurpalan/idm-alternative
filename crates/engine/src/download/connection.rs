@@ -284,7 +284,7 @@ impl Writer {
         }
         let len = self.buf.len() as u64;
         let data = std::mem::take(&mut self.buf);
-        let mut data = ctx.file.write_at(data, self.offset).await?;
+        let mut data = ctx.write_counted(data, self.offset).await?;
         self.offset += len;
         ctx.table().segs[idx].written = self.offset;
         data.clear();

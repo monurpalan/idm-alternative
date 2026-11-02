@@ -70,6 +70,7 @@ impl Inner {
                     checksum_from: None,
                     recorded: 0.0,
                     eta: None,
+                    hints: Vec::new(),
                     segments: Vec::new(),
                 }));
                 tokio::time::sleep(PROGRESS_EVERY).await;
@@ -362,12 +363,18 @@ impl Inner {
         };
         let (tx, rx) = watch::channel(Progress::default());
         let prior = memory.as_ref().and_then(|m| m.speed).map(|s| s as f64);
+        let watch = hints::Watch {
+            global: opts.limiters.first().cloned(),
+            own: opts.limiters.get(1).cloned(),
+            proxy: opts.proxy.is_some(),
+        };
         let reporter = tokio::spawn(report(
             task.id,
             rx,
             self.events.clone(),
             self.db.clone(),
             prior,
+            watch,
         ));
         let result = shardload_engine::download(&req, &opts, Some(&tx), cancel).await;
         drop(tx);
@@ -424,11 +431,13 @@ pub(crate) async fn report(
     events: broadcast::Sender<Event>,
     db: Db,
     prior: Option<f64>,
+    watch: hints::Watch,
 ) {
     let mut tick = tokio::time::interval(PROGRESS_EVERY);
     let mut saved = Instant::now();
     let started = Instant::now();
     let mut eta = eta::Estimator::new(prior);
+    let mut hints = hints::Hints::new(watch);
     loop {
         tick.tick().await;
         match rx.has_changed() {
@@ -459,6 +468,7 @@ pub(crate) async fn report(
                 tracing::warn!(id, "could not save progress: {e}");
             }
         }
+        let hints = hints.update(&p.health, p.phase == Phase::Downloading, Instant::now());
         let _ = events.send(Event::Progress(TaskProgress {
             id,
             phase: p.phase,
@@ -470,6 +480,7 @@ pub(crate) async fn report(
             checksum_from: p.checksum_from,
             recorded: p.recorded,
             eta: left.map(|(soonest, latest)| [soonest, latest]),
+            hints,
             segments: p.segments,
         }));
     }

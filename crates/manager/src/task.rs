@@ -437,6 +437,8 @@ pub struct TaskProgress {
     pub recorded: f64,
     /// Seconds left, `[soonest, latest]` (see [`crate::eta`]); `None` while calculating.
     pub eta: Option<[f64; 2]>,
+    /// What holds the download back, when it is known for certain (see [`crate::hints`]).
+    pub hints: Vec<crate::hints::Hint>,
     #[serde(serialize_with = "segments")]
     pub segments: Vec<SegmentView>,
 }

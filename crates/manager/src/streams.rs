@@ -71,6 +71,7 @@ impl Inner {
             self.events.clone(),
             self.db.clone(),
             None,
+            hints::Watch::default(),
         ));
         if let Some(record) = &stream.record {
             let limit = record.limit.map(Duration::from_secs);
@@ -236,6 +237,7 @@ impl Inner {
             self.events.clone(),
             self.db.clone(),
             None,
+            hints::Watch::default(),
         ));
         let result = zip
             .extract(&chosen, &folder, false, Some(&tx), cancel)

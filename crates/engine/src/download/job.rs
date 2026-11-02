@@ -83,6 +83,8 @@ impl Job<'_> {
             cancel: cancel.child_token(),
             saving: Mutex::new(None),
             finished: Arc::new(Mutex::new(false)),
+            disk_writes: AtomicUsize::new(0),
+            slow_disk: self.opts.slow_disk,
         });
 
         // Mirrors are checked while the download already runs from its own URL; each joins
@@ -141,6 +143,8 @@ impl Job<'_> {
         let mut last_tick = Instant::now();
         let mut last_checkpoint = Instant::now();
         let mut last_move = Instant::now();
+        let mut health = Health::default();
+        let mut disk = DiskGauge::default();
 
         loop {
             tokio::select! {
@@ -175,6 +179,7 @@ impl Job<'_> {
                                 tracing::info!("connection refused (HTTP {code}) while others work; limiting to {limit} connections");
                                 conn_limit = limit;
                                 self.opts.learn.limited_to(limit);
+                                health.server_limit = Some(limit);
                             }
                             t.release(idx, true, now);
                         }
@@ -190,7 +195,10 @@ impl Job<'_> {
                                     tracing::info!("server busy (HTTP {code}); limiting to {limit} connections");
                                     conn_limit = limit;
                                     self.opts.learn.limited_to(limit);
+                                    health.server_limit = Some(limit);
                                 }
+                            } else {
+                                health.reconnects += 1;
                             }
                             t.release(idx, true, now);
                             if single {
@@ -300,8 +308,12 @@ impl Job<'_> {
                         }
                         let active = t.active();
                         self.opts.learn.note(|l| l.peak_connections = l.peak_connections.max(active));
+                        health.disk_wait = disk.tick(&ctx, active);
                         if let Some(p) = progress {
-                            p.send_replace(snapshot(&t, ctx.size));
+                            p.send_replace(Progress {
+                                health: health.clone(),
+                                ..snapshot(&t, ctx.size)
+                            });
                         }
                     }
                     last_tick = now;

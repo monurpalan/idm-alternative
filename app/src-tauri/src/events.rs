@@ -24,7 +24,12 @@ pub(crate) async fn forward_events(handle: AppHandle, mut events: broadcast::Rec
                 Ok(Event::Progress(p)) => {
                     lock(&handle.state::<App>().live).insert(
                         p.id,
-                        Live { received: p.received, speed: p.speed, eta: p.eta },
+                        Live {
+                            received: p.received,
+                            speed: p.speed,
+                            eta: p.eta,
+                            hints: p.hints.clone(),
+                        },
                     );
                     pending.insert(p.id, p);
                 }
@@ -221,19 +226,21 @@ pub(crate) fn install_extension(handle: AppHandle, browser: Option<String>) -> C
 }
 
 /// A running download as last reported.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct Live {
     pub(crate) received: u64,
     pub(crate) speed: f64,
     /// Seconds left, `[soonest, latest]`; `None` while calculating.
     pub(crate) eta: Option<[f64; 2]>,
+    /// What holds it back (see [`shardload_manager::hints`]).
+    pub(crate) hints: Vec<shardload_manager::hints::Hint>,
 }
 
 /// The tray's tooltip: how many are downloading and when they will all be done.
 pub(crate) fn tray_tooltip(handle: &AppHandle) -> String {
     let live: Vec<Live> = lock(&handle.state::<App>().live)
         .values()
-        .copied()
+        .cloned()
         .collect();
     if live.is_empty() {
         return "Shardload".into();

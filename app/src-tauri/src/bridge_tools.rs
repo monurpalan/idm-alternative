@@ -359,8 +359,9 @@ where
 /// A download as local tools see it: no request headers, which may hold the browser's
 /// cookies.
 pub(crate) fn task_view(t: &Task, live: Option<&Live>) -> serde_json::Value {
-    let (received, speed, eta) =
-        live.map_or((t.received, 0.0, None), |l| (l.received, l.speed, l.eta));
+    let (received, speed, eta, hints) = live.map_or((t.received, 0.0, None, &[][..]), |l| {
+        (l.received, l.speed, l.eta, l.hints.as_slice())
+    });
     serde_json::json!({
         "id": t.id,
         "url": t.url,
@@ -381,5 +382,6 @@ pub(crate) fn task_view(t: &Task, live: Option<&Live>) -> serde_json::Value {
         "content": t.content,
         "warning": t.warning,
         "eta_seconds": eta.map(|[soonest, latest]| [soonest.round(), latest.round()]),
+        "hints": hints,
     })
 }

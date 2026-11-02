@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button, Checkbox, Input, Text, Textarea } from './ui/index.ts';
+	import SlowHints from './SlowHints.svelte';
 	// Details of one download: where it goes, live numbers, a speed graph, the segment map
 	// (the engine's live splitting, one bar per connection's range), its own speed limit and
 	// "refresh link" for links that expired.
@@ -255,6 +256,9 @@
 			</dd>
 			<dt>{t('Speed')}</dt>
 			<dd class="num">{speed(r.speed) || '–'}{r.left ? ` · ${t('{time} left', { time: timeLeft(r.left) })}` : r.calculating ? ` · ${t('calculating')}` : ''}</dd>
+			{#if r.live?.hints?.length && task.status === 'downloading'}
+				<SlowHints id={task.id} hints={r.live.hints} {onerror} />
+			{/if}
 			{#if learned}
 				<dt>{t('Site')}</dt>
 				<dd title={site?.site}>{t('This site {facts} (learned)', { facts: learned })}</dd>

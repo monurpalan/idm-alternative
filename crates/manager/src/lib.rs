@@ -21,6 +21,7 @@ pub mod disk;
 pub mod eta;
 pub mod folder;
 pub mod grabber;
+pub mod hints;
 pub mod origin;
 mod pages;
 mod queue;

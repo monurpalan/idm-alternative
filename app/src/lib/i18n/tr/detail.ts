@@ -61,5 +61,15 @@ export default {
 		'Bu sitenin linklerinin ne kadar sürdüğüne bakılırsa süresi dolmuş olabilir: aşağıdan yenisini alın',
 	'Expires in about {time}, by how long links of this site lasted':
 		'Bu sitenin linklerinin ne kadar sürdüğüne bakılırsa yaklaşık {time} içinde dolacak',
-	'Start now': 'Şimdi başlat'
-} satisfies Record<string, string>;
+	'Start now': 'Şimdi başlat',
+	// Why slow
+	'Why slow': 'Neden yavaş',
+	'Held at {speed} by its own speed limit': 'Kendi hız sınırı {speed} ile tutuyor',
+	'Held at {speed} by the speed limit for all downloads': 'Tüm indirmelerin hız sınırı {speed} ile tutuyor',
+	'The disk cannot write as fast as the data arrives': 'Disk, verinin geldiği hızda yazamıyor',
+	'Connections keep dropping: {n} reopened in the last minute':
+		'Bağlantılar sık kopuyor: son bir dakikada {n} kez yeniden açıldı',
+	'The server allows only {n} connections at a time': 'Sunucu aynı anda yalnız {n} bağlantıya izin veriyor',
+	'Going through the proxy set in the settings': 'Ayarlardaki proxy üzerinden gidiyor',
+	'Remove the limit': 'Sınırı kaldır'
+};

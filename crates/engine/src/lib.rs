@@ -38,8 +38,8 @@ mod zone;
 pub use checksum::{Algorithm, Checksum, FROM_PAGE, file_checksum};
 pub use dash::{DashRequest, download_dash, record_dash};
 pub use download::{
-    Learned, Learning, Options, Outcome, Phase, Probe, Progress, Request, SegmentView, download,
-    fetch_bytes, fetch_text, find_published_checksum, github_releases, probe,
+    Health, Learned, Learning, Options, Outcome, Phase, Probe, Progress, Request, SegmentView,
+    download, fetch_bytes, fetch_text, find_published_checksum, github_releases, probe,
 };
 pub use error::{Error, Result};
 pub use hls::{Clip, RecordRequest, StreamRequest, download_hls, record_hls};

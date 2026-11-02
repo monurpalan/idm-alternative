@@ -2,10 +2,13 @@
 
 mod connection;
 mod ctx;
+mod health;
 mod job;
 
 use connection::*;
 use ctx::*;
+pub use health::Health;
+use health::*;
 use job::*;
 
 use std::collections::HashMap;
@@ -125,6 +128,9 @@ pub struct Options {
     /// Hashes of the file's pieces: once all is downloaded each piece is checked, and the
     /// corrupt ones are downloaded again on their own (before `checksum` is checked).
     pub pieces: Option<crate::pieces::Pieces>,
+    /// Tests only: every write to the file first waits this long, like a slow disk.
+    #[doc(hidden)]
+    pub slow_disk: Option<Duration>,
 }
 
 /// What a download found out about a server, for starting the next download from it right
@@ -185,6 +191,7 @@ impl Default for Options {
             page_checksum: None,
             learn: Learning::default(),
             pieces: None,
+            slow_disk: None,
         }
     }
 }
@@ -234,6 +241,8 @@ pub struct Progress {
     /// While [`Phase::Recording`]: segments lost because they left the live playlist before
     /// they were read.
     pub missed: u64,
+    /// What holds the download back, as far as it can tell.
+    pub health: Health,
 }
 
 #[derive(Debug, Clone)]

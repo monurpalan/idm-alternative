@@ -2,6 +2,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type { Hint } from './api/hints.ts';
 
 export type TaskId = number;
 export type Status = 'queued' | 'downloading' | 'paused' | 'done' | 'error';
@@ -87,6 +88,8 @@ export interface TaskProgress {
 	recorded: number;
 	/** Seconds left, `[soonest, latest]`; null while calculating. */
 	eta: [number, number] | null;
+	/** What holds the download back, when known for certain. */
+	hints: Hint[];
 	/** `[start, end, received, active]` per segment. */
 	segments: [number, number, number, boolean][];
 }
@@ -690,23 +693,8 @@ export async function onManagerEvent(
 	return () => stops.forEach((f) => f());
 }
 
-/** What the app knows of the browser extension in each browser. */
-export interface ExtensionStatus {
-	browsers: { browser: string; state: 'connected' | 'outdated' | 'missing'; version: string | null }[];
-	warning: { kind: 'not_found' } | { kind: 'outdated'; browser: string } | null;
-	/** Seconds until this may change by itself. */
-	check_in: number | null;
-}
-
-export const extensionStatus = () => invoke<ExtensionStatus>('extension_status');
-/** "Don't show again" on "Browser extension not found". */
-export const dismissExtensionWarning = () => invoke<ExtensionStatus>('dismiss_extension_warning');
-/** Opens where to get the extension (for `browser`, or any). */
-export const installExtension = (browser?: string) =>
-	invoke<void>('install_extension', { browser: browser ?? null });
-/** An extension said hello, or browser integration was turned on or off. */
-export const onExtensions = (handler: (s: ExtensionStatus) => void): Promise<UnlistenFn> =>
-	listen<ExtensionStatus>('extensions', (e) => handler(e.payload));
+export * from './api/extensions.ts';
+export * from './api/hints.ts';
 
 /** The browsers' names, as the extension and the app call them. */
 export const BROWSER_NAMES: Record<string, string> = {

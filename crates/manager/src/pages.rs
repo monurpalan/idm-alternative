@@ -87,6 +87,7 @@ impl Inner {
             self.events.clone(),
             self.db.clone(),
             None,
+            hints::Watch::default(),
         ));
         let result = self
             .torrents
@@ -158,6 +159,7 @@ impl Inner {
             self.events.clone(),
             self.db.clone(),
             None,
+            hints::Watch::default(),
         ));
         let clip = task.stream.as_ref().and_then(|s| s.clip);
         let record = task.stream.as_ref().and_then(|s| s.record.clone());

@@ -34,6 +34,10 @@ pub(crate) struct Ctx {
     /// Set when the download has all its data: a checkpoint still being written then leaves
     /// the state file alone (see [`State::save_unless`]).
     pub(crate) finished: Arc<Mutex<bool>>,
+    /// Writes to the file in progress (see [`DiskGauge`]).
+    pub(crate) disk_writes: AtomicUsize,
+    /// See [`Options::slow_disk`].
+    pub(crate) slow_disk: Option<Duration>,
 }
 
 /// How one source of the file is doing: the download's own URL (0) or a mirror.
