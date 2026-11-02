@@ -69,7 +69,8 @@ async fn main() -> anyhow::Result<ExitCode> {
         Command::Ftp { root, file } => {
             for spec in file {
                 let mut parts = spec.splitn(3, ':');
-                let (Some(name), Some(size), Some(seed)) = (parts.next(), parts.next(), parts.next())
+                let (Some(name), Some(size), Some(seed)) =
+                    (parts.next(), parts.next(), parts.next())
                 else {
                     anyhow::bail!("--file NAME:SIZE:SEED, not {spec}");
                 };
