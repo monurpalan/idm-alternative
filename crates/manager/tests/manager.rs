@@ -3,11 +3,11 @@
 
 mod common;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use common::*;
-use shardload_manager::{Category, Config, Event, Manager, NewTask, Status, TaskId};
+use shardload_manager::{Category, Config, Event, Manager, NewTask, Status};
 use shardload_testserver::router;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -254,7 +254,7 @@ async fn refreshed_link_continues_only_for_the_same_file() {
 
 /// The raw `headers` column of a task, read past the manager.
 #[cfg(windows)]
-async fn raw_headers(db: &Path, id: TaskId) -> String {
+async fn raw_headers(db: &std::path::Path, id: shardload_manager::TaskId) -> String {
     use sqlx::{Connection as _, Row as _};
     let mut c = sqlx::SqliteConnection::connect(&format!("sqlite:{}", db.display()))
         .await
