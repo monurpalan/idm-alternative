@@ -198,6 +198,7 @@ pub(crate) fn manager_config(
 ) -> Config {
     let ffmpeg = path_ffmpeg.or_else(|| tools::installed(data, tools::Tool::Ffmpeg));
     let setup_data = data.to_owned();
+    let base = settings.config();
     Config {
         ffmpeg,
         ffmpeg_setup: Some(shardload_manager::FfmpegSetup(std::sync::Arc::new(
@@ -211,7 +212,12 @@ pub(crate) fn manager_config(
         sensor: Some(shardload_manager::net::Sensor(std::sync::Arc::new(
             crate::sensors::read,
         ))),
-        ..settings.config()
+        engine: shardload_engine::Options {
+            // SFTP servers seen for the first time are recorded here, and trusted from then on.
+            known_hosts: Some(data.join("known_hosts")),
+            ..base.engine.clone()
+        },
+        ..base
     }
 }
 

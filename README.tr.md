@@ -59,6 +59,7 @@ AppImage (`chmod +x` ve çalıştırın).
   denetleyin ya da yeni sürümü var mı bakın.
 - **Torrent.** Magnet bağlantıları ve `.torrent` dosyaları aynı listede, dosya seçerek;
   indirme bitince arkada paylaşmaya devam etmez.
+- **FTP, FTPS ve SFTP** aynı listede: parça parça, kaldığı yerden, kayıtlı girişle.
 - **Bir dosyayı aynı anda birkaç sunucudan indirir** (aynalar ve Metalink); her sunucunun aynı
   baytları verdiği denetlenir.
 - **ZIP arşivinden yalnızca istediğiniz dosyalar**, arşivin tamamını indirmeden.

@@ -15,6 +15,12 @@ name = "testserver"
 path = "src/main.rs"
 
 [dependencies]
+libunftp = "0.24"
+unftp-core = "0.1"
+async-trait = "0.1"
+unftp-sbe-fs = "0.4"
+russh = { version = "0.65", default-features = false, features = ["ring", "flate2", "rsa"] }
+russh-sftp = "3.0"
 anyhow.workspace = true
 axum = { version = "0.8", features = ["http2"] }
 bytes.workspace = true

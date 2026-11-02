@@ -340,6 +340,30 @@ async function flows(page, home, test) {
 		const link = await page.run(`return [...document.querySelectorAll('tbody tr')].find((r) => r.textContent.includes('Test clip')).querySelector('[title]')?.title ?? '';`);
 		if (!link.includes('/hls/v360.m3u8')) throw new Error(`downloads ${link}`);
 	});
+
+	await test('a file from an FTP server, asked about and downloaded', async () => {
+		const ftp = await ftpServer(join(home, 'served'));
+		await page.click('aside button.primary');
+		await waitFor(() => page.exists('dialog[open] input.field'), 'the dialog');
+		await page.click('dialog[open] input.field');
+		await page.type(`ftp://127.0.0.1:${ftp}/pub/data.iso`);
+		await page.key('Tab', 'Tab', 9);
+		await waitFor(() => page.exists('dialog[open] p.info', '5.00 MB'), 'the server’s answer');
+		await page.click('dialog[open] button[type=submit]');
+		await waitFor(() => page.exists('tbody tr.s-done', 'data.iso'), 'the download to finish', 60_000);
+		execFileSync(exe('testserver'), ['verify', join(home, 'downloads', 'data.iso'), '--size', '5M', '--seed', '61']);
+	});
+}
+
+/** An FTP server over `root` with `pub/data.iso` (5 MiB, seed 61) in it; its port. */
+async function ftpServer(root) {
+	const server = start(exe('testserver'), ['ftp', root, '--file', 'pub/data.iso:5M:61'], {
+		stdio: ['ignore', 'pipe', 'ignore']
+	});
+	let out = '';
+	server.stdout.on('data', (d) => (out += d));
+	await waitFor(async () => /^ftp (\d+)/m.test(out), 'the FTP server');
+	return Number(out.match(/^ftp (\d+)/m)[1]);
 }
 
 // ---- Main ---------------------------------------------------------------------------------

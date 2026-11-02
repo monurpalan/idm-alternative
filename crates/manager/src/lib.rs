@@ -376,6 +376,7 @@ fn retryable(e: &Error) -> bool {
     match e {
         Error::Engine(e) => match e {
             E::Http(_)
+            | E::Remote(_)
             | E::Busy(_)
             | E::Truncated
             | E::Stalled(_)

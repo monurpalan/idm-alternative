@@ -37,7 +37,7 @@ fn connects(addr: &str) -> bool {
 fn network_failure(e: &E) -> bool {
     matches!(
         e,
-        E::Http(_) | E::TooManyFailures { .. } | E::Truncated | E::Stalled(_)
+        E::Http(_) | E::Remote(_) | E::TooManyFailures { .. } | E::Truncated | E::Stalled(_)
     )
 }
 

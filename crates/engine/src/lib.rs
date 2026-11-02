@@ -30,6 +30,7 @@ pub mod name;
 mod pieces;
 mod place;
 mod post;
+mod protocol;
 mod relink;
 mod remote;
 pub mod segments;

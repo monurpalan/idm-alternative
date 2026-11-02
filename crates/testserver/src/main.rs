@@ -26,6 +26,14 @@ enum Command {
         #[arg(long)]
         tls: bool,
     },
+    /// Serve a folder over FTP (anonymous, or `user`/`secret`) and SFTP (`user`/`secret`) on
+    /// free ports, printing them; `--file NAME:SIZE:SEED` first puts a file of the usual content
+    /// in the folder.
+    Ftp {
+        root: PathBuf,
+        #[arg(long)]
+        file: Vec<String>,
+    },
     /// Check a downloaded file against the expected content.
     Verify {
         file: PathBuf,
@@ -56,6 +64,23 @@ async fn main() -> anyhow::Result<ExitCode> {
                 tracing::info!("listening on http://{bind}/file/test.bin?size=100M");
                 serve_plain(listener, router()).await?;
             }
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Ftp { root, file } => {
+            for spec in file {
+                let mut parts = spec.splitn(3, ':');
+                let (Some(name), Some(size), Some(seed)) = (parts.next(), parts.next(), parts.next())
+                else {
+                    anyhow::bail!("--file NAME:SIZE:SEED, not {spec}");
+                };
+                let size: Size = size.parse().map_err(anyhow::Error::msg)?;
+                shardload_testserver::ftp::file(&root, name, size.0, seed.parse()?)?;
+            }
+            let ftp = shardload_testserver::ftp::serve(root.clone(), false).await?;
+            let sftp = shardload_testserver::sftp::serve(root).await?;
+            println!("ftp {ftp}");
+            println!("sftp {}", sftp.port);
+            std::future::pending::<()>().await;
             Ok(ExitCode::SUCCESS)
         }
         Command::Verify { file, size, seed } => match verify_file(&file, seed, size.0)? {

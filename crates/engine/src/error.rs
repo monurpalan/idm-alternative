@@ -44,6 +44,13 @@ pub enum Error {
     Stalled(Duration),
     #[error("gave up after {attempts} failed attempts; last error: {last}")]
     TooManyFailures { attempts: u32, last: String },
+    /// An FTP or SSH server, or the connection to it, failed (see [`crate::protocol`]): worth
+    /// trying again, like a network error.
+    #[error("{0}")]
+    Remote(String),
+    /// An FTP or SFTP server has no such file.
+    #[error("the server has no file at {0}")]
+    NotFound(String),
     /// Something the download cannot go on with, said as it is: a playlist or a manifest it
     /// cannot use, a tool that is missing. (It once said "state file:" before every one.)
     #[error("{0}")]
@@ -103,6 +110,7 @@ impl Error {
                 | Error::DiskFull { .. }
                 | Error::NoRanges
                 | Error::Archive(_)
+                | Error::NotFound(_)
         )
     }
 }

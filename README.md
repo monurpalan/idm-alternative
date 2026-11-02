@@ -57,6 +57,7 @@ saves videos and torrents. No ads, no trial, no account.</p>
   downloaded from, check it again, or look for a newer version.
 - **Torrents.** Magnet links and `.torrent` files in the same list, with a choice of files;
   nothing keeps seeding afterwards.
+- **FTP, FTPS and SFTP** in the same list: in parts, resumable, with a saved login.
 - **One file from several servers at once** (mirrors and Metalink), each checked to serve the
   same bytes.
 - **Just the files you need out of a ZIP**, without downloading the whole archive.
@@ -203,6 +204,13 @@ For those who want to know exactly what it does, how it was measured and how it 
 - **Torrents:** magnet links and `.torrent` files (librqbit) in the same list and queue, with
   a choice of files; nothing seeds after a download is done. Opening magnet links and
   `.torrent` files from Windows is a setting, off by default.
+- **FTP, FTPS and SFTP:** `ftp://`, `ftps://` (implicit TLS, port 990), `ftpes://` (explicit
+  TLS, `AUTH TLS`) and `sftp://`, with the user name and password in the address or a saved
+  login. Up to four connections where the server can start a file in the middle (`REST`), and
+  resuming like any download. SFTP logs in with the password or the user's usual keys
+  (`~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`); a server's host key is checked against
+  `~/.ssh/known_hosts` and the app's own list, where a server seen for the first time is
+  recorded, and a key that changed is refused.
 - **Like IDM:** categories, a queue with automatic retries, a scheduler, "when done" sleep or
   shut down, batch downloads (`photo[001-100].jpg`), clipboard monitoring, saved logins per
   site, a virus scan when a download finishes, a small progress window per download, and a

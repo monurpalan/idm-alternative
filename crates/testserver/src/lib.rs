@@ -17,10 +17,12 @@
 
 pub mod content;
 pub mod dash;
+pub mod ftp;
 pub mod hls;
 pub mod samples;
 pub mod scenario;
 mod server;
+pub mod sftp;
 mod stats;
 mod tls;
 pub mod zip;

@@ -100,8 +100,12 @@ pub struct Options {
     pub browser: Option<Browser>,
     /// `http://`, `https://` or `socks5://` proxy for every request.
     pub proxy: Option<String>,
-    /// Accept invalid or self-signed certificates.
+    /// Accept invalid or self-signed certificates (and, for SFTP, any host key).
     pub insecure: bool,
+    /// SFTP: a known-hosts file of the program's own, where a server seen for the first time
+    /// is recorded (its key is then trusted, and a changed key refused). Without it only
+    /// servers in `~/.ssh/known_hosts` are trusted.
+    pub known_hosts: Option<PathBuf>,
     /// Never negotiate HTTP/2.
     pub http1_only: bool,
     pub split: SplitPolicy,
@@ -186,6 +190,7 @@ impl Default for Options {
             browser: Some(Browser::Chrome),
             proxy: None,
             insecure: false,
+            known_hosts: None,
             http1_only: false,
             split: SplitPolicy::default(),
             limiters: Vec::new(),
@@ -281,6 +286,9 @@ pub async fn download(
     progress: Option<&watch::Sender<Progress>>,
     cancel: &CancellationToken,
 ) -> Result<Outcome> {
+    if crate::protocol::handles(&req.url) {
+        return crate::protocol::download(req, opts, progress, cancel).await;
+    }
     let started = Instant::now();
     let _lock = crate::place::Lock::acquire(&req.output)?;
     let http = Http::new(&http_config(&req.headers, opts))?;
@@ -494,7 +502,7 @@ fn percent_decoded(s: &str) -> String {
 }
 
 /// Hashes the finished file, reporting progress about four times a second.
-async fn verify(
+pub(crate) async fn verify(
     part: &Path,
     want: &Checksum,
     from: Option<&str>,

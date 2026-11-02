@@ -17,7 +17,8 @@ pub fn link_in(text: &str) -> Option<String> {
         return None;
     }
     let url = url::Url::parse(text).ok()?;
-    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+    let schemes = ["http", "https", "ftp", "ftps", "ftpes", "sftp"];
+    if !schemes.contains(&url.scheme()) || url.host_str().is_none() {
         return None;
     }
     let name = url.path_segments()?.next_back()?;
@@ -228,7 +229,9 @@ mod tests {
         assert!(link_in("https://example.com/blog/post").is_none());
         assert!(link_in("https://example.com/page.html").is_none());
         assert!(link_in("see https://example.com/a.zip").is_none());
-        assert!(link_in("ftp://example.com/a.zip").is_none());
+        assert!(link_in("ftp://example.com/a.zip").is_some());
+        assert!(link_in("sftp://example.com/a.iso").is_some());
+        assert!(link_in("file:///C:/a.zip").is_none());
         assert!(link_in("C:\\Users\\a.zip").is_none());
     }
 }

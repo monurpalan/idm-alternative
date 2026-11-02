@@ -21,6 +21,9 @@ pub struct Probe {
 /// Asks the server about `url` with the same client settings a download would use, reading
 /// only the response headers.
 pub async fn probe(url: &str, headers: &[(String, String)], opts: &Options) -> Result<Probe> {
+    if crate::protocol::handles(url) {
+        return crate::protocol::probe(url, headers, opts).await;
+    }
     let http = Http::new(&http_config(headers, opts))?;
     let (remote, resp) = http.probe(url, 0, None, 0).await?;
     drop(resp);

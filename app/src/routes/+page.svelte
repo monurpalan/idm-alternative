@@ -372,7 +372,7 @@
 	}
 
 	function looksLikeUrl(s: string): boolean {
-		return /^(https?|ftp):\/\/\S+$/i.test(s.trim());
+		return /^(https?|ftps?|ftpes|sftp):\/\/\S+$/i.test(s.trim());
 	}
 
 	function inField(e: Event): boolean {

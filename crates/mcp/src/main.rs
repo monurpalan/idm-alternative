@@ -28,7 +28,8 @@ struct Downloads {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 struct AddParams {
-    /// What to download: a direct link to a file (http or https), a magnet link or
+    /// What to download: a direct link to a file (http, https, ftp, ftps, ftpes or sftp; a
+    /// login goes in the address, `sftp://user:pass@host/path`), a magnet link or
     /// `.torrent` file, a `.meta4` metalink, or, with `video_height` or `audio_only`, a page of
     /// a video site (YouTube, X, TikTok, ...; see inspect_video).
     url: String,

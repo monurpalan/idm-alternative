@@ -29,6 +29,13 @@ crc32fast = "1.5"
 flate2 = "1.1"
 lzma-rust2 = { version = "0.25", default-features = false, features = ["std", "xz"] }
 shardload-media = { version = "0.1.6", path = "../media" }
+# FTP and FTPS, and SFTP (see `protocol`).
+suppaftp = { version = "12.2", features = ["tokio-rustls-ring", "deprecated"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-platform-verifier = "0.7"
+russh = { version = "0.65", default-features = false, features = ["ring", "flate2", "rsa"] }
+russh-sftp = "3.0"
 
 [target.'cfg(unix)'.dependencies]
 xattr = "1.6"
