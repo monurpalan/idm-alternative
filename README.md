@@ -71,6 +71,9 @@ saves videos and torrents. No ads, no trial, no account.</p>
 - **Rescue what the browser gave up on:** the extension's popup lists downloads the browser left
   interrupted; "Continue in Shardload" keeps what the browser already has when the server still
   sends the same file, and fetches only the rest.
+- **Network and power rules:** on a metered connection videos and torrents wait, on battery a
+  speed limit applies, a named network can use its own proxy, and a monthly data budget warns
+  or holds downloads until next month.
 - **When a download finishes:** unpack it (ZIP, tar), move it by your rules (type, site, name),
   run your own program on it, or tell a webhook. Only rules you set in Settings can run a
   program; a web page or an AI assistant cannot.

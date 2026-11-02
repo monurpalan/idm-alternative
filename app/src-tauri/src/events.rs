@@ -62,6 +62,7 @@ pub(crate) async fn forward_events(handle: AppHandle, mut events: broadcast::Rec
                             statuses.remove(id);
                         }
                         Event::DiskLow(low) => notify_disk_low(&handle, low),
+                        Event::Budget(b) => notify_budget(&handle, b),
                         Event::Progress(_) | Event::Moving(_) => {}
                     }
                     handle.emit("manager", &e).ok();
@@ -106,6 +107,32 @@ pub(crate) fn notify_disk_low(handle: &AppHandle, low: &shardload_manager::disk:
         .notification()
         .builder()
         .title(i18n::t(lang, "The drive is almost full", &[]))
+        .body(body)
+        .show()
+    {
+        tracing::warn!("could not show a notification: {e}");
+    }
+}
+
+/// The monthly data budget nearly or wholly used: said in the window and as a notification.
+pub(crate) fn notify_budget(handle: &AppHandle, b: &shardload_manager::net::BudgetNotice) {
+    let lang = lang(handle);
+    let gb = |bytes: u64| format!("{:.1}", bytes as f64 / f64::from(1u32 << 30));
+    let params = [("used", gb(b.used)), ("budget", gb(b.budget))];
+    let params: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let text = if b.stopped {
+        "This month's data budget is used up ({used} of {budget} GB): downloads wait until next month or a larger budget"
+    } else if b.used >= b.budget {
+        "This month's data budget is used up ({used} of {budget} GB)"
+    } else {
+        "{used} of this month's {budget} GB data budget used"
+    };
+    let body = i18n::t(lang, text, &params);
+    to_page(handle, "notice", &body, false);
+    if let Err(e) = handle
+        .notification()
+        .builder()
+        .title(i18n::t(lang, "Data budget", &[]))
         .body(body)
         .show()
     {

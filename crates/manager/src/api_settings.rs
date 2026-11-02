@@ -6,8 +6,24 @@ use super::*;
 impl Manager {
     /// Limit for all downloads together, bytes per second; takes effect at once.
     pub fn set_global_limit(&self, rate: Option<u64>) {
-        self.inner.global.set_rate(rate);
-        self.inner.torrents.set_limit(rate);
+        lock(&self.inner.net).user_limit = rate;
+        self.inner.apply_limit();
+    }
+
+    /// The network and the power as last seen, and this month's data.
+    pub fn net_status(&self) -> net::NetStatus {
+        let rules = lock(&self.inner.config).net_rules.clone();
+        let net = lock(&self.inner.net);
+        let used = net.usage.now(now_ms());
+        net::NetStatus {
+            conditions: net.conditions.clone(),
+            usage: net::Usage {
+                month: net::month_of(now_ms()),
+                bytes: used,
+            },
+            budget: rules.monthly_budget,
+            over_budget: rules.budget_stop && rules.monthly_budget.is_some_and(|b| used >= b),
+        }
     }
 
     /// Reads `url` and the pages it links to, down to `opts.depth`, and returns the files
@@ -66,7 +82,7 @@ impl Manager {
     }
 
     pub fn global_limit(&self) -> Option<u64> {
-        self.inner.global.rate()
+        lock(&self.inner.net).user_limit
     }
 
     /// One download's own limit, bytes per second; takes effect at once if it is running.

@@ -467,6 +467,13 @@ impl Downloads {
     }
 
     #[tool(
+        description = "The network and the power as Shardload last saw them, and this month's data: conditions (metered: the connection costs by the byte; on_battery; network: its name, when the system tells it), usage (month as YYYY-MM by the local calendar, bytes downloaded in it), budget (bytes a month, or null) and over_budget (true when the budget is used up and the rules make downloads wait). The rules (set by the user in the settings) may hold videos and torrents on a metered network, limit the speed on battery and use a proxy on a named network; a download they hold is queued with the reason as its error."
+    )]
+    async fn network_status(&self) -> Result<CallToolResult, ErrorData> {
+        self.ask(Request::Network).await
+    }
+
+    #[tool(
         description = "Where did this file come from? Finds a file's download in Shardload's history (by its path, or by its size and SHA-256 if it was moved or copied), or else reads the mark the browser left on it (Windows Zone.Identifier, Linux user.xdg.origin.url): address, page, date and checksum. traced says how: path, content, mark or unknown. With check_checksum it hashes the file again; with check_update it asks the address whether there is a newer version."
     )]
     async fn file_origin(

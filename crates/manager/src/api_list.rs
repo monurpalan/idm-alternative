@@ -27,7 +27,10 @@ impl Manager {
             closed: AtomicBool::new(false),
             notes: Mutex::new(HashMap::new()),
             later: Mutex::new(HashMap::new()),
+            net: Mutex::new(net::NetState::default()),
         });
+        inner.load_usage().await?;
+        inner.watch_network();
         for t in inner.db.list().await? {
             if t.status == Status::Queued {
                 inner.start_later(&t);

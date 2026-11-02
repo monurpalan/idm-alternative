@@ -150,9 +150,23 @@ impl Inner {
                 .chain(later.keys().copied())
                 .collect()
         };
-        let queued = self.db.queued(free + waiting.len()).await?;
-        let startable = queued.into_iter().filter(|t| !waiting.contains(&t.id));
-        for mut task in startable.take(free) {
+        // Some may be held by the network rules: enough are read to skip them, and each
+        // says why it waits.
+        let queued = self.db.queued(free + waiting.len() + 256).await?;
+        let mut startable = Vec::new();
+        for t in queued.into_iter().filter(|t| !waiting.contains(&t.id)) {
+            match self.held(&t) {
+                None => startable.push(t),
+                Some(why) if t.error.as_deref() != Some(why) => {
+                    self.db.set_status(t.id, Status::Queued, Some(why)).await?;
+                    if let Some(t) = self.db.get(t.id).await? {
+                        self.emit(Event::Updated(t));
+                    }
+                }
+                Some(_) => {}
+            }
+        }
+        for mut task in startable.into_iter().take(free) {
             self.db
                 .set_status(task.id, Status::Downloading, None)
                 .await?;

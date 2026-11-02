@@ -260,6 +260,13 @@ pub(crate) async fn bridge_reply(
                 Err(e) => Reply::error(e.to_string()),
             }
         }
+        Request::Network => {
+            let status = handle.state::<App>().manager.net_status();
+            Reply {
+                data: serde_json::to_value(status).ok(),
+                ..Reply::ok()
+            }
+        }
         Request::DiskSpace => {
             let app = handle.state::<App>();
             let ids: Vec<TaskId> = match app.manager.list().await {

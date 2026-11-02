@@ -65,6 +65,16 @@ fn turkish(text: &str) -> Option<&'static str> {
             "{name}, tarayıcının kaldığı yerden devam ediyor"
         }
         "{name} starts over: {why}" => "{name} baştan iniyor: {why}",
+        "Data budget" => "Veri bütçesi",
+        "This month's data budget is used up ({used} of {budget} GB): downloads wait until next month or a larger budget" => {
+            "Bu ayın veri bütçesi doldu ({budget} GB'ın {used} GB'ı): indirmeler gelecek aya ya da daha büyük bir bütçeye kadar bekliyor"
+        }
+        "This month's data budget is used up ({used} of {budget} GB)" => {
+            "Bu ayın veri bütçesi doldu ({budget} GB'ın {used} GB'ı)"
+        }
+        "{used} of this month's {budget} GB data budget used" => {
+            "Bu ayın {budget} GB'lık veri bütçesinin {used} GB'ı kullanıldı"
+        }
         // Why a rescued download starts over (see `shardload_manager::rescue`).
         "the server does not send parts of the file" => "sunucu dosyanın parçalarını göndermiyor",
         "the file on the server has another size now" => "sunucudaki dosyanın boyutu artık farklı",

@@ -24,6 +24,7 @@ pub mod eta;
 pub mod folder;
 pub mod grabber;
 pub mod hints;
+pub mod net;
 pub mod origin;
 mod pages;
 mod queue;
@@ -151,6 +152,12 @@ pub struct Config {
     /// The user's rules for finished downloads (see [`after`]).
     pub rules: Vec<after::Rule>,
     pub after_limits: after::Limits,
+    /// What the network and the power are like (see [`net`]); `None` takes them as an
+    /// unmetered network on mains power.
+    pub sensor: Option<net::Sensor>,
+    pub net_rules: net::NetRules,
+    /// How often the network and the power are looked at.
+    pub sense_every: Duration,
 }
 
 /// A [`disk::FreeSpace`] in the configuration.
@@ -183,6 +190,9 @@ impl Default for Config {
             disk_watch: Duration::from_secs(2),
             rules: Vec::new(),
             after_limits: after::Limits::default(),
+            sensor: None,
+            net_rules: net::NetRules::default(),
+            sense_every: Duration::from_secs(15),
         }
     }
 }
@@ -202,6 +212,8 @@ pub enum Event {
     /// A drive came within [`disk::RESERVE`] of full: the downloads writing to it (and
     /// those waiting to) were paused.
     DiskLow(disk::DiskLow),
+    /// The monthly data budget is nearly or wholly used (see [`net`]).
+    Budget(net::BudgetNotice),
 }
 
 /// How far the copy of a download's files has come.
@@ -281,6 +293,8 @@ struct Inner {
     notes: Mutex<HashMap<TaskId, String>>,
     /// Queued recordings that start at a set time (Unix milliseconds), not before.
     later: Mutex<HashMap<TaskId, i64>>,
+    /// The network and the power as last seen, and this month's data (see [`net`]).
+    net: Mutex<net::NetState>,
 }
 
 struct Retry {

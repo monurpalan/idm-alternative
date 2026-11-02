@@ -175,6 +175,9 @@ impl Inner {
         };
         opts.connections = task.connections;
         opts.limiters = vec![self.global.clone(), limiter];
+        if let Some(proxy) = self.network_proxy() {
+            opts.proxy = Some(proxy);
+        }
         opts.checksum = task
             .checksum
             .as_deref()

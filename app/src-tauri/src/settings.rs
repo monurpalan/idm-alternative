@@ -6,6 +6,12 @@ use serde::{Deserialize, Serialize};
 use shardload_engine::{Browser, Conflict, Options};
 use shardload_manager::{Category, Config};
 
+/// The network and the power as last seen, and this month's data (the settings show it).
+#[tauri::command]
+pub(crate) fn net_status(app: tauri::State<'_, crate::App>) -> shardload_manager::net::NetStatus {
+    app.manager.net_status()
+}
+
 /// Key the settings are saved under.
 pub const KEY: &str = "app";
 
@@ -67,6 +73,9 @@ pub struct Settings {
     /// What happens to finished downloads (see [`shardload_manager::after`]): the only place
     /// a command or a webhook can come from.
     pub after_rules: Vec<shardload_manager::after::Rule>,
+    /// Rules for a metered network, for running on battery and for named networks, and the
+    /// monthly data budget.
+    pub net_rules: shardload_manager::net::NetRules,
 }
 
 impl Default for Settings {
@@ -97,6 +106,7 @@ impl Default for Settings {
             find_checksums: true,
             check_structure: true,
             after_rules: Vec::new(),
+            net_rules: shardload_manager::net::NetRules::default(),
         }
     }
 }
@@ -117,6 +127,18 @@ impl Settings {
         self.schedule.validate()?;
         for rule in &self.after_rules {
             rule.check()?;
+        }
+        for p in &self.net_rules.proxies {
+            let proxy = p.proxy.trim().to_ascii_lowercase();
+            if !["http://", "https://", "socks5://"]
+                .iter()
+                .any(|s| proxy.starts_with(s))
+            {
+                return Err(format!(
+                    "the proxy for {} must start with http://, https:// or socks5://",
+                    p.network
+                ));
+            }
         }
         if !["system", "en", "tr"].contains(&self.language.as_str()) {
             return Err(format!("unknown language {}", self.language));
@@ -168,6 +190,7 @@ impl Settings {
                 ..Options::default()
             },
             rules: self.after_rules.clone(),
+            net_rules: self.net_rules.clone(),
             ..Config::default()
         }
     }

@@ -127,5 +127,25 @@ export default {
 	'Remove rule': 'Kuralı kaldır',
 	'Add a rule': 'Kural ekle',
 	'Without a checksum, check files by their own structure (ZIP, PDF, PNG, video) and download damaged parts again':
-		'Sağlama toplamı yoksa dosyaları kendi yapılarıyla denetle (ZIP, PDF, PNG, video), bozuk kısımları yeniden indir'
+		'Sağlama toplamı yoksa dosyaları kendi yapılarıyla denetle (ZIP, PDF, PNG, video), bozuk kısımları yeniden indir',
+	// Network and power
+	'Network and power': 'Ağ ve güç',
+	'network “{name}”': '“{name}” ağı',
+	'an unnamed network': 'adı bilinmeyen bir ağ',
+	metered: 'ölçülü',
+	'not metered': 'ölçülü değil',
+	'on battery': 'pilde',
+	'on mains power': 'prizde',
+	'Now: {now}': 'Şu an: {now}',
+	'This month: {used} of {budget}': 'Bu ay: {budget} içinden {used}',
+	'This month: {used}': 'Bu ay: {used}',
+	'On a metered network, videos and torrents wait': 'Ölçülü ağda videolar ve torrentler beklesin',
+	'On battery, speed limit for all (KB/s)': 'Pildeyken toplam hız sınırı (KB/s)',
+	'Monthly data budget (GB)': 'Aylık veri bütçesi (GB)',
+	'When the budget is used up, downloads wait until next month (otherwise it is only said)':
+		'Bütçe dolunca indirmeler gelecek aya kadar beklesin (yoksa yalnızca söylenir)',
+	'A proxy on a network': 'Ağa göre proxy',
+	'network name': 'ağ adı',
+	Network: 'Ağ',
+	'Add a network': 'Ağ ekle'
 };

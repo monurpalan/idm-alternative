@@ -16,6 +16,7 @@ mod i18n;
 mod logs;
 mod scan;
 mod schedule;
+mod sensors;
 mod settings;
 mod signature;
 mod tasks;
@@ -290,6 +291,7 @@ fn main() {
             add_playlist,
             list_groups,
             new_group,
+            settings::net_status,
             find_previous,
             reuse_previous,
             known_links,

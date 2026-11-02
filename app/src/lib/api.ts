@@ -5,6 +5,8 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { After, AfterDone, Rule } from './api/after.ts';
 import type { Hint } from './api/hints.ts';
 import type { Login } from './api/logins.ts';
+import type { NetRules } from './api/net.ts';
+import type { Schedule } from './api/schedule.ts';
 import type { Structure } from './api/structure.ts';
 
 export type TaskId = number;
@@ -257,6 +259,7 @@ export interface Settings {
 	/** Check downloads without a checksum by their own structure (ZIP, PDF, video…). */
 	check_structure: boolean;
 	after_rules: Rule[];
+	net_rules: NetRules;
 }
 
 /** List changes; progress comes separately, batched (see `onManagerEvent`). */
@@ -526,28 +529,6 @@ export const inspectMedia = (url: string, headers: Headers) =>
 export const onCapturedMedia = (handler: (m: CapturedMedia) => void): Promise<UnlistenFn> =>
 	listen<CapturedMedia>('capture-media', (e) => handler(e.payload));
 
-export interface Schedule {
-	enabled: boolean;
-	/** `HH:MM`, empty for none. */
-	start: string;
-	stop: string;
-	/** Monday first. */
-	days: boolean[];
-}
-
-export type WhenDone = 'nothing' | 'exit' | 'sleep' | 'hibernate' | 'shutdown';
-
-export const getWhenDone = () => invoke<WhenDone>('get_when_done');
-export const setWhenDone = (action: WhenDone) => invoke<void>('set_when_done', { action });
-/** Stops the countdown; with `now`, does that action right away instead. */
-export const endCountdown = (now: WhenDone | null = null) => invoke<void>('end_countdown', { now });
-export const onWhenDone = (handler: (a: WhenDone) => void): Promise<UnlistenFn> =>
-	listen<WhenDone>('when-done', (e) => handler(e.payload));
-export const onCountdown = (
-	handler: (c: { action: WhenDone; seconds: number }) => void
-): Promise<UnlistenFn> =>
-	listen<{ action: WhenDone; seconds: number }>('countdown', (e) => handler(e.payload));
-
 export interface AppUpdate {
 	version: string;
 	notes: string | null;
@@ -664,6 +645,8 @@ export * from './api/extensions.ts';
 export * from './api/after.ts';
 export * from './api/hints.ts';
 export * from './api/logins.ts';
+export * from './api/net.ts';
+export * from './api/schedule.ts';
 export * from './api/previous.ts';
 export * from './api/structure.ts';
 

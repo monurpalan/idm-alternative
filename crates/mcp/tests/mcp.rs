@@ -167,6 +167,7 @@ async fn tools_reach_the_app() {
             "list_downloads",
             "list_sites",
             "move_download",
+            "network_status",
             "pause_downloads",
             "relocate_download",
             "remove_downloads",

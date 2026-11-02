@@ -108,6 +108,8 @@ pub enum Request {
     /// What the unfinished downloads need on each drive against the space free there,
     /// answered in [`Reply::data`] as an array.
     DiskSpace,
+    /// The network and the power as last seen, and this month's data against its budget.
+    Network,
     /// Forgets what was learned about a site (`host` or `host:port`).
     ForgetSite {
         site: String,

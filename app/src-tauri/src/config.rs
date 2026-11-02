@@ -208,6 +208,9 @@ pub(crate) fn manager_config(
         ))),
         ytdlp: tools::installed(data, tools::Tool::Ytdlp),
         deno: tools::installed(data, tools::Tool::Deno),
+        sensor: Some(shardload_manager::net::Sensor(std::sync::Arc::new(
+            crate::sensors::read,
+        ))),
         ..settings.config()
     }
 }

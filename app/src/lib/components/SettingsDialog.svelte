@@ -3,6 +3,7 @@
 	import { open as pickFile, open as pickFolder, save as pickSaveFile } from '@tauri-apps/plugin-dialog';
 	import { Button, Checkbox, Dialog, Field, Input, Select, Text } from './ui/index.ts';
 	import AfterRules from './AfterRules.svelte';
+	import NetRules from './NetRules.svelte';
 	import {
 		BROWSER_NAMES,
 		extensionStatus,
@@ -37,6 +38,7 @@
 		{ id: 'downloads', label: msg('Downloads') },
 		{ id: 'after', label: msg('When done') },
 		{ id: 'connection', label: msg('Connection') },
+		{ id: 'network', label: msg('Network and power') },
 		{ id: 'schedule', label: msg('Schedule') },
 		{ id: 'logins', label: msg('Sign-ins') },
 		{ id: 'sites', label: msg('Sites') },
@@ -279,6 +281,8 @@
 				</div>
 			{:else if tab === 'after'}
 				<AfterRules bind:rules={s.after_rules} />
+			{:else if tab === 'network'}
+				<NetRules bind:rules={s.net_rules} />
 			{:else if tab === 'connection'}
 				<Field label={t('Proxy')}>
 					<Input bind:value={s.proxy} placeholder={t('none, or socks5://host:port')} />

@@ -73,6 +73,9 @@ AppImage (`chmod +x` ve çalıştırın).
 - **Tarayıcının yarıda bıraktığını kurtarır:** eklentinin penceresi tarayıcıda yarım kalan
   indirmeleri listeler; "Shardload'da devam et", sunucu aynı dosyayı veriyorsa tarayıcının
   indirdiği kısmı korur, yalnız kalanını çeker.
+- **Ağ ve güç kuralları:** ölçülü bağlantıda videolar ve torrentler bekler, pildeyken hız sınırı
+  uygulanır, belli bir ağ kendi proxy'sini kullanabilir, aylık veri bütçesi uyarır ya da
+  indirmeleri gelecek aya kadar bekletir.
 - **İndirme bitince:** arşivi açar (ZIP, tar), kurallarınıza göre (tür, site, ad) taşır, kendi
   programınızı çalıştırır ya da bir webhook'a bildirir. Program yalnızca Ayarlar'da sizin
   yazdığınız kurallarla çalışır; bir web sayfası ya da yapay zekâ asistanı çalıştıramaz.
