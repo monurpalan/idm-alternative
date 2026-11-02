@@ -194,15 +194,21 @@ async fn falling_behind_is_said_early() {
     }
     // A later deadline: on time again.
     m.set_deadline(t.id, Some(in_secs(600))).await.expect("set");
-    tokio::time::sleep(Duration::from_millis(1500)).await;
-    let v = m
-        .deadlines()
-        .await
-        .expect("deadlines")
-        .into_iter()
-        .find(|v| v.id == t.id)
-        .expect("listed");
-    assert_eq!(v.standing, Standing::OnTime);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let v = m
+            .deadlines()
+            .await
+            .expect("deadlines")
+            .into_iter()
+            .find(|v| v.id == t.id)
+            .expect("listed");
+        if v.standing == Standing::OnTime {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "{v:?}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     m.set_deadline(t.id, None).await.expect("clear");
     assert!(
         m.deadlines()

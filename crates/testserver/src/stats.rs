@@ -23,6 +23,8 @@ pub(crate) struct UrlStats {
     /// TCP connections the requests came on; 0 when the server has no connect info.
     connections: usize,
     user_agent: Option<String>,
+    /// Each GET's `Range` header, in order; empty for none.
+    ranges: Vec<String>,
 }
 
 pub(crate) async fn stats(State(app): State<Arc<AppState>>) -> axum::Json<Vec<UrlStats>> {
@@ -40,6 +42,11 @@ pub(crate) async fn stats(State(app): State<Arc<AppState>>) -> axum::Json<Vec<Ur
             connections: s.peers.lock().unwrap_or_else(PoisonError::into_inner).len(),
             user_agent: s
                 .user_agent
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone(),
+            ranges: s
+                .ranges
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .clone(),

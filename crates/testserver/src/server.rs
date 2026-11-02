@@ -46,6 +46,8 @@ pub(crate) struct UrlState {
     /// Distinct client addresses, i.e. TCP connections (needs connect info).
     pub(crate) peers: Mutex<HashSet<SocketAddr>>,
     pub(crate) user_agent: Mutex<Option<String>>,
+    /// Each GET's `Range` header, in order; empty for none.
+    pub(crate) ranges: Mutex<Vec<String>>,
 }
 
 #[derive(Default)]
@@ -195,6 +197,16 @@ async fn serve_file(
     }
 
     let nth_get = if method == Method::GET {
+        url.ranges
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(
+                headers
+                    .get(header::RANGE)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or_default()
+                    .to_owned(),
+            );
         url.gets.fetch_add(1, Ordering::Relaxed) + 1
     } else {
         url.gets.load(Ordering::Relaxed)

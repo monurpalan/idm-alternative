@@ -149,8 +149,7 @@ async fn stopping_a_recording_finishes_it() {
         .add(recording(url, Recording::default()))
         .await
         .expect("add");
-    wait_for(&m, t.id, 10, |t| t.received > 0).await;
-    tokio::time::sleep(Duration::from_millis(600)).await;
+    wait_for(&m, t.id, 10, |t| t.received >= 2 * (16 << 10)).await;
     // Pausing a recording stops it: the stream does not wait, so it cannot go on later.
     m.pause(t.id).await.expect("stop");
     let done = m.get(t.id).await.expect("get");
@@ -180,8 +179,16 @@ async fn a_recording_waits_for_its_start_time_and_keeps_to_its_limit() {
         ))
         .await
         .expect("add");
-    tokio::time::sleep(Duration::from_millis(700)).await;
-    assert_eq!(m.get(t.id).await.expect("get").status, Status::Queued);
+    // Queued whenever it is looked at before its time; how often that is depends on how
+    // busy the machine is.
+    loop {
+        let status = m.get(t.id).await.expect("get").status;
+        if now_ms() >= at - 100 {
+            break;
+        }
+        assert_eq!(status, Status::Queued);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     let done = wait_for(&m, t.id, 30, |t| {
         t.status == Status::Done || t.status == Status::Error
     })

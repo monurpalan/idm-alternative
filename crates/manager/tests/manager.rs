@@ -1,115 +1,14 @@
-//! The download list against the test server: adding, pausing, removing, the queue, and
-//! picking up where a closed or killed manager left off.
+//! The download list against the test server: adding, pausing, removing, the queue, links,
+//! logins, mirrors, checksums and piece hashes.
+
+mod common;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use shardload_manager::{Category, Config, Event, Manager, NewTask, Status, Task, TaskId};
-use shardload_testserver::{Verdict, router, verify_file};
-
-const MB: u64 = 1 << 20;
-
-async fn start_server() -> String {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind");
-    let addr = listener.local_addr().expect("addr");
-    tokio::spawn(async move { axum::serve(listener, router()).await });
-    format!("http://{addr}")
-}
-
-/// A fresh folder for one test, removed when the test ends.
-struct WorkDir(PathBuf);
-
-impl WorkDir {
-    fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir()
-            .join("shardload-manager-tests")
-            .join(format!("{name}-{}", std::process::id()));
-        std::fs::remove_dir_all(&dir).ok();
-        std::fs::create_dir_all(&dir).expect("create workdir");
-        Self(dir)
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-
-    fn db(&self) -> PathBuf {
-        self.0.join("list.db")
-    }
-
-    /// Without the search for published checksums: its requests would count in the bytes
-    /// the server sent.
-    fn config(&self, max_active: usize) -> Config {
-        Config {
-            dir: self.0.join("downloads"),
-            max_active,
-            connections: 4,
-            engine: shardload_engine::Options {
-                find_checksum: false,
-                ..shardload_engine::Options::default()
-            },
-            ..Config::default()
-        }
-    }
-}
-
-impl Drop for WorkDir {
-    fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).ok();
-    }
-}
-
-fn new_task(url: String) -> NewTask {
-    NewTask {
-        url,
-        start: true,
-        ..NewTask::default()
-    }
-}
-
-/// Polls until `pred` holds for the task, or panics after `secs`.
-async fn wait_for(m: &Manager, id: TaskId, secs: u64, pred: impl Fn(&Task) -> bool) -> Task {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(secs);
-    loop {
-        let t = m.get(id).await.expect("get");
-        if pred(&t) {
-            return t;
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "timed out; task is {:?} ({:?})",
-            t.status,
-            t.error
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-}
-
-async fn wait_done(m: &Manager, id: TaskId) -> Task {
-    let t = wait_for(m, id, 60, |t| {
-        matches!(t.status, Status::Done | Status::Error)
-    })
-    .await;
-    assert_eq!(t.status, Status::Done, "{:?}", t.error);
-    t
-}
-
-fn assert_file(t: &Task, seed: u64, size: u64) {
-    let path = t.path.as_ref().expect("path");
-    assert_eq!(verify_file(path, seed, size).expect("verify"), Verdict::Ok);
-}
-
-async fn bytes_sent(base: &str) -> u64 {
-    let stats: Vec<serde_json::Value> = reqwest::get(format!("{base}/_stats"))
-        .await
-        .expect("stats")
-        .json()
-        .await
-        .expect("stats json");
-    stats.iter().filter_map(|u| u["bytes_sent"].as_u64()).sum()
-}
+use common::*;
+use shardload_manager::{Category, Config, Event, Manager, NewTask, Status, TaskId};
+use shardload_testserver::router;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn downloads_under_the_server_name_and_reports_progress() {
@@ -145,33 +44,6 @@ async fn downloads_under_the_server_name_and_reports_progress() {
     }
     assert!(added && finished, "added {added}, finished {finished}");
     assert!(progress >= 2, "{progress} progress events");
-    m.close().await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn pause_keeps_progress_and_start_resumes() {
-    let base = start_server().await;
-    let w = WorkDir::new("pause");
-    let m = Manager::open(&w.db(), w.config(3)).await.expect("open");
-    let size = 8 * MB;
-    // 4 connections at 1 MiB/s each: about 2 s in total.
-    let task = m
-        .add(new_task(format!(
-            "{base}/file/p.bin?size={size}&seed=2&rate=1M"
-        )))
-        .await
-        .expect("add");
-    wait_for(&m, task.id, 10, |t| t.received > 0).await;
-    m.pause(task.id).await.expect("pause");
-    let paused = m.get(task.id).await.expect("get");
-    assert_eq!(paused.status, Status::Paused);
-    assert!(paused.received > 0 && paused.received < size);
-
-    m.start(task.id).await.expect("start");
-    let done = wait_done(&m, task.id).await;
-    assert_file(&done, 2, size);
-    let sent = bytes_sent(&base).await;
-    assert!(sent < size + 4 * MB, "server sent {} MiB", sent / MB);
     m.close().await;
 }
 
@@ -275,95 +147,6 @@ async fn twenty_downloads_at_once() {
             "two tasks wrote one file"
         );
     }
-    m.close().await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn close_then_open_resumes() {
-    let base = start_server().await;
-    let w = WorkDir::new("close");
-    let size = 8 * MB;
-    let url = format!("{base}/file/c.bin?size={size}&seed=4&rate=1M");
-    let id = {
-        let m = Manager::open(&w.db(), w.config(3)).await.expect("open");
-        let task = m.add(new_task(url)).await.expect("add");
-        // The state file is written every 2 s.
-        wait_for(&m, task.id, 10, |t| t.received >= 2 * MB).await;
-        tokio::time::sleep(Duration::from_millis(2200)).await;
-        m.close().await;
-        task.id
-    };
-    let m = Manager::open(&w.db(), w.config(3)).await.expect("reopen");
-    let done = wait_done(&m, id).await;
-    assert_file(&done, 4, size);
-    let sent = bytes_sent(&base).await;
-    assert!(sent < size + 4 * MB, "server sent {} MiB", sent / MB);
-    m.close().await;
-}
-
-/// Bytes the state file at `state` records as written, 0 while there is none.
-fn checkpointed(state: &Path) -> u64 {
-    let Ok(text) = std::fs::read_to_string(state) else {
-        return 0;
-    };
-    serde_json::from_str::<serde_json::Value>(&text)
-        .ok()
-        .and_then(|s| s["segments"].as_array().cloned())
-        .into_iter()
-        .flatten()
-        .map(|s| s["written"].as_u64().unwrap_or(0) - s["start"].as_u64().unwrap_or(0))
-        .sum()
-}
-
-/// The process dies mid-download (here: its runtime is dropped, nothing is closed). The next
-/// open finds the task still marked downloading and resumes from the state file.
-#[tokio::test(flavor = "multi_thread")]
-async fn killed_manager_resumes_on_next_open() {
-    let base = start_server().await;
-    let w = WorkDir::new("killed");
-    // 4 connections at 1 MiB/s: about 8 s; killed once 20 MiB are checkpointed. Resuming
-    // after a kill downloads each part's last 2 s again (about 8 MiB here, see the engine's
-    // `State::load`), so it must have got well past that.
-    let size = 32 * MB;
-    let url = format!("{base}/file/k.bin?size={size}&seed=5&rate=1M");
-    let (db, config) = (w.db(), w.config(3));
-    let state = w.path().join("downloads/k.bin.shardload-state");
-    let id = std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().expect("runtime");
-        let id = rt.block_on(async {
-            let m = Manager::open(&db, config).await.expect("open");
-            let task = m.add(new_task(url)).await.expect("add");
-            let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-            while checkpointed(&state) < 20 * MB {
-                assert!(tokio::time::Instant::now() < deadline, "no checkpoint");
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
-            assert_eq!(
-                m.get(task.id).await.expect("get").status,
-                Status::Downloading
-            );
-            task.id
-        });
-        rt.shutdown_timeout(Duration::ZERO);
-        id
-    })
-    .join()
-    .expect("join");
-    assert!(w.path().join("downloads/k.bin.shardload-state").exists());
-    let before = bytes_sent(&base).await;
-
-    let m = Manager::open(&w.db(), w.config(3)).await.expect("reopen");
-    let done = wait_done(&m, id).await;
-    assert_file(&done, 5, size);
-    // Starting over would fetch the whole file again; at least 20 MiB checkpointed, less
-    // what is downloaded again after a kill, was kept.
-    let again = bytes_sent(&base).await - before;
-    assert!(
-        again < size - 8 * MB,
-        "fetched {} of {} MiB again",
-        again / MB,
-        size / MB
-    );
     m.close().await;
 }
 
@@ -838,7 +621,9 @@ async fn a_metalinks_piece_hashes_repair_a_corrupt_piece() {
     tokio::spawn(async move { axum::serve(listener, app).await });
 
     let w = WorkDir::new("pieces");
-    let m = Manager::open(&w.db(), w.config(3)).await.expect("open");
+    let m = Manager::open(&w.db(), w.one_connection())
+        .await
+        .expect("open");
     let task = m
         .add(new_task(format!("{base}/piece.meta4")))
         .await
@@ -847,10 +632,11 @@ async fn a_metalinks_piece_hashes_repair_a_corrupt_piece() {
     assert_file(&done, 31, size);
     // The corrupt byte reached the file (the first response to send it was the download's),
     // so the whole-file hash matching means the piece was mended: by downloading it again,
-    // not the file. The name probe before the download, and on a busy machine connections
-    // overlapping where segments are split, add a few MiB.
-    let sent = bytes_sent(&base).await;
-    assert!(sent < 2 * size, "sent {sent}");
+    // not the file. After the name probe and the download, only the third piece is asked for.
+    assert_eq!(
+        ranges_asked(&base).await,
+        ["bytes=0-", "bytes=0-", "bytes=2097152-3145727"]
+    );
     m.close().await;
 }
 
@@ -875,7 +661,9 @@ async fn a_torrents_piece_hashes_check_an_http_download() {
     std::fs::write(&torrent_path, &torrent).expect("write torrent");
 
     let base = start_server().await;
-    let m = Manager::open(&w.db(), w.config(3)).await.expect("open");
+    let m = Manager::open(&w.db(), w.one_connection())
+        .await
+        .expect("open");
     let task = m
         .add(NewTask {
             pieces_from: Some(torrent_path.to_string_lossy().into_owned()),
@@ -890,10 +678,11 @@ async fn a_torrents_piece_hashes_check_an_http_download() {
     let done = wait_done(&m, task.id).await;
     assert_file(&done, 32, size);
     // No whole-file checksum: only the piece hashes found and mended the corrupt byte, by
-    // downloading its piece again, not the whole file. (A busy machine's connections overlap
-    // by a few MiB where segments are split.)
-    let sent = bytes_sent(&base).await;
-    assert!(sent < 2 * size, "sent {sent}");
+    // downloading its piece again (the fifth), not the whole file.
+    assert_eq!(
+        ranges_asked(&base).await,
+        ["bytes=0-", "bytes=0-", "bytes=4194304-5242879"]
+    );
 
     // A torrent of a folder cannot check one file.
     let folder = w.0.join("folder.torrent");

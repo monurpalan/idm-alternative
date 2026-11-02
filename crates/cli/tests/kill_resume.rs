@@ -45,9 +45,7 @@ async fn killed_process_resumes() {
 
     let mut child = shard(&url, &out).spawn().expect("spawn shard");
     // Kill once a checkpoint has recorded 20 MiB, not after a fixed time: on a slow CI machine
-    // the first checkpoints can come late. Resuming after a kill downloads each part's last
-    // 2 s again (about 8 MiB here, see the engine's `State::load`), so it must be well past
-    // that.
+    // the first checkpoints can come late.
     let deadline = std::time::Instant::now() + Duration::from_secs(60);
     while saved(&state) < 20 * MB {
         assert!(
@@ -64,6 +62,17 @@ async fn killed_process_resumes() {
     child.wait().expect("wait");
     assert!(state.exists());
     assert!(!out.exists());
+    // What the resumed run must fetch, from the state file as the kill left it.
+    let expected = to_fetch(&state);
+    // The killed connections' last writes counted before the count is taken.
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while active(&base).await > 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the server still sends"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     let before = bytes_sent(&base).await;
 
     let status = tokio::task::spawn_blocking(move || shard(&url, &out).status())
@@ -75,17 +84,51 @@ async fn killed_process_resumes() {
     assert_eq!(verify_file(&out, 5, size).expect("verify"), Verdict::Ok);
     assert!(!state.exists());
 
-    // Starting over would fetch the whole file again. Resuming keeps what the last
-    // checkpoint recorded (at least the 20 MiB waited for above), less each part's last
-    // seconds.
+    // Starting over would fetch the whole file again. Resuming fetches what the state file
+    // left out, and each part's last seconds; connections whose ranges move when parts are
+    // split leave what their socket buffers hold, a little more.
     let again = bytes_sent(&base).await - before;
     assert!(
-        again < size - 8 * MB,
-        "fetched {} of {} MiB again",
-        again / MB,
-        size / MB
+        (expected..expected + 2 * MB).contains(&again) && expected < size,
+        "fetched {again} bytes again, {expected} expected, of {size}"
     );
     std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Bytes a run resuming from `state` downloads: each part's rest, and its last seconds again
+/// (the engine's `State::rewind`: 2 s at the part's speed, at least 1 MiB).
+fn to_fetch(state: &std::path::Path) -> u64 {
+    let text = std::fs::read_to_string(state).expect("state file");
+    let state: serde_json::Value = serde_json::from_str(&text).expect("state json");
+    let field = |s: &serde_json::Value, k: &str| s[k].as_u64().unwrap_or(0);
+    state["segments"]
+        .as_array()
+        .expect("segments")
+        .iter()
+        .map(|s| {
+            let back = (field(s, "speed") * 2).max(MB);
+            let kept = field(s, "written")
+                .saturating_sub(back)
+                .max(field(s, "start"));
+            field(s, "end") - kept
+        })
+        .sum()
+}
+
+/// Requests the server is still answering.
+async fn active(base: &str) -> u64 {
+    let stats: serde_json::Value = reqwest::get(format!("{base}/_stats"))
+        .await
+        .expect("stats")
+        .json()
+        .await
+        .expect("stats json");
+    stats
+        .as_array()
+        .expect("array")
+        .iter()
+        .filter_map(|u| u["active"].as_u64())
+        .sum()
 }
 
 /// Bytes the state file records as written, 0 while there is none.

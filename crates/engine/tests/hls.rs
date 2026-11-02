@@ -414,16 +414,27 @@ async fn a_stopped_recording_keeps_what_it_has() {
     let dir = workdir("live-stop");
     let out = dir.join("live.ts");
     let url = format!("{base}/hls/v720.m3u8?live=1&seg_ms=200&window=5&seed=32&seg_size=16K");
+    // Stopped once four segments are in, however long they took to come.
     let cancel = CancellationToken::new();
+    let (tx, mut rx) = tokio::sync::watch::channel(shardload_engine::Progress::default());
     let stop = cancel.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(1500)).await;
-        stop.cancel();
+        while rx.changed().await.is_ok() {
+            if rx.borrow().received >= 4 * (16 << 10) {
+                stop.cancel();
+            }
+        }
     });
-    let (done, last) = record_with(&record(url, &out), &cancel).await;
+    let done = tokio::time::timeout(
+        LIMIT,
+        shardload_engine::record_hls(&record(url, &out), &opts(4), Some(&tx), &cancel),
+    )
+    .await
+    .expect("recording hung");
+    let last = tx.borrow().clone();
     let done = done.expect("stopped, not failed");
     let segments = done.size / (16 << 10);
-    assert!((3..=12).contains(&segments), "{segments} segments");
+    assert!(segments >= 4, "{segments} segments");
     assert_eq!(
         verify_file(&out, track_seed(32, "v720"), done.size).expect("verify"),
         Verdict::Ok

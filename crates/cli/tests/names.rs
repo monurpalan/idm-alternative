@@ -102,7 +102,15 @@ async fn existing_files_get_numbered_and_interrupted_ones_resume() {
     let size = 8 << 20;
     let url = format!("{base}/file/slow.bin?size={size}&seed=6&rate=1M");
     let mut child = shard(&url, &dir).spawn().expect("spawn");
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    // Killed once the first checkpoint is there, however long it took.
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    while !dir.join("slow.bin.shardload-state").exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no checkpoint within 60 s"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     assert!(
         child.try_wait().expect("try_wait").is_none(),
         "finished too early"

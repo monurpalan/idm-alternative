@@ -226,7 +226,39 @@ async fn record_dash(
     shardload_engine::Result<shardload_engine::Outcome>,
     shardload_engine::Progress,
 ) {
+    record_dash_with(req, limit, cancel, |_| false).await
+}
+
+/// [`record_dash`] without a limit, stopped (`cancel`) once `enough` says so of its progress.
+async fn record_dash_until(
+    req: &DashRequest,
+    cancel: &CancellationToken,
+    enough: impl Fn(&shardload_engine::Progress) -> bool + Send + 'static,
+) -> (
+    shardload_engine::Result<shardload_engine::Outcome>,
+    shardload_engine::Progress,
+) {
+    record_dash_with(req, None, cancel, enough).await
+}
+
+async fn record_dash_with(
+    req: &DashRequest,
+    limit: Option<Duration>,
+    cancel: &CancellationToken,
+    enough: impl Fn(&shardload_engine::Progress) -> bool + Send + 'static,
+) -> (
+    shardload_engine::Result<shardload_engine::Outcome>,
+    shardload_engine::Progress,
+) {
     let (tx, rx) = tokio::sync::watch::channel(shardload_engine::Progress::default());
+    let (mut watched, stop) = (rx.clone(), cancel.clone());
+    tokio::spawn(async move {
+        while watched.changed().await.is_ok() {
+            if enough(&watched.borrow()) {
+                stop.cancel();
+            }
+        }
+    });
     let opts = Options {
         connections: 4,
         ..Options::default()
@@ -283,16 +315,15 @@ async fn a_live_dash_recording_stops_when_asked_or_at_its_limit() {
     };
     // Stopped by the user: what was recorded is kept.
     let out = dir.join("stopped.mp4");
+    // Stopped once four segments are in, however long they took to come.
     let cancel = CancellationToken::new();
-    let stop = cancel.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(1500)).await;
-        stop.cancel();
-    });
-    let (done, _) = record_dash(&request(url(43), "v360", &out), None, &cancel).await;
+    let (done, _) = record_dash_until(&request(url(43), "v360", &out), &cancel, |p| {
+        p.received >= 1024 + 4 * (16 << 10)
+    })
+    .await;
     let done = done.expect("stopped, not failed");
     let segments = (done.size - 1024) / (16 << 10);
-    assert!((3..=12).contains(&segments), "{segments} segments");
+    assert!(segments >= 4, "{segments} segments");
     assert_eq!(
         verify_file(&out, track_seed(43, "v360"), done.size).expect("verify"),
         Verdict::Ok

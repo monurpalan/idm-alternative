@@ -69,7 +69,16 @@ async fn second_download_of_the_same_file_is_refused() {
         let (req, opts) = (common::request(req.url.clone(), &out), opts.clone());
         async move { common::get(&req, &opts).await }
     });
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    // The second one starts once the first holds the file, however long that took.
+    let lock = dir.join("f.bin.shardload-lock");
+    let deadline = std::time::Instant::now() + common::LIMIT;
+    while !lock.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the first never took the file"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
     match common::get(&req, &opts).await {
         Err(shardload_engine::Error::InUse(p)) => assert_eq!(p, out),
         other => panic!("expected InUse, got {other:?}"),

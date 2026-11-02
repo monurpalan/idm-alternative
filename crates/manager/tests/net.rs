@@ -3,6 +3,7 @@
 //! data budget.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -21,8 +22,26 @@ async fn serve() -> String {
 struct Setup {
     m: Manager,
     now: Arc<Mutex<Conditions>>,
+    /// Times the manager has read the conditions.
+    reads: Arc<AtomicU64>,
     dir: PathBuf,
     config: Config,
+}
+
+impl Setup {
+    /// Waits until the manager has read the conditions twice more: the first read after a
+    /// change has then been acted on, however busy the machine is.
+    async fn sensed(&self) {
+        let until = self.reads.load(Ordering::SeqCst) + 2;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        while self.reads.load(Ordering::SeqCst) < until {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "conditions not read"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
 }
 
 async fn open(name: &str, rules: NetRules) -> Setup {
@@ -32,7 +51,8 @@ async fn open(name: &str, rules: NetRules) -> Setup {
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).expect("workdir");
     let now = Arc::new(Mutex::new(Conditions::default()));
-    let read = Arc::clone(&now);
+    let reads = Arc::new(AtomicU64::new(0));
+    let (read, counted) = (Arc::clone(&now), Arc::clone(&reads));
     let config = Config {
         dir: dir.join("downloads"),
         connections: 2,
@@ -42,7 +62,10 @@ async fn open(name: &str, rules: NetRules) -> Setup {
             check_structure: false,
             ..shardload_engine::Options::default()
         },
-        sensor: Some(Sensor(Arc::new(move || read.lock().expect("lock").clone()))),
+        sensor: Some(Sensor(Arc::new(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+            read.lock().expect("lock").clone()
+        }))),
         net_rules: rules,
         sense_every: Duration::from_millis(200),
         ..Config::default()
@@ -53,6 +76,7 @@ async fn open(name: &str, rules: NetRules) -> Setup {
     Setup {
         m,
         now,
+        reads,
         dir,
         config,
     }
@@ -92,7 +116,7 @@ async fn videos_wait_on_a_metered_network() {
     )
     .await;
     s.now.lock().expect("lock").metered = true;
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    s.sensed().await;
     let video = add(&s.m, format!("{server}/file/film.mp4?size=8M&rate=2M")).await;
     let zip = add(&s.m, format!("{server}/file/files.zip?size=2M")).await;
     wait(&s.m, zip.id, "the zip downloads", |t| {
@@ -139,7 +163,7 @@ async fn a_speed_limit_on_battery() {
     )
     .await;
     s.now.lock().expect("lock").on_battery = true;
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    s.sensed().await;
     let started = Instant::now();
     let t = add(&s.m, format!("{server}/file/b.bin?size=2M")).await;
     wait(&s.m, t.id, "the download", |t| t.status == Status::Done).await;
@@ -147,7 +171,7 @@ async fn a_speed_limit_on_battery() {
     assert!(secs > 3.0, "2 MiB at 512 KiB/s took only {secs:.1} s");
     // On mains again: no limit.
     s.now.lock().expect("lock").on_battery = false;
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    s.sensed().await;
     let started = Instant::now();
     let t = add(&s.m, format!("{server}/file/c.bin?size=2M")).await;
     wait(&s.m, t.id, "the download", |t| t.status == Status::Done).await;
@@ -172,12 +196,12 @@ async fn a_proxy_on_a_named_network() {
     )
     .await;
     s.now.lock().expect("lock").network = Some("cafe".into());
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    s.sensed().await;
     let t = add(&s.m, format!("{server}/file/p.bin?size=1M")).await;
     let t = wait(&s.m, t.id, "it fails", |t| t.status == Status::Error).await;
     assert!(t.error.is_some());
     s.now.lock().expect("lock").network = Some("Home".into());
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    s.sensed().await;
     let t = add(&s.m, format!("{server}/file/q.bin?size=1M")).await;
     wait(&s.m, t.id, "it downloads", |t| t.status == Status::Done).await;
     s.m.close().await;

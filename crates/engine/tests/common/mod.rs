@@ -87,6 +87,22 @@ pub async fn bytes_sent(base: &str) -> u64 {
     stats.iter().filter_map(|u| u["bytes_sent"].as_u64()).sum()
 }
 
+/// Every GET's `Range` header so far, for all URLs: empty for none.
+pub async fn ranges_asked(base: &str) -> Vec<String> {
+    let text = reqwest::get(format!("{base}/_stats"))
+        .await
+        .expect("stats")
+        .text()
+        .await
+        .expect("stats body");
+    let stats: Vec<serde_json::Value> = serde_json::from_str(&text).expect("stats json");
+    stats
+        .iter()
+        .flat_map(|u| u["ranges"].as_array().cloned().unwrap_or_default())
+        .map(|r| r.as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
 /// Tests that measure time take this lock so they do not compete with each other for the
 /// CPU; on a small CI machine the competition alone can halve their speed.
 pub async fn serial() -> tokio::sync::MutexGuard<'static, ()> {

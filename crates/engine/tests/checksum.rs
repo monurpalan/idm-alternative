@@ -340,16 +340,19 @@ async fn a_corrupt_piece_is_downloaded_again_alone() {
         "{base}/file/f.bin?size={size}&seed=21&corrupt_at={}",
         5 * MB + 12345
     );
+    // One connection, so the requests come in a known order.
     let o = Options {
         pieces: Some(piece_hashes(21, size, MB)),
-        ..opts(4)
+        ..opts(1)
     };
     get(&request(url, &out), &o).await.expect("download");
     assert_verified(&out, 21, size);
-    // The file, then the one piece again: not the whole file twice. (Connections moved to
-    // another range on a busy machine overlap by a few MiB where segments are split.)
-    let sent = common::bytes_sent(&base).await;
-    assert!((size + MB..2 * size).contains(&sent), "sent {sent}");
+    // The file, then the one piece again: not the whole file twice. (What was asked for, not
+    // what the server sent: a busy machine's socket buffers hold more or less.)
+    assert_eq!(
+        common::ranges_asked(&base).await,
+        ["bytes=0-", "bytes=5242880-6291455"]
+    );
 
     // Without piece hashes the same corruption is only caught by the whole-file checksum.
     let out = dir.join("g.bin");
