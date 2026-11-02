@@ -145,7 +145,7 @@ jobs:
       - name: System libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake clang libclang-dev
+          sudo apt-get install -y --no-install-recommends cmake clang libclang-dev libdbus-1-dev pkg-config
       - name: Build the targets
         working-directory: fuzz
         run: cargo +nightly fuzz build -O
