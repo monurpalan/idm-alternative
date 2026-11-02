@@ -12,7 +12,7 @@
 // first: the app lets one copy run.
 
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -348,7 +348,11 @@ async function main() {
 		start(process.execPath, [join(APP, 'node_modules', 'vite', 'bin', 'vite.js'), 'dev', '--port', '1420', '--strictPort'], { cwd: APP });
 		await waitFor(async () => (await fetch(`${SERVER}/_stats`)).ok, 'the test server');
 		await waitFor(async () => (await fetch('http://localhost:1420/')).ok, 'Vite', 60_000);
+		// What the app prints and logs is kept in ui-test/out/ to see why a run failed.
+		mkdirSync(join(HERE, 'out'), { recursive: true });
+		const output = openSync(join(HERE, 'out', 'app-output.txt'), 'w');
 		start(exe('shardload'), [], {
+			stdio: ['ignore', output, output],
 			env: { ...process.env, SHARDLOAD_HOME: home, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}` }
 		});
 		let target;
@@ -375,6 +379,7 @@ async function main() {
 	} finally {
 		stopAll();
 		await sleep(500);
+		if (existsSync(join(home, 'logs'))) cpSync(join(home, 'logs'), join(HERE, 'out', 'logs'), { recursive: true });
 		rmSync(home, { recursive: true, force: true, maxRetries: 5 });
 	}
 	const failed = results.filter((ok) => !ok).length;

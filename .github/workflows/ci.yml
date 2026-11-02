@@ -79,6 +79,10 @@ jobs:
         run: |
           cargo build
           cargo build -p shardload-app
+      - name: WebView2 runtime
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          (Get-ItemProperty $key -ErrorAction SilentlyContinue).pv
       - name: UI flows
         working-directory: app
         run: npm run ui-test
