@@ -71,6 +71,9 @@ saves videos and torrents. No ads, no trial, no account.</p>
 - **Rescue what the browser gave up on:** the extension's popup lists downloads the browser left
   interrupted; "Continue in Shardload" keeps what the browser already has when the server still
   sends the same file, and fetches only the rest.
+- **Deadlines:** "done by 18:00" (or, by itself, when a link is expected to stop working):
+  the earliest deadline starts first, other downloads make room, and one that will not make it
+  is said early.
 - **Network and power rules:** on a metered connection videos and torrents wait, on battery a
   speed limit applies, a named network can use its own proxy, and a monthly data budget warns
   or holds downloads until next month.

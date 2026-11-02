@@ -113,6 +113,28 @@ pub(crate) async fn relocate_task(
     app.manager.relocate(id, &dir).await.map_err(msg)
 }
 
+/// When the download is wanted finished by (Unix ms); `None` clears it.
+#[tauri::command]
+pub(crate) async fn set_deadline(
+    app: State<'_, App>,
+    id: TaskId,
+    at: Option<i64>,
+) -> CmdResult<()> {
+    app.manager
+        .set_deadline(id, at)
+        .await
+        .map(|_| ())
+        .map_err(msg)
+}
+
+/// Every unfinished download with a deadline (its own or its link's), and how it stands.
+#[tauri::command]
+pub(crate) async fn deadlines(
+    app: State<'_, App>,
+) -> CmdResult<Vec<shardload_manager::deadline::DeadlineView>> {
+    app.manager.deadlines().await.map_err(msg)
+}
+
 /// This download's own limit in bytes per second; `None` removes it.
 #[tauri::command]
 pub(crate) async fn set_speed_limit(

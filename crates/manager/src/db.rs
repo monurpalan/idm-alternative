@@ -39,6 +39,7 @@ pub(crate) struct Insert<'a> {
     pub page_checksum: Option<&'a str>,
     pub size: Option<u64>,
     pub after: Option<&'a crate::after::After>,
+    pub deadline: Option<i64>,
 }
 
 impl Db {
@@ -90,8 +91,8 @@ impl Db {
             "INSERT INTO tasks (url, headers, dir, name, status, category, connections,
                                 speed_limit, checksum, added_at, stream, mirrors, group_id,
                                 pieces, name_given, page_title, page_checksum,
-                                size, after, queue_pos)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                size, after, deadline, queue_pos)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                      (SELECT COALESCE(MAX(queue_pos), 0) + 1 FROM tasks))",
         )
         .bind(t.url)
@@ -117,6 +118,7 @@ impl Db {
         .bind(t.page_checksum)
         .bind(t.size.map(|v| v as i64))
         .bind(t.after.map(serde_json::to_string).transpose()?)
+        .bind(t.deadline)
         .execute(&self.pool)
         .await?
         .last_insert_rowid();
@@ -477,6 +479,7 @@ fn task(r: &SqliteRow) -> Result<Task> {
         after: json_column(r, "after")?,
         after_log: json_column(r, "after_log")?.unwrap_or_default(),
         structure: json_column(r, "structure")?,
+        deadline: r.try_get("deadline")?,
         path: r.try_get::<Option<String>, _>("path")?.map(PathBuf::from),
         size: u64_opt("size")?,
         received: r.try_get::<i64, _>("received")? as u64,

@@ -108,6 +108,9 @@ struct AddParams {
     /// takes no space), instead of downloading it again or refusing. The result is then a
     /// finished download.
     reuse: Option<String>,
+    /// Wanted finished within this many minutes: it starts before downloads without a
+    /// deadline, and those make room for it while it waits or falls behind.
+    deadline_minutes: Option<u64>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -188,6 +191,14 @@ struct RelocateParams {
     /// Absolute path of the folder to move it into: the app's download folder or a
     /// category's folder from its settings, or a folder inside one of them.
     dir: String,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+struct DeadlineParams {
+    /// The download's id.
+    id: i64,
+    /// Minutes from now; none clears the deadline.
+    minutes: Option<u64>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -280,6 +291,7 @@ impl Downloads {
             headers: p.headers.unwrap_or_default(),
             unpack: p.unpack.unwrap_or(false),
             reuse: p.reuse,
+            deadline_minutes: p.deadline_minutes,
         }))
         .await
     }
@@ -471,6 +483,27 @@ impl Downloads {
     )]
     async fn network_status(&self) -> Result<CallToolResult, ErrorData> {
         self.ask(Request::Network).await
+    }
+
+    #[tool(
+        description = "Every unfinished download with a deadline: id, at (Unix milliseconds), source (own: set by the user or add_download's deadline_minutes; link: when its link is expected to stop working, by how long the site's links lasted), standing (on_time, at_risk: at the speed now it would finish after the deadline, late) and needed (bytes per second it needs from now on). Downloads with the earliest deadline start first; while one waits for a slot or falls behind, downloads without a deadline go back to the queue."
+    )]
+    async fn list_deadlines(&self) -> Result<CallToolResult, ErrorData> {
+        self.ask(Request::Deadlines).await
+    }
+
+    #[tool(
+        description = "Set a download's deadline, `minutes` from now; without minutes it is cleared."
+    )]
+    async fn set_deadline(
+        &self,
+        Parameters(p): Parameters<DeadlineParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.ask(Request::SetDeadline {
+            id: p.id,
+            minutes: p.minutes,
+        })
+        .await
     }
 
     #[tool(

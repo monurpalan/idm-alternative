@@ -125,6 +125,9 @@ pub(crate) async fn tool_add(
                 unpack: true,
                 move_to: None,
             }),
+            deadline: add
+                .deadline_minutes
+                .map(|m| shardload_manager::unix_ms() + m as i64 * 60_000),
             ..NewTask::default()
         })
         .await
@@ -339,6 +342,11 @@ pub(crate) fn already_downloaded(p: &shardload_manager::Previous) -> String {
 }
 
 /// `2026-10-03` for Unix milliseconds (UTC).
+/// A time as RFC 3339 in UTC, for local tools.
+pub(crate) fn utc_time(ms: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(ms).map_or_else(String::new, |t| t.to_rfc3339())
+}
+
 pub(crate) fn utc_date(ms: i64) -> String {
     // Howard Hinnant's days-to-civil.
     let z = ms.div_euclid(86_400_000) + 719_468;
@@ -436,5 +444,6 @@ pub(crate) fn task_view(t: &Task, live: Option<&Live>) -> serde_json::Value {
         "after": t.after,
         "after_log": t.after_log,
         "structure": t.structure,
+        "deadline": t.deadline.map(utc_time),
     })
 }

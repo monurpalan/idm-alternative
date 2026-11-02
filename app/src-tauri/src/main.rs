@@ -292,6 +292,8 @@ fn main() {
             list_groups,
             new_group,
             settings::net_status,
+            tasks::set_deadline,
+            tasks::deadlines,
             find_previous,
             reuse_previous,
             known_links,

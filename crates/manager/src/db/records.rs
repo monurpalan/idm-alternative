@@ -20,6 +20,16 @@ impl Db {
         Ok(())
     }
 
+    /// When a download is wanted finished by, Unix milliseconds; `None` clears it.
+    pub(crate) async fn set_deadline(&self, id: TaskId, at: Option<i64>) -> Result<()> {
+        sqlx::query("UPDATE tasks SET deadline = ? WHERE id = ?")
+            .bind(at)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// How a finished download checked out by its structure.
     pub(crate) async fn set_structure(
         &self,

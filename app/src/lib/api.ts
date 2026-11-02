@@ -53,6 +53,8 @@ export interface Task {
 	after_log: AfterDone[];
 	/** Without a checksum: how it checked out by its own structure. */
 	structure: Structure | null;
+	/** Wanted finished by this time, Unix ms. */
+	deadline: number | null;
 }
 
 /** A finished file that may not be what it says: a program named like a document
@@ -529,18 +531,6 @@ export const inspectMedia = (url: string, headers: Headers) =>
 export const onCapturedMedia = (handler: (m: CapturedMedia) => void): Promise<UnlistenFn> =>
 	listen<CapturedMedia>('capture-media', (e) => handler(e.payload));
 
-export interface AppUpdate {
-	version: string;
-	notes: string | null;
-}
-
-export const checkUpdate = () => invoke<AppUpdate | null>('check_update');
-/** Downloads and installs the new version; the app closes and the new one starts. */
-export const installUpdate = () => invoke<void>('install_update');
-/** The daily check found a new version of the app. */
-export const onUpdate = (handler: (u: AppUpdate) => void): Promise<UnlistenFn> =>
-	listen<AppUpdate>('update', (e) => handler(e.payload));
-
 /** Tells the app the page listens, so it sends what came while the window was closed. */
 export const pageReady = () => invoke<void>('page_ready');
 
@@ -643,6 +633,8 @@ export async function onManagerEvent(
 
 export * from './api/extensions.ts';
 export * from './api/after.ts';
+export * from './api/deadline.ts';
+export * from './api/update.ts';
 export * from './api/hints.ts';
 export * from './api/logins.ts';
 export * from './api/net.ts';

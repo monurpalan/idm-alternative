@@ -154,6 +154,14 @@ impl Inner {
         // says why it waits.
         let queued = self.db.queued(free + waiting.len() + 256).await?;
         let mut startable = Vec::new();
+        // The earliest deadline first, then the rest in the queue's order.
+        let deadlines = lock(&self.deadlines).at.clone();
+        let mut queued = queued;
+        queued.sort_by_key(|t| {
+            t.deadline
+                .or(deadlines.get(&t.id).copied())
+                .unwrap_or(i64::MAX)
+        });
         for t in queued.into_iter().filter(|t| !waiting.contains(&t.id)) {
             match self.held(&t) {
                 None => startable.push(t),

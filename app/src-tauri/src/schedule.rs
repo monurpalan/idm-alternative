@@ -157,7 +157,13 @@ pub async fn run_when_done(handle: AppHandle) {
     loop {
         match events.recv().await {
             Ok(Event::Updated(_) | Event::Removed(_) | Event::Added(_)) => {}
-            Ok(Event::Progress(_) | Event::Moving(_) | Event::DiskLow(_) | Event::Budget(_)) => {
+            Ok(
+                Event::Progress(_)
+                | Event::Moving(_)
+                | Event::DiskLow(_)
+                | Event::Budget(_)
+                | Event::DeadlineRisk(_),
+            ) => {
                 continue;
             }
             Err(RecvError::Lagged(_)) => {}

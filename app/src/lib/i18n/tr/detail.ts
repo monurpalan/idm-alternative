@@ -90,5 +90,16 @@ export default {
 	'{format}, checked by its own structure: {size} were damaged and downloaded again':
 		'{format}, kendi yapısıyla denetlendi: bozuk {size} yeniden indirildi',
 	'Damaged: the server sends it so too; get it from elsewhere if you can':
-		'Bozuk: sunucu da böyle gönderiyor; yapabiliyorsanız başka bir yerden indirin'
+		'Bozuk: sunucu da böyle gönderiyor; yapabiliyorsanız başka bir yerden indirin',
+	// Deadline
+	Deadline: 'Teslim',
+	late: 'gecikti',
+	'at risk: needs {speed}': 'riskte: {speed} gerekiyor',
+	'on time': 'zamanında',
+	Set: 'Ayarla',
+	'by {time}, when its link is expected to stop working': '{time} saatine kadar (linkinin geçerliliği bitince)',
+	'by {time}': '{time} saatine kadar',
+	'Change…': 'Değiştir…',
+	Clear: 'Temizle',
+	'Set…': 'Ayarla…'
 };

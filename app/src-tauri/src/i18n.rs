@@ -25,6 +25,12 @@ fn windows_language() -> &'static str {
     "en"
 }
 
+/// A number with one decimal, written as `lang` writes it (`1,5` in Turkish).
+pub fn decimal(lang: &str, n: f64) -> String {
+    let s = format!("{n:.1}");
+    if lang == "tr" { s.replace('.', ",") } else { s }
+}
+
 /// `text` in `lang`, with `{name}` replaced from `params`.
 pub fn t(lang: &str, text: &str, params: &[(&str, &str)]) -> String {
     let mut s = if lang == "tr" {
@@ -66,6 +72,10 @@ fn turkish(text: &str) -> Option<&'static str> {
         }
         "{name} starts over: {why}" => "{name} baştan iniyor: {why}",
         "Data budget" => "Veri bütçesi",
+        "A deadline is at risk" => "Bir teslim saati riskte",
+        "{name} will not be done in time at {speed} MB/s; it needs {needed} MB/s" => {
+            "{name} bu hızla ({speed} MB/sn) zamanında bitmeyecek; {needed} MB/sn gerekiyor"
+        }
         "This month's data budget is used up ({used} of {budget} GB): downloads wait until next month or a larger budget" => {
             "Bu ayın veri bütçesi doldu ({budget} GB'ın {used} GB'ı): indirmeler gelecek aya ya da daha büyük bir bütçeye kadar bekliyor"
         }

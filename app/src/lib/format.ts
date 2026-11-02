@@ -46,6 +46,13 @@ export function percent(fraction: number): string {
 	return t('{p}%', { p });
 }
 
+/** A moment: its time today, otherwise its date and time. */
+export function moment(ms: number): string {
+	const d = new Date(ms);
+	const time = d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
+	return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString(locale())} ${time}`;
+}
+
 export function date(ms: number): string {
 	const d = new Date(ms);
 	const today = new Date();

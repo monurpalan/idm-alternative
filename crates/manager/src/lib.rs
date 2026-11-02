@@ -18,6 +18,7 @@ pub mod batch;
 pub mod clip;
 pub mod command;
 mod db;
+pub mod deadline;
 mod dedup;
 pub mod disk;
 pub mod eta;
@@ -214,6 +215,8 @@ pub enum Event {
     DiskLow(disk::DiskLow),
     /// The monthly data budget is nearly or wholly used (see [`net`]).
     Budget(net::BudgetNotice),
+    /// A download will not make its deadline at the speed now (see [`deadline`]).
+    DeadlineRisk(deadline::DeadlineRisk),
 }
 
 /// How far the copy of a download's files has come.
@@ -295,6 +298,8 @@ struct Inner {
     later: Mutex<HashMap<TaskId, i64>>,
     /// The network and the power as last seen, and this month's data (see [`net`]).
     net: Mutex<net::NetState>,
+    /// What the deadline watch keeps (see [`deadline`]).
+    deadlines: Mutex<deadline::DeadlineState>,
 }
 
 struct Retry {
@@ -578,6 +583,11 @@ fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default()
+}
+
+/// Now, Unix milliseconds.
+pub fn unix_ms() -> i64 {
+    now_ms()
 }
 
 fn now_ms() -> i64 {

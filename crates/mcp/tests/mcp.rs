@@ -164,6 +164,7 @@ async fn tools_reach_the_app() {
             "inspect_archive",
             "inspect_torrent",
             "inspect_video",
+            "list_deadlines",
             "list_downloads",
             "list_sites",
             "move_download",
@@ -174,6 +175,7 @@ async fn tools_reach_the_app() {
             "rename_download",
             "rescue_download",
             "resume_downloads",
+            "set_deadline",
             "set_speed_limit",
             "set_when_done",
             "wait_for_downloads"

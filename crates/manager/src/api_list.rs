@@ -28,9 +28,11 @@ impl Manager {
             notes: Mutex::new(HashMap::new()),
             later: Mutex::new(HashMap::new()),
             net: Mutex::new(net::NetState::default()),
+            deadlines: Mutex::new(deadline::DeadlineState::default()),
         });
         inner.load_usage().await?;
         inner.watch_network();
+        inner.watch_deadlines_often();
         for t in inner.db.list().await? {
             if t.status == Status::Queued {
                 inner.start_later(&t);
@@ -217,6 +219,7 @@ impl Manager {
                 page_checksum: page_checksum.as_deref(),
                 size: new.size,
                 after: new.after.as_ref(),
+                deadline: new.deadline,
             })
             .await?;
         let task = self.get(id).await?;

@@ -63,6 +63,7 @@ pub(crate) async fn forward_events(handle: AppHandle, mut events: broadcast::Rec
                         }
                         Event::DiskLow(low) => notify_disk_low(&handle, low),
                         Event::Budget(b) => notify_budget(&handle, b),
+                        Event::DeadlineRisk(r) => notify_deadline(&handle, r),
                         Event::Progress(_) | Event::Moving(_) => {}
                     }
                     handle.emit("manager", &e).ok();
@@ -117,7 +118,7 @@ pub(crate) fn notify_disk_low(handle: &AppHandle, low: &shardload_manager::disk:
 /// The monthly data budget nearly or wholly used: said in the window and as a notification.
 pub(crate) fn notify_budget(handle: &AppHandle, b: &shardload_manager::net::BudgetNotice) {
     let lang = lang(handle);
-    let gb = |bytes: u64| format!("{:.1}", bytes as f64 / f64::from(1u32 << 30));
+    let gb = |bytes: u64| i18n::decimal(lang, bytes as f64 / f64::from(1u32 << 30));
     let params = [("used", gb(b.used)), ("budget", gb(b.budget))];
     let params: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
     let text = if b.stopped {
@@ -133,6 +134,32 @@ pub(crate) fn notify_budget(handle: &AppHandle, b: &shardload_manager::net::Budg
         .notification()
         .builder()
         .title(i18n::t(lang, "Data budget", &[]))
+        .body(body)
+        .show()
+    {
+        tracing::warn!("could not show a notification: {e}");
+    }
+}
+
+/// A download that will not make its deadline at the speed now: said early, once.
+pub(crate) fn notify_deadline(handle: &AppHandle, r: &shardload_manager::deadline::DeadlineRisk) {
+    let lang = lang(handle);
+    let name = r.name.clone().unwrap_or_else(|| format!("#{}", r.id));
+    let mbps = |b: f64| i18n::decimal(lang, b / 1e6);
+    let body = i18n::t(
+        lang,
+        "{name} will not be done in time at {speed} MB/s; it needs {needed} MB/s",
+        &[
+            ("name", &name),
+            ("speed", &mbps(r.speed)),
+            ("needed", &mbps(r.needed)),
+        ],
+    );
+    to_page(handle, "notice", &body, false);
+    if let Err(e) = handle
+        .notification()
+        .builder()
+        .title(i18n::t(lang, "A deadline is at risk", &[]))
         .body(body)
         .show()
     {

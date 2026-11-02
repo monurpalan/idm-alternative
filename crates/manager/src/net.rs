@@ -133,8 +133,18 @@ pub(crate) fn heavy(task: &Task) -> bool {
 }
 
 impl Inner {
-    /// Why the queue does not start `task` now, if it does not.
+    /// Why the queue does not start `task` now, if it does not: the network rules, or a
+    /// download with a deadline that goes first.
     pub(crate) fn held(&self, task: &Task) -> Option<&'static str> {
+        self.held_by_net(task).or_else(|| {
+            let d = lock(&self.deadlines);
+            (d.pressure && task.deadline.is_none() && !d.at.contains_key(&task.id))
+                .then_some("waiting: downloads with a deadline go first")
+        })
+    }
+
+    /// Why the network rules hold `task`, if they do.
+    pub(crate) fn held_by_net(&self, task: &Task) -> Option<&'static str> {
         let rules = lock(&self.config).net_rules.clone();
         let net = lock(&self.net);
         let over = rules
@@ -276,7 +286,10 @@ impl Inner {
             loop {
                 match events.recv().await {
                     Ok(Event::Progress(p)) => match weak.upgrade() {
-                        Some(inner) => inner.count(p.id, p.received),
+                        Some(inner) => {
+                            inner.count(p.id, p.received);
+                            inner.note_speed(p.id, p.received, p.speed);
+                        }
                         None => return,
                     },
                     Ok(Event::Removed(id)) => {

@@ -110,6 +110,14 @@ pub enum Request {
     DiskSpace,
     /// The network and the power as last seen, and this month's data against its budget.
     Network,
+    /// Every unfinished download with a deadline and how it stands, as an array.
+    Deadlines,
+    /// Sets a download's deadline `minutes` from now, or clears it without.
+    SetDeadline {
+        id: i64,
+        #[serde(default)]
+        minutes: Option<u64>,
+    },
     /// Forgets what was learned about a site (`host` or `host:port`).
     ForgetSite {
         site: String,
@@ -233,6 +241,10 @@ pub struct AddDownload {
     /// it (a hard link, same drive only), into place instead of downloading it again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reuse: Option<String>,
+    /// Wanted finished within this many minutes: it starts before downloads without a
+    /// deadline, and falling behind is said early.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline_minutes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

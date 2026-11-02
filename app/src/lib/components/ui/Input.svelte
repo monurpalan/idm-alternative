@@ -1,7 +1,7 @@
 <script lang="ts">
 	// The app's only text-like field. Variants: `field` (default, full width) and `search`
 	// (a compact field in a toolbar).
-	type Kind = 'text' | 'password' | 'url' | 'number' | 'time' | 'search';
+	type Kind = 'text' | 'password' | 'url' | 'number' | 'time' | 'datetime-local' | 'search';
 
 	let {
 		value = $bindable(),

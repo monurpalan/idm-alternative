@@ -323,6 +323,8 @@ pub struct Task {
     pub after_log: Vec<crate::after::Done>,
     /// Without a checksum: how it checked out by its own structure.
     pub structure: Option<Structure>,
+    /// Wanted finished by this time, Unix milliseconds (see [`crate::deadline`]).
+    pub deadline: Option<i64>,
 }
 
 /// A finished file checked by its own structure (see [`shardload_engine::structure`]).
@@ -447,6 +449,8 @@ pub struct NewTask {
     pub size: Option<u64>,
     /// Unpack it or move it once finished (see [`crate::after`]).
     pub after: Option<crate::after::After>,
+    /// Wanted finished by this time, Unix milliseconds.
+    pub deadline: Option<i64>,
 }
 
 /// Live progress of a running download, sent about four times a second.
@@ -535,6 +539,7 @@ pub(crate) mod tests {
             after: None,
             after_log: Vec::new(),
             structure: None,
+            deadline: None,
         }
     }
 

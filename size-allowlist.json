@@ -1,6 +1,6 @@
 {
 	"app/src/lib/api.ts": {
-		"lines": 652,
+		"lines": 644,
 		"reason": "Every command the UI calls and its types in one place; can be split into modules per area behind the same import, not done yet."
 	},
 	"app/src/routes/+page.svelte": {

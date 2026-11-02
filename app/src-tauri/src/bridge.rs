@@ -260,6 +260,20 @@ pub(crate) async fn bridge_reply(
                 Err(e) => Reply::error(e.to_string()),
             }
         }
+        Request::Deadlines => match handle.state::<App>().manager.deadlines().await {
+            Ok(views) => Reply {
+                data: serde_json::to_value(views).ok(),
+                ..Reply::ok()
+            },
+            Err(e) => Reply::error(e.to_string()),
+        },
+        Request::SetDeadline { id, minutes } => {
+            let at = minutes.map(|m| shardload_manager::unix_ms() + m as i64 * 60_000);
+            match handle.state::<App>().manager.set_deadline(id, at).await {
+                Ok(_) => Reply::ok(),
+                Err(e) => Reply::error(e.to_string()),
+            }
+        }
         Request::Network => {
             let status = handle.state::<App>().manager.net_status();
             Reply {
