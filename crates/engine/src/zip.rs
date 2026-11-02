@@ -9,9 +9,11 @@
 //! Each entry is fetched over one range request; entries are not split across connections.
 
 mod central;
+mod local;
 mod sink;
 
 use central::*;
+pub use local::LocalZip;
 use sink::*;
 
 use std::collections::BTreeSet;

@@ -2,6 +2,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type { After, AfterDone, Rule } from './api/after.ts';
 import type { Hint } from './api/hints.ts';
 
 export type TaskId = number;
@@ -43,6 +44,9 @@ export interface Task {
 	content: string | null;
 	/** The file may not be what its name says. */
 	warning: Warning | null;
+	/** Unpack or move it once finished, and how that and the rules went. */
+	after: After | null;
+	after_log: AfterDone[];
 }
 
 /** A finished file that may not be what it says: a program named like a document
@@ -291,6 +295,7 @@ export interface Settings {
 	mark_downloads: boolean;
 	/** Look for a published checksum of downloads that have none, and check it. */
 	find_checksums: boolean;
+	after_rules: Rule[];
 }
 
 /** List changes; progress comes separately, batched (see `onManagerEvent`). */
@@ -348,6 +353,7 @@ export const addTask = (request: {
 	page_checksum?: string | null;
 	/** The size the server said when asked, for the disk check before it starts. */
 	size?: number | null;
+	after?: After | null;
 }) => invoke<Task>('add_task', { request });
 
 /** Video sites whose pages yt-dlp reads (a pasted link opens the page window). */
@@ -694,15 +700,6 @@ export async function onManagerEvent(
 }
 
 export * from './api/extensions.ts';
+export * from './api/after.ts';
 export * from './api/hints.ts';
 
-/** The browsers' names, as the extension and the app call them. */
-export const BROWSER_NAMES: Record<string, string> = {
-	chrome: 'Chrome',
-	edge: 'Edge',
-	firefox: 'Firefox',
-	brave: 'Brave',
-	opera: 'Opera',
-	vivaldi: 'Vivaldi',
-	chromium: 'Chromium'
-};

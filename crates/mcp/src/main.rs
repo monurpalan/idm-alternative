@@ -98,6 +98,10 @@ struct AddParams {
     /// `User-Agent: ...`. Checked: a name that is not a header name, a value over several
     /// lines, or a header the download sets itself (Range, Accept-Encoding, Host...) is refused.
     headers: Option<Vec<String>>,
+    /// Once finished, unpack it into a folder next to it, named after it (ZIP, tar, tar.gz,
+    /// tar.xz; not 7z or RAR). Moving, running a program or calling a webhook when it is done
+    /// can only be set up by the user in Shardload's settings, not from here.
+    unpack: Option<bool>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -220,7 +224,7 @@ impl Downloads {
     }
 
     #[tool(
-        description = "List the downloads in Shardload with id, url, file name, path, status (queued, downloading, paused, done, error), error (for a finished download a note, e.g. saved at a lower quality), size and received bytes, speed in bytes per second, place in the queue (queue_pos, lower starts first), own speed limit, group_id for downloads added together (a playlist, a batch), content (what a finished file's first bytes say it is, e.g. program:exe, document:pdf, html) eta_seconds while downloading ([soonest, latest] seconds left, from the speed's average and how much it varies; null while still calculating), warning (kind disguised: a program named like a document or media; kind webpage: the server sent a web page where the name promised a file, and the download failed; by: name or content), and hints while downloading: what holds it back, only when known for certain (kind limit with rate and own: a speed limit sets the pace, the download's own or the one for all, which set_speed_limit removes; disk: the disk cannot write as fast as the data arrives; drops with count: connections reopened in the last minute; server with connections: the server allows only that many; proxy: going through the proxy in the settings); an empty list means nothing known holds it back."
+        description = "List the downloads in Shardload with id, url, file name, path, status (queued, downloading, paused, done, error), error (for a finished download a note, e.g. saved at a lower quality), size and received bytes, speed in bytes per second, place in the queue (queue_pos, lower starts first), own speed limit, group_id for downloads added together (a playlist, a batch), content (what a finished file's first bytes say it is, e.g. program:exe, document:pdf, html) eta_seconds while downloading ([soonest, latest] seconds left, from the speed's average and how much it varies; null while still calculating), warning (kind disguised: a program named like a document or media; kind webpage: the server sent a web page where the name promised a file, and the download failed; by: name or content), and hints while downloading: what holds it back, only when known for certain (kind limit with rate and own: a speed limit sets the pace, the download's own or the one for all, which set_speed_limit removes; disk: the disk cannot write as fast as the data arrives; drops with count: connections reopened in the last minute; server with connections: the server allows only that many; proxy: going through the proxy in the settings); an empty list means nothing known holds it back; after (unpack asked for) and after_log once finished: what was done, each with action (move, unpack, command, webhook), ok, detail (the folder, program or address, or why it could not be done), count (files unpacked, exit code, HTTP status) and left_out (archive entries not unpacked)."
     )]
     async fn list_downloads(&self) -> Result<CallToolResult, ErrorData> {
         self.ask(Request::Tasks).await
@@ -256,6 +260,7 @@ impl Downloads {
             pieces_from: p.pieces_from,
             page_checksum: p.page_checksum,
             headers: p.headers.unwrap_or_default(),
+            unpack: p.unpack.unwrap_or(false),
         }))
         .await
     }

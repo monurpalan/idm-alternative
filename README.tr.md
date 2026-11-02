@@ -64,6 +64,12 @@ AppImage (`chmod +x` ve çalıştırın).
 - **ZIP arşivinden yalnızca istediğiniz dosyalar**, arşivin tamamını indirmeden.
 - **Site tarayıcı.** Bir sitenin bağlantı verdiği bütün dosyaları (arşiv, belge, video, resim)
   listeler; hangilerinin indirileceğini siz seçersiniz.
+- **İndirme bitince:** arşivi açar (ZIP, tar), kurallarınıza göre (tür, site, ad) taşır, kendi
+  programınızı çalıştırır ya da bir webhook'a bildirir. Program yalnızca Ayarlar'da sizin
+  yazdığınız kurallarla çalışır; bir web sayfası ya da yapay zekâ asistanı çalıştıramaz.
+- **"Neden yavaş?"** Süren bir indirme, kesin bilindiğinde onu neyin tuttuğunu tek satırda
+  söyler: hız sınırı (kaldırma düğmesiyle), yetişemeyen disk, sık kopan bağlantılar, az
+  bağlantıya izin veren sunucu.
 - **IDM'den bildiğiniz her şey:** kategoriler, otomatik yeniden denemeli kuyruk, zamanlayıcı,
   hepsi bitince uyku ya da kapatma, toplu indirme (`foto[001-100].jpg`), pano izleme, site
   başına kayıtlı girişler, biten dosyalarda virüs taraması, indirme başına küçük ilerleme

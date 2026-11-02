@@ -322,6 +322,10 @@ impl Inner {
         if let Err(e) = self.fill().await {
             tracing::error!("could not start queued downloads: {e}");
         }
+        if why.is_none() && result.is_ok() {
+            let inner = Arc::clone(&self);
+            tokio::spawn(async move { inner.after_done(id).await });
+        }
     }
 
     /// Reads the start of a finished file and keeps what it is. A name that says nothing

@@ -20,3 +20,14 @@ export const installExtension = (browser?: string) =>
 /** An extension said hello, or browser integration was turned on or off. */
 export const onExtensions = (handler: (s: ExtensionStatus) => void): Promise<UnlistenFn> =>
 	listen<ExtensionStatus>('extensions', (e) => handler(e.payload));
+
+/** The browsers' names, as the extension and the app call them. */
+export const BROWSER_NAMES: Record<string, string> = {
+	chrome: 'Chrome',
+	edge: 'Edge',
+	firefox: 'Firefox',
+	brave: 'Brave',
+	opera: 'Opera',
+	vivaldi: 'Vivaldi',
+	chromium: 'Chromium'
+};

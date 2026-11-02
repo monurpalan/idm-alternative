@@ -38,6 +38,7 @@ pub(crate) struct Insert<'a> {
     pub page_title: Option<&'a str>,
     pub page_checksum: Option<&'a str>,
     pub size: Option<u64>,
+    pub after: Option<&'a crate::after::After>,
 }
 
 impl Db {
@@ -89,8 +90,8 @@ impl Db {
             "INSERT INTO tasks (url, headers, dir, name, status, category, connections,
                                 speed_limit, checksum, added_at, stream, mirrors, group_id,
                                 pieces, name_given, page_title, page_checksum,
-                                size, queue_pos)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                size, after, queue_pos)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                      (SELECT COALESCE(MAX(queue_pos), 0) + 1 FROM tasks))",
         )
         .bind(t.url)
@@ -115,6 +116,7 @@ impl Db {
         .bind(t.page_title)
         .bind(t.page_checksum)
         .bind(t.size.map(|v| v as i64))
+        .bind(t.after.map(serde_json::to_string).transpose()?)
         .execute(&self.pool)
         .await?
         .last_insert_rowid();
@@ -425,6 +427,13 @@ impl Db {
     }
 }
 
+/// A column holding JSON; `None` when empty. One that does not parse (written by a newer
+/// version) is left out.
+fn json_column<T: serde::de::DeserializeOwned>(r: &SqliteRow, col: &str) -> Result<Option<T>> {
+    let text: Option<String> = r.try_get(col)?;
+    Ok(text.and_then(|t| serde_json::from_str(&t).ok()))
+}
+
 /// Headers as stored: encrypted (see `secret`), except an empty list.
 fn store_headers(headers: &[(String, String)]) -> Result<String> {
     if headers.is_empty() {
@@ -464,6 +473,8 @@ fn task(r: &SqliteRow) -> Result<Task> {
         name_given: r.try_get("name_given")?,
         page_title: r.try_get("page_title")?,
         page_checksum: r.try_get("page_checksum")?,
+        after: json_column(r, "after")?,
+        after_log: json_column(r, "after_log")?.unwrap_or_default(),
         path: r.try_get::<Option<String>, _>("path")?.map(PathBuf::from),
         size: u64_opt("size")?,
         received: r.try_get::<i64, _>("received")? as u64,

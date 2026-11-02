@@ -26,6 +26,7 @@ pub mod metalink;
 pub mod name;
 mod pieces;
 mod place;
+mod post;
 mod relink;
 mod remote;
 pub mod segments;
@@ -46,12 +47,13 @@ pub use hls::{Clip, RecordRequest, StreamRequest, download_hls, record_hls};
 pub use limit::Limiter;
 pub use pieces::Pieces;
 pub use place::{Conflict, target, target_avoiding};
+pub use post::post_json;
 pub use relink::patch_url;
 pub use remote::{Browser, basic_auth};
 pub use subtitles::{SubtitleSource, download_subtitles};
 pub use tokio_util::sync::CancellationToken;
 pub use zip::{
-    Extracted, RemoteZip, ZipEntry, method_name, safe_path, select as select_zip_entries,
+    Extracted, LocalZip, RemoteZip, ZipEntry, method_name, safe_path, select as select_zip_entries,
 };
 pub use zone::{FileMark, mark_of_the_web, read_mark, zone_identifier};
 

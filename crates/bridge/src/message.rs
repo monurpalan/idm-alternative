@@ -218,6 +218,10 @@ pub struct AddDownload {
     /// Request headers, `Name: value` each: cookies, referrer, a token.
     #[serde(default)]
     pub headers: Vec<String>,
+    /// Unpack it into a folder next to it once finished (ZIP, tar, tar.gz, tar.xz). No other
+    /// action can be asked for here: commands and webhooks come only from the user's rules.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unpack: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

@@ -321,6 +321,20 @@ async fn tools_reach_the_app() {
             json!({ "action": "nothing" }),
             json!({ "type": "when_done", "action": "nothing" }),
         ),
+        // Unpacking is the only action a download can ask for; anything else is not passed on.
+        (
+            "add_download",
+            json!({ "url": "https://x/c.zip", "unpack": true, "command": "calc.exe" }),
+            json!({
+                "type": "add", "url": "https://x/c.zip", "dir": null, "name": null, "start": null,
+                "mirrors": [], "checksum": null, "video_height": null, "audio_only": null,
+                "torrent_files": null, "archive_entries": null, "allow_duplicate": null,
+                "playlist_items": null, "clip_start": null, "clip_end": null, "exact_cut": null,
+                "record": null, "record_minutes": null, "record_from_start": null,
+                "record_in_minutes": null, "pieces_from": null, "page_checksum": null,
+                "headers": [], "unpack": true
+            }),
+        ),
         // Over a connection of its own.
         (
             "wait_for_downloads",

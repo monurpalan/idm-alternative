@@ -4,6 +4,16 @@
 use super::*;
 
 impl Db {
+    /// How a finished download's actions went (see [`crate::after`]).
+    pub(crate) async fn set_after_log(&self, id: TaskId, log: &[crate::after::Done]) -> Result<()> {
+        sqlx::query("UPDATE tasks SET after_log = ? WHERE id = ?")
+            .bind(serde_json::to_string(log)?)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub(crate) async fn setting(&self, key: &str) -> Result<Option<String>> {
         Ok(
             sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")

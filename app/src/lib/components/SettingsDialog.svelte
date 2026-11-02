@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { open as pickFile, open as pickFolder, save as pickSaveFile } from '@tauri-apps/plugin-dialog';
 	import { Button, Checkbox, Dialog, Field, Input, Select, Text } from './ui/index.ts';
+	import AfterRules from './AfterRules.svelte';
 	import {
 		BROWSER_NAMES,
 		extensionStatus,
@@ -34,6 +35,7 @@
 
 	const TABS = [
 		{ id: 'downloads', label: msg('Downloads') },
+		{ id: 'after', label: msg('When done') },
 		{ id: 'connection', label: msg('Connection') },
 		{ id: 'schedule', label: msg('Schedule') },
 		{ id: 'logins', label: msg('Sign-ins') },
@@ -272,6 +274,8 @@
 						>{historyCleared ? t('Forgotten') : t('Forget them')}</Button
 					>
 				</div>
+			{:else if tab === 'after'}
+				<AfterRules bind:rules={s.after_rules} />
 			{:else if tab === 'connection'}
 				<Field label={t('Proxy')}>
 					<Input bind:value={s.proxy} placeholder={t('none, or socks5://host:port')} />

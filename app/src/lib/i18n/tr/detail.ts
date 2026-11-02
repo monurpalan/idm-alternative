@@ -71,5 +71,17 @@ export default {
 		'Bağlantılar sık kopuyor: son bir dakikada {n} kez yeniden açıldı',
 	'The server allows only {n} connections at a time': 'Sunucu aynı anda yalnız {n} bağlantıya izin veriyor',
 	'Going through the proxy set in the settings': 'Ayarlardaki proxy üzerinden gidiyor',
-	'Remove the limit': 'Sınırı kaldır'
+	'Remove the limit': 'Sınırı kaldır',
+	// When done
+	'When done': 'Bitince',
+	'Moved to {detail}': '{detail} klasörüne taşındı',
+	'Not moved: {detail}': 'Taşınamadı: {detail}',
+	'Not unpacked: {detail}': 'Açılamadı: {detail}',
+	'{n} files unpacked into {detail}': '{n} dosya {detail} klasörüne açıldı',
+	'{n} files unpacked into {detail}; {m} left out (see the log)':
+		'{n} dosya {detail} klasörüne açıldı; {m} tanesi dışarıda kaldı (günlüğe bakın)',
+	'Command not run: {detail}': 'Komut çalıştırılamadı: {detail}',
+	'{detail} ended with exit code {n}': '{detail}, {n} çıkış koduyla bitti',
+	'Webhook failed: {detail}': 'Webhook gönderilemedi: {detail}',
+	'Told {detail} (HTTP {n})': '{detail} adresine bildirildi (HTTP {n})'
 };

@@ -61,6 +61,9 @@ pub struct Settings {
     /// digest of a release asset, `SHA256SUMS` and the like next to the file) and check the
     /// finished file against it.
     pub find_checksums: bool,
+    /// What happens to finished downloads (see [`shardload_manager::after`]): the only place
+    /// a command or a webhook can come from.
+    pub after_rules: Vec<shardload_manager::after::Rule>,
 }
 
 impl Default for Settings {
@@ -89,6 +92,7 @@ impl Default for Settings {
             torrent_links: false,
             mark_downloads: true,
             find_checksums: true,
+            after_rules: Vec::new(),
         }
     }
 }
@@ -107,6 +111,9 @@ impl Settings {
         }
         self.browser()?;
         self.schedule.validate()?;
+        for rule in &self.after_rules {
+            rule.check()?;
+        }
         if !["system", "en", "tr"].contains(&self.language.as_str()) {
             return Err(format!("unknown language {}", self.language));
         }
@@ -155,6 +162,7 @@ impl Settings {
                 find_checksum: self.find_checksums,
                 ..Options::default()
             },
+            rules: self.after_rules.clone(),
             ..Config::default()
         }
     }

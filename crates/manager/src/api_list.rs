@@ -213,6 +213,7 @@ impl Manager {
                 page_title: new.title.as_deref(),
                 page_checksum: page_checksum.as_deref(),
                 size: new.size,
+                after: new.after.as_ref(),
             })
             .await?;
         let task = self.get(id).await?;

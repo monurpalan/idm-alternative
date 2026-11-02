@@ -12,6 +12,7 @@
 		inspectTorrent,
 		isTorrent,
 		isZip,
+		canUnpack,
 		probe,
 		findPrevious,
 		headerLines,
@@ -84,6 +85,8 @@
 	let previous = $state<Previous | null>(null);
 	/** A batch: leave out the files downloaded before. */
 	let skipKnown = $state(true);
+	/** Unpack it once finished (offered for archives). */
+	let unpackAfter = $state(false);
 	const batchCount = $derived(batch ? batch.count - (skipKnown ? batch.known : 0) : 0);
 	let checking = $state(false);
 	let error = $state<string | null>(null);
@@ -291,7 +294,8 @@
 				mirrors: mirrorList(),
 				title,
 				page_checksum: pageChecksum,
-				size: info?.size ?? null
+				size: info?.size ?? null,
+				after: unpackAfter && canUnpack(name.trim() || info?.name) ? { unpack: true, move_to: null } : null
 			});
 			onclose();
 		} catch (e) {
@@ -375,6 +379,10 @@
 
 	{#if previous}
 		<PreviousNotice {previous} {onshow} onerror={(e) => (error = e)} />
+	{/if}
+
+	{#if !archive && !torrent && canUnpack(name.trim() || info?.name)}
+		<Checkbox bind:checked={unpackAfter}>{t('Unpack it into a folder when done')}</Checkbox>
 	{/if}
 
 	{#if batch?.known}

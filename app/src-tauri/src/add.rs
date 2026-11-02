@@ -143,6 +143,9 @@ pub(crate) struct AddRequest {
     /// One of a group added together.
     #[serde(default)]
     group: Option<i64>,
+    /// Unpack or move it once finished.
+    #[serde(default)]
+    after: Option<shardload_manager::after::After>,
 }
 
 /// An earlier download of what is about to be added: `final_url`, `name` and `size` are
@@ -326,6 +329,7 @@ pub(crate) async fn add_task(app: State<'_, App>, request: AddRequest) -> CmdRes
             title: request.title,
             page_checksum: request.page_checksum,
             size: request.size,
+            after: request.after,
             ..NewTask::default()
         })
         .await

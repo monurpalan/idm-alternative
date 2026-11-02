@@ -137,6 +137,10 @@ pub(crate) async fn tool_add(
             page_checksum: add.page_checksum.filter(|c| !c.trim().is_empty()),
             headers,
             stream,
+            after: add.unpack.then_some(shardload_manager::after::After {
+                unpack: true,
+                move_to: None,
+            }),
             ..NewTask::default()
         })
         .await
@@ -383,5 +387,7 @@ pub(crate) fn task_view(t: &Task, live: Option<&Live>) -> serde_json::Value {
         "warning": t.warning,
         "eta_seconds": eta.map(|[soonest, latest]| [soonest.round(), latest.round()]),
         "hints": hints,
+        "after": t.after,
+        "after_log": t.after_log,
     })
 }

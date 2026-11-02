@@ -109,5 +109,21 @@ export default {
 		'Henüz öğrenilen bir şey yok. Bir site bağlantıları sınırlarsa, yalnız dosyanın tamamını gönderirse ya da yalnız bazı tarayıcılara hizmet verirse, ondan sonraki indirme baştan öyle başlar.',
 	'Forgotten 30 days after a download last used it.':
 		'Bir indirme son kullandıktan 30 gün sonra unutulur.',
-	'Forget them': 'Unut'
-} satisfies Record<string, string>;
+	'Forget them': 'Unut',
+	// Rules for finished downloads
+	'Any type': 'Her tür',
+	General: 'Genel',
+	'When a download finishes, every rule it fits applies. A rule with no condition fits every download.':
+		'Bir indirme bitince uyduğu her kural uygulanır. Koşulu olmayan kural her indirmeye uyar.',
+	'Rule {n}': 'Kural {n}',
+	'File name': 'Dosya adı',
+	'Unpack archives into a folder next to them (ZIP, tar)': 'Arşivleri yanlarındaki bir klasöre aç (ZIP, tar)',
+	'Move to': 'Şuraya taşı',
+	'leave where it is': 'olduğu yerde kalsın',
+	'Run a program': 'Program çalıştır',
+	'Tell a web address (webhook)': 'Bir web adresine bildir (webhook)',
+	'The program runs without a shell; {file} and {dir} are the file and its folder.':
+		'Program kabuk olmadan çalışır; {file} dosyanın, {dir} klasörünün yerine geçer.',
+	'Remove rule': 'Kuralı kaldır',
+	'Add a rule': 'Kural ekle'
+};

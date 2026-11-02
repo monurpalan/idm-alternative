@@ -10,6 +10,7 @@
 //!   downloading; the next [`Manager::open`] queues them again and they resume from their
 //!   state files.
 
+pub mod after;
 mod api_control;
 mod api_list;
 mod api_settings;
@@ -144,6 +145,9 @@ pub struct Config {
     pub free_space: Option<Space>,
     /// How often the drives running downloads write to are looked at.
     pub disk_watch: Duration,
+    /// The user's rules for finished downloads (see [`after`]).
+    pub rules: Vec<after::Rule>,
+    pub after_limits: after::Limits,
 }
 
 /// A [`disk::FreeSpace`] in the configuration.
@@ -174,6 +178,8 @@ impl Default for Config {
             torrent: TorrentConfig::default(),
             free_space: None,
             disk_watch: Duration::from_secs(2),
+            rules: Vec::new(),
+            after_limits: after::Limits::default(),
         }
     }
 }

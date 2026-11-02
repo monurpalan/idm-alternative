@@ -317,6 +317,10 @@ pub struct Task {
     /// none; once used it is `checksum`, with `checksum_from` [`shardload_engine::FROM_PAGE`].
     #[serde(skip)]
     pub page_checksum: Option<String>,
+    /// What it asked to have done once finished (see [`crate::after`]).
+    pub after: Option<crate::after::After>,
+    /// How that, and the rules that took it, went.
+    pub after_log: Vec<crate::after::Done>,
 }
 
 /// A finished file that may not be what it says.
@@ -416,6 +420,8 @@ pub struct NewTask {
     /// The size the server (or the browser, or a torrent's file list) said when asked before
     /// adding: what the queue's disk check counts until the download starts and knows.
     pub size: Option<u64>,
+    /// Unpack it or move it once finished (see [`crate::after`]).
+    pub after: Option<crate::after::After>,
 }
 
 /// Live progress of a running download, sent about four times a second.
@@ -465,8 +471,46 @@ fn segments<S: serde::Serializer>(v: &[SegmentView], s: S) -> Result<S::Ok, S::E
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// A finished download of `url` named `name`, for tests of what happens to it.
+    pub(crate) fn sample(url: &str, name: &str) -> Task {
+        Task {
+            id: 1,
+            url: url.into(),
+            headers: Vec::new(),
+            dir: PathBuf::from("."),
+            name: Some(name.into()),
+            path: Some(PathBuf::from(name)),
+            size: Some(1),
+            received: 1,
+            status: Status::Done,
+            error: None,
+            error_kind: None,
+            category: Category::for_name(name),
+            connections: 1,
+            speed_limit: None,
+            checksum: None,
+            checksum_from: None,
+            added_at: 0,
+            finished_at: Some(0),
+            queue_pos: 0,
+            stream: None,
+            mirrors: Vec::new(),
+            final_url: None,
+            group_id: None,
+            pieces: None,
+            link_at: 0,
+            content: None,
+            warning: None,
+            name_given: false,
+            page_title: None,
+            page_checksum: None,
+            after: None,
+            after_log: Vec::new(),
+        }
+    }
 
     #[test]
     fn categories() {

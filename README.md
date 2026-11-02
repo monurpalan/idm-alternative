@@ -62,6 +62,12 @@ saves videos and torrents. No ads, no trial, no account.</p>
 - **Just the files you need out of a ZIP**, without downloading the whole archive.
 - **Site grabber.** Lists every file a site links to (archives, documents, video, pictures) so
   you can pick which to download.
+- **When a download finishes:** unpack it (ZIP, tar), move it by your rules (type, site, name),
+  run your own program on it, or tell a webhook. Only rules you set in Settings can run a
+  program; a web page or an AI assistant cannot.
+- **"Why slow?"** A running download says, in a line, what holds it back when that is known
+  for certain: a speed limit (with a button to lift it), a disk that cannot keep up,
+  connections that keep dropping, a server that allows few connections.
 - **Everything you know from IDM:** categories, a queue with automatic retries, a scheduler,
   sleep or shut down when all downloads finish, batch downloads (`photo[001-100].jpg`),
   clipboard monitoring, saved logins per site, a virus scan of finished files, a small progress

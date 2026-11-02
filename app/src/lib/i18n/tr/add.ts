@@ -157,5 +157,6 @@ export default {
 	'Stop after': 'Şu kadar sonra dur',
 	Minutes: 'Dakika',
 	'Begin at': 'Şu saatte başla',
-	'Time (HH:MM)': 'Saat (SS:DD)'
-} satisfies Record<string, string>;
+	'Time (HH:MM)': 'Saat (SS:DD)',
+	'Unpack it into a folder when done': 'Bitince bir klasöre aç'
+};
