@@ -71,6 +71,19 @@ function running(image) {
 	return execFileSync('tasklist', ['/FI', `IMAGENAME eq ${image}`, '/NH'], { encoding: 'utf8' }).includes(image);
 }
 
+/** The WebView2 processes' command lines, to see which switches reached them. */
+function webviews() {
+	try {
+		return execFileSync(
+			'powershell',
+			['-NoProfile', '-Command', "Get-CimInstance Win32_Process -Filter \"Name='msedgewebview2.exe'\" | Where-Object { $_.CommandLine -notmatch '--type=' } | ForEach-Object { $_.CommandLine }"],
+			{ encoding: 'utf8' }
+		);
+	} catch (e) {
+		return String(e);
+	}
+}
+
 /** Sends one message to the app through the native host, as the browser extension does. */
 function fromBrowser(home, message) {
 	const body = Buffer.from(JSON.stringify(message));
@@ -367,7 +380,8 @@ async function main() {
 			}
 			return !!target;
 		}, 'the app’s window', 60_000).catch((e) => {
-			throw new Error(`${e.message} (DevTools: ${seen})`);
+			throw new Error(`${e.message} (DevTools: ${seen})
+${webviews()}`);
 		});
 		const page = await Page.connect(target.webSocketDebuggerUrl);
 		await waitFor(() => page.exists('.app aside'), 'the list');
