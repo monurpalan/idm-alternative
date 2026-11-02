@@ -1,0 +1,52 @@
+name: Network tests
+
+# The tests that need the Internet (`#[ignore]`d in the normal run): YouTube and Twitch through
+# yt-dlp, GitHub's API and releases, a real torrent, the Internet Archive. Sites change and
+# sometimes turn CI machines away, so this runs on its own: weekly and by hand. A failure only
+# shows red here.
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  network:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      # The app's GTK/WebKit stack (its tests are among them), BoringSSL's CMake and libclang,
+      # and ffmpeg for the tests that join or record video.
+      - name: System libraries and ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
+            libssl-dev libdbus-1-dev cmake clang libclang-dev pkg-config ffmpeg
+      - name: yt-dlp and deno
+        run: |
+          mkdir -p "$RUNNER_TEMP/tools"
+          cd "$RUNNER_TEMP/tools"
+          curl -fsSL -o yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux
+          curl -fsSL -o deno.zip https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip
+          unzip -q deno.zip && rm deno.zip
+          chmod +x yt-dlp deno
+          echo "SHARDLOAD_TOOLS=$RUNNER_TEMP/tools" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      # The app embeds the built web UI at compile time.
+      - name: Web UI
+        working-directory: app
+        run: |
+          npm ci
+          npm run build
+      - name: Network tests
+        run: cargo test --workspace --no-fail-fast -- --ignored
