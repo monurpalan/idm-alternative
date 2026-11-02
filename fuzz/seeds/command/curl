@@ -1,0 +1,1 @@
+curl 'https://x.example/a.zip' -H 'Cookie: a=b' -H 'Referer: https://x.example/' --compressed -o out.zip

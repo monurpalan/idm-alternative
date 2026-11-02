@@ -27,6 +27,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [workspace.lints.rust]
 unsafe_code = "deny"
 unused_must_use = "deny"
+# cargo-fuzz builds with `--cfg fuzzing`; see fuzz/.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }

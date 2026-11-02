@@ -213,7 +213,10 @@ fn curl(args: &[String]) -> Result<Pasted, String> {
             _ if arg.len() > 2
                 && arg.starts_with('-')
                 && !arg.starts_with("--")
-                && "HbAeuXdoF".contains(&arg[1..2]) =>
+                && arg
+                    .as_bytes()
+                    .get(1)
+                    .is_some_and(|b| b"HbAeuXdoF".contains(b)) =>
             {
                 (&arg[..2], Some(arg[2..].to_owned()))
             }

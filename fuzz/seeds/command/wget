@@ -1,0 +1,1 @@
+wget --header="Cookie: x=y" -O f.iso https://x.example/f.iso

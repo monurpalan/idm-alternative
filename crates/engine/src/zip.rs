@@ -8,7 +8,7 @@
 //!
 //! Each entry is fetched over one range request; entries are not split across connections.
 
-mod central;
+pub(crate) mod central;
 mod local;
 mod sink;
 

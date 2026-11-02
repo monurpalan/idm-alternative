@@ -130,6 +130,41 @@ jobs:
           path: target/debug/testserver
           if-no-files-found: error
 
+  # Every fuzz target for a short while (fuzz/; the long runs are local), on nightly.
+  fuzz:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Nightly toolchain and cargo-fuzz
+        run: |
+          rustup toolchain install nightly --profile minimal
+          cargo install cargo-fuzz --locked
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake clang libclang-dev
+      - name: Build the targets
+        working-directory: fuzz
+        run: cargo +nightly fuzz build -O
+      - name: Run each target for 45 s
+        working-directory: fuzz
+        run: |
+          for target in $(cargo +nightly fuzz list); do
+            echo "::group::$target"
+            mkdir -p "corpus/$target"
+            cargo +nightly fuzz run -O "$target" "corpus/$target" "seeds/$target" -- \
+              -max_total_time=45 -rss_limit_mb=2048 -timeout=10
+            echo "::endgroup::"
+          done
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts
+
   # The Flatpak, made from the .deb (see packaging/flatpak), installed and smoke-tested.
   flatpak:
     needs: linux

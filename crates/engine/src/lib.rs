@@ -20,6 +20,9 @@ mod discover;
 mod download;
 pub mod error;
 mod file;
+#[cfg(any(fuzzing, test))]
+#[doc(hidden)]
+pub mod fuzz;
 mod hls;
 mod limit;
 pub mod metalink;

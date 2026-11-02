@@ -1,0 +1,3 @@
+curl "https://x.example/a" ^
+  -H "Accept: */*" ^
+  --data-raw "x=1"

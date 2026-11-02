@@ -153,14 +153,15 @@ pub fn sanitize(name: &str) -> String {
             c => c,
         })
         .collect();
-    s = s.trim_start().trim_end_matches(['.', ' ']).to_owned();
+    // Shortened before it is checked: cutting can leave a stem of dots or a device name.
+    s = truncate(s.trim_start().trim_end_matches(['.', ' ']));
     if s.is_empty() || s.chars().all(|c| c == '.') {
         return FALLBACK.to_owned();
     }
     if is_reserved(&s) {
-        s.insert(0, '_');
+        s = truncate(&format!("_{s}"));
     }
-    truncate(&s)
+    s
 }
 
 /// Characters that change the direction text is shown in, which let a name read as something
@@ -174,7 +175,7 @@ fn is_bidi_control(c: char) -> bool {
 }
 
 /// Device names are reserved with any extension, e.g. `nul.tar.gz`.
-fn is_reserved(name: &str) -> bool {
+pub(crate) fn is_reserved(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or_default().trim_end();
     let upper = stem.to_ascii_uppercase();
     matches!(
@@ -329,6 +330,13 @@ mod tests {
         assert_eq!(sanitize("con.txt"), "_con.txt");
         assert_eq!(sanitize("nul.tar.gz"), "_nul.tar.gz");
         assert_eq!(sanitize("COM1.log"), "_COM1.log");
+        // Found by fuzzing: a stem cut short to dots or to a device name.
+        let spaces = " ".repeat(300);
+        assert_eq!(sanitize(&format!("CON{spaces}x.txt")), "_CON.txt");
+        let long_ext = "1".repeat(200);
+        assert_eq!(sanitize(&format!(".{spaces}x.{long_ext}")), FALLBACK);
+        let long = sanitize(&format!("CON.{}.txt", "a".repeat(300)));
+        assert!(long.starts_with("_CON.aaa") && long.encode_utf16().count() <= MAX_UNITS);
         assert_eq!(sanitize("COM10.log"), "COM10.log");
         assert_eq!(sanitize("console.txt"), "console.txt");
         assert_eq!(sanitize(".bashrc"), ".bashrc");

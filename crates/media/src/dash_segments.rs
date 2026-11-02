@@ -41,6 +41,16 @@ pub struct DashLive {
 /// How far back a live `$Number$` template is read when the manifest does not say
 /// (`timeShiftBufferDepth`): a few segments behind the newest.
 const LIVE_DEPTH: f64 = 30.0;
+/// More segments than a manifest may list: a day of one-second segments five times over. A
+/// hostile manifest (a duration of 10^90 seconds, a repeat count of 2^63) would otherwise
+/// keep the parser filling memory.
+const MAX_SEGMENTS: usize = 500_000;
+
+fn too_many() -> Error {
+    Error(format!(
+        "the manifest lists more than {MAX_SEGMENTS} segments"
+    ))
+}
 
 fn child<'a, 'i>(node: Node<'a, 'i>, name: &str) -> Option<Node<'a, 'i>> {
     node.children()
@@ -236,12 +246,15 @@ fn track(url: &str, mpd: Node, rep_id: &str, now: Option<f64>) -> Result<DashTra
                         .or(end)
                         .ok_or_else(|| Error("an open-ended timeline needs a duration".into()))?
                 } else {
-                    time + d * (r as u64 + 1)
+                    time.saturating_add(d.saturating_mul(r as u64 + 1))
                 };
+                if until.saturating_sub(time) / d >= (MAX_SEGMENTS - segments.len()) as u64 {
+                    return Err(too_many());
+                }
                 while time < until {
                     segments.push(piece(media, number, time, Some(d as f64)));
-                    time += d;
-                    number += 1;
+                    time = time.saturating_add(d);
+                    number = number.saturating_add(1);
                 }
             }
         } else {
@@ -266,11 +279,14 @@ fn track(url: &str, mpd: Node, rep_id: &str, now: Option<f64>) -> Result<DashTra
                     (0, (total * timescale as f64 / seg).ceil() as u64)
                 }
             };
-            first = start_number + from;
+            if count.saturating_sub(from) > MAX_SEGMENTS as u64 {
+                return Err(too_many());
+            }
+            first = start_number.saturating_add(from);
             for i in from..count {
                 segments.push(piece(
                     media,
-                    start_number + i,
+                    start_number.saturating_add(i),
                     (i as f64 * seg) as u64,
                     Some(seg),
                 ));
@@ -503,5 +519,32 @@ mod tests {
         assert!(b.single);
         assert_eq!(b.segments[0].url, "https://h/a/whole.mp4");
         assert!(dash_track("https://h/a/m.mpd", mpd, "nope").is_err());
+    }
+
+    #[test]
+    fn endless_manifests_are_refused() {
+        let long = r#"<MPD mediaPresentationDuration="PT9999999999999H"><Period><AdaptationSet>
+          <SegmentTemplate media="$Number$.m4s" duration="4"/>
+          <Representation id="v" bandwidth="1"/></AdaptationSet></Period></MPD>"#;
+        assert!(dash_track("https://h/m.mpd", long, "v").is_err());
+        let repeated = r#"<MPD><Period><AdaptationSet><SegmentTemplate media="$Time$.m4s">
+          <SegmentTimeline><S t="0" d="1" r="4611686018427387904"/></SegmentTimeline></SegmentTemplate>
+          <Representation id="v" bandwidth="1"/></AdaptationSet></Period></MPD>"#;
+        assert!(dash_track("https://h/m.mpd", repeated, "v").is_err());
+    }
+
+    /// Inputs that once made the parser fail under fuzzing (`fuzz/regressions/dash/`).
+    #[test]
+    fn fuzz_regressions() {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/regressions/dash");
+        for entry in std::fs::read_dir(dir).expect("the regression inputs") {
+            let data = std::fs::read(entry.expect("an input").path()).expect("an input");
+            let text = String::from_utf8_lossy(&data);
+            for id in ["1", "2", "v", "a"] {
+                let _ = dash_track("https://h/m.mpd", &text, id);
+                let _ = dash_live("https://h/m.mpd", &text, id, 1.7e9);
+            }
+        }
     }
 }

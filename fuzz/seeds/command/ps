@@ -1,0 +1,1 @@
+Invoke-WebRequest -Uri "https://x.example/a" -Headers @{"Authorization"="Bearer x"} -OutFile a.bin

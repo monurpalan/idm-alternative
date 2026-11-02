@@ -1,0 +1,99 @@
+# Fuzz targets for every parser of untrusted input. Needs a nightly toolchain and cargo-fuzz:
+#
+#   cargo +nightly fuzz run -O <target> corpus/<target> seeds/<target> -- -max_total_time=600
+#
+# On Windows the targets need the MSVC AddressSanitizer runtime on PATH
+# (`VC/Tools/MSVC/<version>/bin/Hostx64/x64`). seeds/ holds a few valid inputs of each kind to
+# start from. An input that once failed is kept under regressions/<target>/ and replayed by
+# `cargo test` in the crate the parser lives in.
+[package]
+name = "shardload-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+shardload-engine = { path = "../crates/engine" }
+shardload-media = { path = "../crates/media" }
+shardload-manager = { path = "../crates/manager" }
+
+# Kept apart from the main workspace: it builds on nightly with sanitizers.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "hls"
+path = "fuzz_targets/hls.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dash"
+path = "fuzz_targets/dash.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "zip"
+path = "fuzz_targets/zip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "metalink"
+path = "fuzz_targets/metalink.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "file_name"
+path = "fuzz_targets/file_name.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "command"
+path = "fuzz_targets/command.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "structure"
+path = "fuzz_targets/structure.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sniff"
+path = "fuzz_targets/sniff.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "zone"
+path = "fuzz_targets/zone.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "checksum"
+path = "fuzz_targets/checksum.rs"
+test = false
+doc = false
+bench = false
