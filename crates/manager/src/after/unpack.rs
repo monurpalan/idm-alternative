@@ -138,10 +138,20 @@ fn untar(r: Box<dyn Read>, folder: &Path) -> Result<Unpacked, String> {
             }
             continue;
         }
+        if kind.is_dir() {
+            // Made here rather than by the archive: its mode could leave a folder that cannot
+            // be written into (no execute bit), and it is not the archive's to choose.
+            match shardload_engine::safe_path(&name) {
+                Some(p) => std::fs::create_dir_all(folder.join(p)).map_err(|e| e.to_string())?,
+                None => skipped.push(format!(
+                    "{name}: unsafe name: it would be written outside the folder"
+                )),
+            }
+            continue;
+        }
         // `unpack_in` refuses names that climb out of the folder (and says false).
         match entry.unpack_in(folder) {
-            Ok(true) if kind.is_file() => files += 1,
-            Ok(true) => {}
+            Ok(true) => files += 1,
             Ok(false) => skipped.push(format!(
                 "{name}: unsafe name: it would be written outside the folder"
             )),
