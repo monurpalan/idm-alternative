@@ -56,7 +56,7 @@ pub use secret::{open_setting, seal_setting};
 pub use sites::SiteMemory;
 pub use task::{
     ArchiveChoice, Category, ErrorKind, Group, HistoryEntry, NewTask, Recording, Status, Stream,
-    Subtitle, Task, TaskId, TaskProgress, TorrentChoice, Warning,
+    Structure, Subtitle, Task, TaskId, TaskProgress, TorrentChoice, Warning,
 };
 pub use torrent::{TorrentConfig, TorrentFile, TorrentInfo};
 use transfer::report;

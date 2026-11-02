@@ -64,6 +64,9 @@ AppImage (`chmod +x` ve çalıştırın).
 - **ZIP arşivinden yalnızca istediğiniz dosyalar**, arşivin tamamını indirmeden.
 - **Site tarayıcı.** Bir sitenin bağlantı verdiği bütün dosyaları (arşiv, belge, video, resim)
   listeler; hangilerinin indirileceğini siz seçersiniz.
+- **Sağlama toplamı olmadan da bozukluğu bulur:** biten ZIP, gzip, xz, PNG, PDF, MP4 ya da
+  MKV kendi yapısıyla (CRC'leri, sıkıştırılmış akışları, dizini) denetlenir; bozuk kısım tek
+  başına yeniden indirilir, dosyanın tamamı değil.
 - **Tarayıcının yarıda bıraktığını kurtarır:** eklentinin penceresi tarayıcıda yarım kalan
   indirmeleri listeler; "Shardload'da devam et", sunucu aynı dosyayı veriyorsa tarayıcının
   indirdiği kısmı korur, yalnız kalanını çeker.

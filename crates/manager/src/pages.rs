@@ -102,6 +102,7 @@ impl Inner {
                 elapsed: started.elapsed(),
                 checksum: None,
                 checksum_from: None,
+                structure: None,
             }),
             Err(_) if cancel.is_cancelled() => Err(shardload_engine::Error::Cancelled.into()),
             Err(e) => Err(state(e)),
@@ -226,6 +227,7 @@ impl Inner {
             elapsed: started.elapsed(),
             checksum: None,
             checksum_from: None,
+            structure: None,
         })
     }
 }

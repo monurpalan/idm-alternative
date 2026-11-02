@@ -389,5 +389,6 @@ pub(crate) fn task_view(t: &Task, live: Option<&Live>) -> serde_json::Value {
         "hints": hints,
         "after": t.after,
         "after_log": t.after_log,
+        "structure": t.structure,
     })
 }

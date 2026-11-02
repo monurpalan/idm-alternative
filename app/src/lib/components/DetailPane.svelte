@@ -2,6 +2,7 @@
 	import { Button, Checkbox, Input, Text, Textarea } from './ui/index.ts';
 	import AfterLog from './AfterLog.svelte';
 	import SlowHints from './SlowHints.svelte';
+	import StructureFact from './StructureFact.svelte';
 	// Details of one download: where it goes, live numbers, a speed graph, the segment map
 	// (the engine's live splitting, one bar per connection's range), its own speed limit and
 	// "refresh link" for links that expired.
@@ -324,6 +325,9 @@
 				<dd title={task.checksum ?? ''}>
 					{t('Matches the {algorithm} checksum shown on the page', { algorithm: algorithmName(task.checksum ?? '') })}
 				</dd>
+			{/if}
+			{#if task.structure && task.status === 'done'}
+				<StructureFact structure={task.structure} />
 			{/if}
 			{#if disguised}
 				<dt>{t('Warning')}</dt>

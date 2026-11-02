@@ -374,7 +374,8 @@ impl Db {
     pub(crate) async fn reset(&self, id: TaskId) -> Result<()> {
         sqlx::query(
             "UPDATE tasks SET status = 'queued', error = NULL, error_kind = NULL, received = 0,
-                              finished_at = NULL, content = NULL
+                              finished_at = NULL, content = NULL, structure = NULL,
+                              after_log = NULL
              WHERE id = ?",
         )
         .bind(id)
@@ -475,6 +476,7 @@ fn task(r: &SqliteRow) -> Result<Task> {
         page_checksum: r.try_get("page_checksum")?,
         after: json_column(r, "after")?,
         after_log: json_column(r, "after_log")?.unwrap_or_default(),
+        structure: json_column(r, "structure")?,
         path: r.try_get::<Option<String>, _>("path")?.map(PathBuf::from),
         size: u64_opt("size")?,
         received: r.try_get::<i64, _>("received")? as u64,

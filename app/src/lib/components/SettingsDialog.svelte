@@ -254,6 +254,9 @@
 				<Checkbox bind:checked={s.find_checksums}
 					>{t('Check downloads against the checksum the publisher posts (SHA256SUMS, GitHub)')}</Checkbox
 				>
+				<Checkbox bind:checked={s.check_structure}
+					>{t('Without a checksum, check files by their own structure (ZIP, PDF, PNG, video) and download damaged parts again')}</Checkbox
+				>
 				<div class="grid">
 					<Field label={t('Downloads at once')}>
 						<Input type="number" min={1} max={50} bind:value={s.max_active} />

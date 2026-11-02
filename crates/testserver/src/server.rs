@@ -15,7 +15,6 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use base64::Engine as _;
 use bytes::Bytes;
-use serde::Serialize;
 
 use crate::content;
 use crate::scenario::{EtagMode, Scenario};
@@ -32,26 +31,26 @@ const LAST_MODIFIED_BASE: u64 = 1_767_225_600;
 pub(crate) struct UrlState {
     pub(crate) first_seen: Mutex<Option<Instant>>,
     pub(crate) gets: AtomicU64,
-    active: AtomicU32,
-    peak_active: AtomicU32,
+    pub(crate) active: AtomicU32,
+    pub(crate) peak_active: AtomicU32,
     /// Requests turned away by `max_conns`.
-    refused: AtomicU64,
+    pub(crate) refused: AtomicU64,
     /// `corrupt_at`: a response has been corrupted already.
-    corrupted: std::sync::atomic::AtomicBool,
+    pub(crate) corrupted: std::sync::atomic::AtomicBool,
     pub(crate) bytes_sent: AtomicU64,
     /// `total_rate`: when the URL's first byte went out, and the bytes paced since.
     paced_from: Mutex<Option<Instant>>,
     paced: AtomicU64,
     generation: AtomicU64,
-    h2_gets: AtomicU64,
+    pub(crate) h2_gets: AtomicU64,
     /// Distinct client addresses, i.e. TCP connections (needs connect info).
-    peers: Mutex<HashSet<SocketAddr>>,
-    user_agent: Mutex<Option<String>>,
+    pub(crate) peers: Mutex<HashSet<SocketAddr>>,
+    pub(crate) user_agent: Mutex<Option<String>>,
 }
 
 #[derive(Default)]
 pub(crate) struct AppState {
-    urls: Mutex<HashMap<String, Arc<UrlState>>>,
+    pub(crate) urls: Mutex<HashMap<String, Arc<UrlState>>>,
     next_conn_id: AtomicU64,
     next_hop: AtomicU64,
 }
@@ -74,57 +73,10 @@ pub fn router() -> Router {
         .route("/dash/manifest.mpd", get(crate::dash::manifest))
         .route("/dash/{rep}/{file}", get(crate::dash::segment))
         .route("/zip/{name}", get(crate::zip::serve))
-        .route("/_stats", get(stats))
-        .route("/_reset", post(reset))
+        .route("/sample/{name}", get(crate::samples::serve))
+        .route("/_stats", get(crate::stats::stats))
+        .route("/_reset", post(crate::stats::reset))
         .with_state(Arc::new(AppState::default()))
-}
-
-#[derive(Serialize)]
-struct UrlStats {
-    url: String,
-    gets: u64,
-    active: u32,
-    peak_active: u32,
-    /// Requests turned away by `max_conns`.
-    refused: u64,
-    bytes_sent: u64,
-    /// Requests that arrived over HTTP/2.
-    h2_gets: u64,
-    /// TCP connections the requests came on; 0 when the server has no connect info.
-    connections: usize,
-    user_agent: Option<String>,
-}
-
-async fn stats(State(app): State<Arc<AppState>>) -> axum::Json<Vec<UrlStats>> {
-    let urls = app.urls.lock().unwrap_or_else(PoisonError::into_inner);
-    let mut out: Vec<UrlStats> = urls
-        .iter()
-        .map(|(url, s)| UrlStats {
-            url: url.clone(),
-            gets: s.gets.load(Ordering::Relaxed),
-            active: s.active.load(Ordering::Relaxed),
-            peak_active: s.peak_active.load(Ordering::Relaxed),
-            refused: s.refused.load(Ordering::Relaxed),
-            bytes_sent: s.bytes_sent.load(Ordering::Relaxed),
-            h2_gets: s.h2_gets.load(Ordering::Relaxed),
-            connections: s.peers.lock().unwrap_or_else(PoisonError::into_inner).len(),
-            user_agent: s
-                .user_agent
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone(),
-        })
-        .collect();
-    out.sort_by(|a, b| a.url.cmp(&b.url));
-    axum::Json(out)
-}
-
-async fn reset(State(app): State<Arc<AppState>>) -> StatusCode {
-    app.urls
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clear();
-    StatusCode::NO_CONTENT
 }
 
 fn text(status: StatusCode, body: &'static str) -> Response {

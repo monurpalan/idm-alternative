@@ -139,7 +139,7 @@ pub(crate) async fn repair(
     }
 }
 
-async fn fetch_range(
+pub(crate) async fn fetch_range(
     http: &Http,
     url: &str,
     start: u64,

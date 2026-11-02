@@ -327,6 +327,7 @@ pub(crate) async fn record(
         elapsed: started.elapsed(),
         checksum: None,
         checksum_from: None,
+        structure: None,
     })
 }
 

@@ -253,6 +253,10 @@ impl Inner {
                     }
                     Err(e) => tracing::warn!(id, "could not check what the file is: {e}"),
                 }
+                let structure = outcome.structure.as_ref().map(crate::task::Structure::from);
+                if let Err(e) = self.db.set_structure(id, structure.as_ref()).await {
+                    tracing::warn!(id, "could not keep how its structure checked out: {e}");
+                }
                 let at = now_ms();
                 // In the history before it shows as done: whatever sees it done finds it there.
                 if let Ok(Some(mut task)) = self.db.get(id).await {

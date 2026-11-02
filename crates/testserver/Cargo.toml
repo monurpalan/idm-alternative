@@ -35,6 +35,7 @@ aes = "0.9.3"
 cbc = { version = "0.2.1", features = ["alloc", "block-padding"] }
 crc32fast = "1.5"
 flate2 = "1.1"
+lzma-rust2 = { version = "0.25", default-features = false, features = ["std", "xz", "encoder"] }
 
 [dev-dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "http2"] }

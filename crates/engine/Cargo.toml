@@ -27,6 +27,7 @@ cbc = { version = "0.2.1", features = ["alloc", "block-padding"] }
 url = "2"
 crc32fast = "1.5"
 flate2 = "1.1"
+lzma-rust2 = { version = "0.25", default-features = false, features = ["std", "xz"] }
 shardload-media = { version = "0.1.4", path = "../media" }
 
 [target.'cfg(unix)'.dependencies]

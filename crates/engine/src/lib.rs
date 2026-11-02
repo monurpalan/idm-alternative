@@ -32,6 +32,7 @@ mod remote;
 pub mod segments;
 pub mod sniff;
 mod state;
+pub mod structure;
 mod subtitles;
 mod zip;
 mod zone;

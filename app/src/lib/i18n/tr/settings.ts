@@ -125,5 +125,7 @@ export default {
 	'The program runs without a shell; {file} and {dir} are the file and its folder.':
 		'Program kabuk olmadan çalışır; {file} dosyanın, {dir} klasörünün yerine geçer.',
 	'Remove rule': 'Kuralı kaldır',
-	'Add a rule': 'Kural ekle'
+	'Add a rule': 'Kural ekle',
+	'Without a checksum, check files by their own structure (ZIP, PDF, PNG, video) and download damaged parts again':
+		'Sağlama toplamı yoksa dosyaları kendi yapılarıyla denetle (ZIP, PDF, PNG, video), bozuk kısımları yeniden indir'
 };

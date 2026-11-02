@@ -4,6 +4,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { After, AfterDone, Rule } from './api/after.ts';
 import type { Hint } from './api/hints.ts';
+import type { Login } from './api/logins.ts';
+import type { Structure } from './api/structure.ts';
 
 export type TaskId = number;
 export type Status = 'queued' | 'downloading' | 'paused' | 'done' | 'error';
@@ -47,6 +49,8 @@ export interface Task {
 	/** Unpack or move it once finished, and how that and the rules went. */
 	after: After | null;
 	after_log: AfterDone[];
+	/** Without a checksum: how it checked out by its own structure. */
+	structure: Structure | null;
 }
 
 /** A finished file that may not be what it says: a program named like a document
@@ -110,18 +114,6 @@ export interface Probe {
 	realm: string | null;
 }
 
-export interface Login {
-	user: string;
-	password: string;
-	/** Save it for the site, so its downloads log in by themselves. */
-	remember?: boolean;
-}
-
-/** A site with a remembered login (the password stays in the app). */
-export interface SavedLogin {
-	site: string;
-	user: string;
-}
 
 /** A batch address (`photo[001-100].jpg`): how many downloads, the first and the last. */
 export interface Batch {
@@ -263,8 +255,6 @@ export interface LinkWarning {
 export const linkWarnings = () => invoke<LinkWarning[]>('link_warnings');
 export const forgetSite = (site: string) => invoke<void>('forget_site', { site });
 
-export const savedLogins = () => invoke<SavedLogin[]>('saved_logins');
-export const forgetLogin = (site: string) => invoke<void>('forget_login', { site });
 
 export interface Settings {
 	dir: string;
@@ -295,6 +285,8 @@ export interface Settings {
 	mark_downloads: boolean;
 	/** Look for a published checksum of downloads that have none, and check it. */
 	find_checksums: boolean;
+	/** Check downloads without a checksum by their own structure (ZIP, PDF, video…). */
+	check_structure: boolean;
 	after_rules: Rule[];
 }
 
@@ -702,4 +694,6 @@ export async function onManagerEvent(
 export * from './api/extensions.ts';
 export * from './api/after.ts';
 export * from './api/hints.ts';
+export * from './api/logins.ts';
+export * from './api/structure.ts';
 

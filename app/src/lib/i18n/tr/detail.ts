@@ -83,5 +83,12 @@ export default {
 	'Command not run: {detail}': 'Komut çalıştırılamadı: {detail}',
 	'{detail} ended with exit code {n}': '{detail}, {n} çıkış koduyla bitti',
 	'Webhook failed: {detail}': 'Webhook gönderilemedi: {detail}',
-	'Told {detail} (HTTP {n})': '{detail} adresine bildirildi (HTTP {n})'
+	'Told {detail} (HTTP {n})': '{detail} adresine bildirildi (HTTP {n})',
+	// Structure
+	Structure: 'Yapı',
+	'{format}, checked by its own structure: sound': '{format}, kendi yapısıyla denetlendi: sağlam',
+	'{format}, checked by its own structure: {size} were damaged and downloaded again':
+		'{format}, kendi yapısıyla denetlendi: bozuk {size} yeniden indirildi',
+	'Damaged: the server sends it so too; get it from elsewhere if you can':
+		'Bozuk: sunucu da böyle gönderiyor; yapabiliyorsanız başka bir yerden indirin'
 };

@@ -12,6 +12,8 @@ pub struct LocalZip {
     file: File,
     size: u64,
     entries: Vec<ZipEntry>,
+    /// Where the list of files starts and ends, with its end record.
+    central: (u64, u64),
 }
 
 impl LocalZip {
@@ -56,11 +58,17 @@ impl LocalZip {
             file,
             size,
             entries,
+            central: (end.central_offset + shift, size),
         })
     }
 
     pub fn entries(&self) -> &[ZipEntry] {
         &self.entries
+    }
+
+    /// Where the list of files starts, to the end of the file.
+    pub(crate) fn central(&self) -> (u64, u64) {
+        self.central
     }
 
     /// Unpacks every entry into `out_dir`, keeping their folders. Entries that cannot be
@@ -147,6 +155,55 @@ impl LocalZip {
         }
         std::fs::rename(&part, path)?;
         Ok(Ok(()))
+    }
+
+    /// Unpacks every entry it can into nothing, checking each one's size and CRC-32. The byte
+    /// ranges of the entries that fail (local header to the end of the data); encrypted
+    /// entries and compression methods it cannot unpack are left out, not called damaged.
+    /// `go_on` is asked before each entry; its error ends the check.
+    pub(crate) fn damaged_entries(
+        &mut self,
+        go_on: &dyn Fn() -> Result<()>,
+    ) -> Result<Vec<(u64, u64)>> {
+        let mut entries = self.entries.clone();
+        entries.sort_by_key(|e| e.header_offset);
+        let mut damaged = Vec::new();
+        for e in entries
+            .iter()
+            .filter(|e| !e.is_dir && e.unsupported().is_none())
+        {
+            go_on()?;
+            let header_end = (e.header_offset + LOCAL_LEN as u64).min(self.size);
+            let size = self.size;
+            let range = |end: u64| (e.header_offset, end.clamp(header_end, size));
+            let Some(data_at) = self.data_start(e)? else {
+                damaged.push(range(header_end));
+                continue;
+            };
+            let end = data_at.saturating_add(e.compressed_size);
+            if end > self.size || !self.entry_is_sound(e, data_at)? {
+                damaged.push(range(end));
+            }
+        }
+        Ok(damaged)
+    }
+
+    /// Whether the entry's data unpacks to its size and CRC-32.
+    fn entry_is_sound(&mut self, e: &ZipEntry, data_at: u64) -> Result<bool> {
+        let mut sink = Sink::new(e.method, std::io::sink(), e.size);
+        self.file.seek(SeekFrom::Start(data_at))?;
+        let mut data = (&mut self.file).take(e.compressed_size);
+        let mut buf = vec![0u8; 256 << 10];
+        loop {
+            let n = data.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            if sink.write(&buf[..n]).is_err() {
+                return Ok(false);
+            }
+        }
+        Ok(matches!(sink.finish(), Ok((written, crc)) if written == e.size && crc == e.crc32))
     }
 
     /// Where an entry's data starts, after its local header; `None` without one.

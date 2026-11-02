@@ -9,14 +9,19 @@
 //!
 //! `GET /zip/{name}?seed=&ranges=&zip64=` serves a sample ZIP archive (see [`zip`]).
 //!
+//! `GET /sample/{name}?kind=&seed=&corrupt_at=` serves a real file of a kind Shardload checks
+//! by its structure (see [`samples`]).
+//!
 //! `GET /_stats` reports per-URL request counts, peak concurrency and bytes sent;
 //! `POST /_reset` clears them.
 
 pub mod content;
 pub mod dash;
 pub mod hls;
+pub mod samples;
 pub mod scenario;
 mod server;
+mod stats;
 mod tls;
 pub mod zip;
 

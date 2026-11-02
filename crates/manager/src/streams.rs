@@ -271,6 +271,7 @@ impl Inner {
             elapsed: started.elapsed(),
             checksum: None,
             checksum_from: None,
+            structure: None,
         })
     }
 }

@@ -10,9 +10,9 @@ pub(crate) enum Sink {
 }
 
 impl Sink {
-    pub(crate) fn new(method: u16, file: std::fs::File, limit: u64) -> Self {
+    pub(crate) fn new(method: u16, file: impl Write + Send + 'static, limit: u64) -> Self {
         let out = Out {
-            file: std::io::BufWriter::with_capacity(WRITE_BUFFER, file),
+            file: std::io::BufWriter::with_capacity(WRITE_BUFFER, Box::new(file)),
             crc: crc32fast::Hasher::new(),
             written: 0,
             limit,
@@ -43,7 +43,7 @@ impl Sink {
 }
 
 pub(crate) struct Out {
-    pub(crate) file: std::io::BufWriter<std::fs::File>,
+    pub(crate) file: std::io::BufWriter<Box<dyn Write + Send>>,
     pub(crate) crc: crc32fast::Hasher,
     pub(crate) written: u64,
     /// The size the archive gives: more output is damaged data (or a decompression bomb).

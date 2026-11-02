@@ -4,6 +4,20 @@
 use super::*;
 
 impl Db {
+    /// How a finished download checked out by its structure.
+    pub(crate) async fn set_structure(
+        &self,
+        id: TaskId,
+        structure: Option<&crate::task::Structure>,
+    ) -> Result<()> {
+        sqlx::query("UPDATE tasks SET structure = ? WHERE id = ?")
+            .bind(structure.map(serde_json::to_string).transpose()?)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// How a finished download's actions went (see [`crate::after`]).
     pub(crate) async fn set_after_log(&self, id: TaskId, log: &[crate::after::Done]) -> Result<()> {
         sqlx::query("UPDATE tasks SET after_log = ? WHERE id = ?")

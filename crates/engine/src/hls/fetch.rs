@@ -407,6 +407,7 @@ pub(crate) async fn segmented(
         elapsed: started.elapsed(),
         checksum: None,
         checksum_from: None,
+        structure: None,
     })
 }
 

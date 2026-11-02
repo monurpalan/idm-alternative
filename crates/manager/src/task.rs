@@ -321,6 +321,29 @@ pub struct Task {
     pub after: Option<crate::after::After>,
     /// How that, and the rules that took it, went.
     pub after_log: Vec<crate::after::Done>,
+    /// Without a checksum: how it checked out by its own structure.
+    pub structure: Option<Structure>,
+}
+
+/// A finished file checked by its own structure (see [`shardload_engine::structure`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct Structure {
+    /// `ZIP`, `gzip`, `xz`, `PNG`, `PDF`, `MP4`, `Matroska`.
+    pub format: String,
+    /// Bytes that were damaged and downloaded again.
+    pub repaired: u64,
+    /// Still damaged after that: the file on the server is.
+    pub damaged: bool,
+}
+
+impl From<&shardload_engine::structure::Checked> for Structure {
+    fn from(c: &shardload_engine::structure::Checked) -> Self {
+        Self {
+            format: c.format.name().to_owned(),
+            repaired: c.repaired,
+            damaged: c.damaged,
+        }
+    }
 }
 
 /// A finished file that may not be what it says.
@@ -509,6 +532,7 @@ pub(crate) mod tests {
             page_checksum: None,
             after: None,
             after_log: Vec::new(),
+            structure: None,
         }
     }
 

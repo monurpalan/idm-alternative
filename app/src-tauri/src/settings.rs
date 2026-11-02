@@ -61,6 +61,9 @@ pub struct Settings {
     /// digest of a release asset, `SHA256SUMS` and the like next to the file) and check the
     /// finished file against it.
     pub find_checksums: bool,
+    /// Without a checksum, check a finished file by its own structure (ZIP, PDF, PNG, video)
+    /// and download damaged parts again.
+    pub check_structure: bool,
     /// What happens to finished downloads (see [`shardload_manager::after`]): the only place
     /// a command or a webhook can come from.
     pub after_rules: Vec<shardload_manager::after::Rule>,
@@ -92,6 +95,7 @@ impl Default for Settings {
             torrent_links: false,
             mark_downloads: true,
             find_checksums: true,
+            check_structure: true,
             after_rules: Vec::new(),
         }
     }
@@ -160,6 +164,7 @@ impl Settings {
                 proxy: (!proxy.is_empty()).then(|| proxy.to_owned()),
                 mark_of_the_web: self.mark_downloads,
                 find_checksum: self.find_checksums,
+                check_structure: self.check_structure,
                 ..Options::default()
             },
             rules: self.after_rules.clone(),

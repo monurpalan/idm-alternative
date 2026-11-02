@@ -1,10 +1,12 @@
 //! One download: probe, resume or start fresh, run connections, checkpoint, finish.
 
+mod ask;
 mod connection;
 mod ctx;
 mod health;
 mod job;
 
+pub use ask::{Probe, fetch_bytes, fetch_text, probe};
 use connection::*;
 use ctx::*;
 pub use health::Health;
@@ -128,6 +130,9 @@ pub struct Options {
     /// Hashes of the file's pieces: once all is downloaded each piece is checked, and the
     /// corrupt ones are downloaded again on their own (before `checksum` is checked).
     pub pieces: Option<crate::pieces::Pieces>,
+    /// Without a checksum, check the finished file by its own structure (see
+    /// [`crate::structure`]) and download damaged parts again.
+    pub check_structure: bool,
     /// Tests only: every write to the file first waits this long, like a slow disk.
     #[doc(hidden)]
     pub slow_disk: Option<Duration>,
@@ -191,6 +196,7 @@ impl Default for Options {
             page_checksum: None,
             learn: Learning::default(),
             pieces: None,
+            check_structure: true,
             slow_disk: None,
         }
     }
@@ -256,6 +262,8 @@ pub struct Outcome {
     /// Where that checksum came from (e.g. `SHA256SUMS`, `GitHub release`); `None` when the
     /// user gave it.
     pub checksum_from: Option<String>,
+    /// Without a checksum: how its structure checked out, for a kind of file that has one.
+    pub structure: Option<crate::structure::Checked>,
 }
 
 /// Downloads `req.url` to `req.output`, resuming a previous attempt when possible.
@@ -341,6 +349,15 @@ pub async fn download(
                         }
                     }
                 };
+                let structure = match &checksum {
+                    None if opts.check_structure && opts.pieces.is_none() => {
+                        let urls: Vec<String> = std::iter::once(current.url.clone())
+                            .chain(current.mirrors.iter().cloned())
+                            .collect();
+                        crate::structure::repair(&http, &urls, &part, progress, cancel).await?
+                    }
+                    _ => None,
+                };
                 if let Some(want) = &checksum {
                     match verify(&part, want, checksum_from.as_deref(), progress, cancel).await {
                         // Interrupted: the complete part and its state stay, so the next
@@ -374,6 +391,7 @@ pub async fn download(
                     elapsed: started.elapsed(),
                     checksum,
                     checksum_from,
+                    structure,
                 });
             }
             Err(Error::RangeIgnored) if !force_single => {
@@ -419,38 +437,6 @@ fn another_address_may_help(e: &Error) -> bool {
             | Error::Stalled(_)
             | Error::TooManyFailures { .. }
     )
-}
-
-/// What a server says about a URL before anything is downloaded, for deciding where to save
-/// it and showing it to the user.
-#[derive(Debug, Clone)]
-pub struct Probe {
-    /// URL after redirects.
-    pub url: String,
-    pub size: Option<u64>,
-    /// Range requests work: the download can use several connections and resume.
-    pub resumable: bool,
-    /// Safe file name from `Content-Disposition`, the URL or the media type.
-    pub name: String,
-    /// The server's validators for the file, to tell later whether it changed.
-    pub etag: Option<String>,
-    pub last_modified: Option<String>,
-}
-
-/// Asks the server about `url` with the same client settings a download would use, reading
-/// only the response headers.
-pub async fn probe(url: &str, headers: &[(String, String)], opts: &Options) -> Result<Probe> {
-    let http = Http::new(&http_config(headers, opts))?;
-    let (remote, resp) = http.probe(url, 0, None, 0).await?;
-    drop(resp);
-    Ok(Probe {
-        url: remote.url,
-        size: remote.size,
-        resumable: remote.ranges && remote.size.is_some(),
-        name: remote.name,
-        etag: remote.validators.etag,
-        last_modified: remote.validators.last_modified,
-    })
 }
 
 /// Looks for a checksum the publisher posted for the file at `url` (named `name` on disk):
@@ -542,33 +528,6 @@ async fn verify(
             _ = tick.tick() => report(done.load(Ordering::Relaxed)),
         }
     }
-}
-
-/// Fetches a small text resource such as a playlist with the same client settings a
-/// download would use. Returns the text and the URL after redirects (relative links in a
-/// playlist are relative to that).
-pub async fn fetch_text(
-    url: &str,
-    headers: &[(String, String)],
-    opts: &Options,
-    limit: usize,
-) -> Result<(String, String)> {
-    Http::new(&http_config(headers, opts))?
-        .text(url, limit)
-        .await
-}
-
-/// Like [`fetch_text`], for a small file that is not text (a `.torrent`).
-pub async fn fetch_bytes(
-    url: &str,
-    headers: &[(String, String)],
-    opts: &Options,
-    limit: usize,
-) -> Result<Vec<u8>> {
-    Ok(Http::new(&http_config(headers, opts))?
-        .bytes(url, limit)
-        .await?
-        .0)
 }
 
 pub(crate) fn http_config(headers: &[(String, String)], opts: &Options) -> HttpConfig {
