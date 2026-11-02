@@ -35,7 +35,9 @@ async fn open(dir: &Path) -> Manager {
         &dir.join("list.db"),
         Config {
             dir: dir.join("downloads"),
-            connections: 4,
+            // One connection: what the server sends is then what the download needs, without
+            // what parallel connections leave in their buffers when their ranges move.
+            connections: 1,
             engine: shardload_engine::Options {
                 find_checksum: false,
                 ..shardload_engine::Options::default()
