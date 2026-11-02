@@ -356,11 +356,19 @@ async function main() {
 			env: { ...process.env, SHARDLOAD_HOME: home, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}` }
 		});
 		let target;
+		let seen = 'nothing';
 		await waitFor(async () => {
-			const pages = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json`)).json();
-			target = pages.find((p) => p.type === 'page' && p.url.startsWith('http://localhost:1420') && !p.url.includes('progress'));
+			try {
+				const pages = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json`)).json();
+				seen = JSON.stringify(pages.map((p) => `${p.type} ${p.url}`));
+				target = pages.find((p) => p.type === 'page' && p.url.startsWith('http://localhost:1420') && !p.url.includes('progress'));
+			} catch (e) {
+				seen = String(e.cause ?? e);
+			}
 			return !!target;
-		}, 'the app’s window', 60_000);
+		}, 'the app’s window', 60_000).catch((e) => {
+			throw new Error(`${e.message} (DevTools: ${seen})`);
+		});
 		const page = await Page.connect(target.webSocketDebuggerUrl);
 		await waitFor(() => page.exists('.app aside'), 'the list');
 		await page.send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 680, deviceScaleFactor: 1, mobile: false });
