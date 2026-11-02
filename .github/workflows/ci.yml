@@ -52,6 +52,42 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+  # The app's flows driven over WebView2's DevTools Protocol, against the test server (see
+  # app/ui-test/run.mjs); the screenshots go up as an artifact.
+  ui:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Install NASM
+        run: |
+          choco install nasm -y --no-progress
+          echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Web UI
+        working-directory: app
+        run: |
+          npm ci
+          npm run build
+      - name: Build the app, the test server and the native host
+        run: |
+          cargo build
+          cargo build -p shardload-app
+      - name: UI flows
+        working-directory: app
+        run: npm run ui-test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-screenshots
+          path: app/ui-test/out
+
   linux:
     runs-on: ubuntu-24.04
     steps:
