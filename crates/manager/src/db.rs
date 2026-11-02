@@ -377,7 +377,7 @@ impl Db {
         sqlx::query(
             "UPDATE tasks SET status = 'queued', error = NULL, error_kind = NULL, received = 0,
                               finished_at = NULL, content = NULL, structure = NULL,
-                              after_log = NULL
+                              after_log = NULL, skeleton = NULL
              WHERE id = ?",
         )
         .bind(id)
@@ -480,6 +480,7 @@ fn task(r: &SqliteRow) -> Result<Task> {
         after_log: json_column(r, "after_log")?.unwrap_or_default(),
         structure: json_column(r, "structure")?,
         deadline: r.try_get("deadline")?,
+        skeleton: json_column(r, "skeleton")?,
         path: r.try_get::<Option<String>, _>("path")?.map(PathBuf::from),
         size: u64_opt("size")?,
         received: r.try_get::<i64, _>("received")? as u64,

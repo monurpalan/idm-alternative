@@ -30,6 +30,7 @@ mod post;
 mod relink;
 mod remote;
 pub mod segments;
+pub mod skeleton;
 pub mod sniff;
 mod state;
 pub mod structure;

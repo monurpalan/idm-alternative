@@ -325,6 +325,8 @@ pub struct Task {
     pub structure: Option<Structure>,
     /// Wanted finished by this time, Unix milliseconds (see [`crate::deadline`]).
     pub deadline: Option<i64>,
+    /// What it holds, read from its skeleton while it downloads (see [`crate::peek`]).
+    pub skeleton: Option<shardload_engine::skeleton::Skeleton>,
 }
 
 /// A finished file checked by its own structure (see [`shardload_engine::structure`]).
@@ -540,6 +542,7 @@ pub(crate) mod tests {
             after_log: Vec::new(),
             structure: None,
             deadline: None,
+            skeleton: None,
         }
     }
 

@@ -98,6 +98,8 @@ async fn a_damaged_byte_is_found_and_only_its_range_downloaded_again() {
                 find_checksum: false,
                 ..shardload_engine::Options::default()
             },
+            // Its requests would count in what the server sent.
+            skeleton_first: false,
             ..Config::default()
         },
     )

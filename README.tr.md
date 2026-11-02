@@ -73,6 +73,8 @@ AppImage (`chmod +x` ve çalıştırın).
 - **Tarayıcının yarıda bıraktığını kurtarır:** eklentinin penceresi tarayıcıda yarım kalan
   indirmeleri listeler; "Shardload'da devam et", sunucu aynı dosyayı veriyorsa tarayıcının
   indirdiği kısmı korur, yalnız kalanını çeker.
+- **Önce iskelet:** ZIP, MP4 ya da PDF inerken dosya listesi, süresi ve çözünürlüğü ya da sayfa
+  sayısı ilk saniyelerden görünür; yanlış dosya erkenden durdurulabilir.
 - **Teslim saati:** "18:00'e kadar insin" (ya da kendiliğinden, linkin geçerliliği bitmeden):
   en erken teslim önce başlar, diğer indirmeler yer açar, yetişmeyecek olan erkenden söylenir.
 - **Ağ ve güç kuralları:** ölçülü bağlantıda videolar ve torrentler bekler, pildeyken hız sınırı

@@ -101,5 +101,11 @@ export default {
 	'by {time}': '{time} saatine kadar',
 	'Change…': 'Değiştir…',
 	Clear: 'Temizle',
-	'Set…': 'Ayarla…'
+	'Set…': 'Ayarla…',
+	// Contents, from the skeleton
+	Contents: 'İçerik',
+	'{n} files, {size} unpacked': '{n} dosya, açılınca {size}',
+	'{length} · {width}×{height}': '{length} · {width}×{height}',
+	'{n} pages': '{n} sayfa',
+	'and {n} more': 've {n} tane daha'
 };

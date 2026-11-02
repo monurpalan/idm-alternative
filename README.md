@@ -71,6 +71,9 @@ saves videos and torrents. No ads, no trial, no account.</p>
 - **Rescue what the browser gave up on:** the extension's popup lists downloads the browser left
   interrupted; "Continue in Shardload" keeps what the browser already has when the server still
   sends the same file, and fetches only the rest.
+- **The skeleton first:** while a ZIP, an MP4 or a PDF downloads, its list of files, its length
+  and picture size, or its page count are shown from the first seconds, so a wrong file can be
+  stopped early.
 - **Deadlines:** "done by 18:00" (or, by itself, when a link is expected to stop working):
   the earliest deadline starts first, other downloads make room, and one that will not make it
   is said early.

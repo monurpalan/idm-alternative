@@ -2,6 +2,7 @@
 	import { Button, Checkbox, Input, Text, Textarea } from './ui/index.ts';
 	import AfterLog from './AfterLog.svelte';
 	import DeadlineFact from './DeadlineFact.svelte';
+	import SkeletonFact from './SkeletonFact.svelte';
 	import SlowHints from './SlowHints.svelte';
 	import StructureFact from './StructureFact.svelte';
 	// Details of one download: where it goes, live numbers, a speed graph, the segment map
@@ -261,6 +262,9 @@
 			<dd class="num">{speed(r.speed) || '–'}{r.left ? ` · ${t('{time} left', { time: timeLeft(r.left) })}` : r.calculating ? ` · ${t('calculating')}` : ''}</dd>
 			{#if r.live?.hints?.length && task.status === 'downloading'}
 				<SlowHints id={task.id} hints={r.live.hints} {onerror} />
+			{/if}
+			{#if task.skeleton}
+				<SkeletonFact skeleton={task.skeleton} />
 			{/if}
 			<DeadlineFact {task} {onerror} />
 			{#if task.after_log.length}

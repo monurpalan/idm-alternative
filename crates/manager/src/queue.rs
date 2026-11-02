@@ -259,6 +259,7 @@ impl Inner {
         limiter: Limiter,
     ) {
         let id = task.id;
+        self.peek(&task, &cancel);
         let result = self.download(task, &cancel, limiter).await;
         let note = lock(&self.notes).remove(&id);
         let why = *lock(&stop);

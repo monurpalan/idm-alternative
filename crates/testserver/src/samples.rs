@@ -6,6 +6,8 @@
 //! damaged and a request for that range again gets it right.
 
 use std::io::Write;
+
+use futures_util::StreamExt;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -18,7 +20,7 @@ use crate::content;
 use crate::server::{AppState, RangeResult, parse_range};
 
 /// The kinds [`sample`] makes.
-pub const KINDS: [&str; 7] = ["zip", "gz", "xz", "png", "pdf", "mp4", "mkv"];
+pub const KINDS: [&str; 8] = ["zip", "gz", "xz", "png", "pdf", "mp4", "mp4end", "mkv"];
 
 /// A sample of `kind` (see [`KINDS`]) for `seed`, about a megabyte or two.
 pub fn sample(kind: &str, seed: u64) -> Option<Vec<u8>> {
@@ -28,7 +30,8 @@ pub fn sample(kind: &str, seed: u64) -> Option<Vec<u8>> {
         "xz" => xz(seed),
         "png" => png(seed),
         "pdf" => pdf(seed),
-        "mp4" => mp4(seed),
+        "mp4" => mp4(seed, false),
+        "mp4end" => mp4(seed, true),
         "mkv" => mkv(seed),
         _ => return None,
     })
@@ -165,30 +168,38 @@ fn mp4_box(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
     out
 }
 
-/// `ftyp`, a `moov` with one track's boxes, and a megabyte of `mdat`.
-fn mp4(seed: u64) -> Vec<u8> {
+/// `ftyp`, a `moov` for a 90 s, 1280x720 video track, and a megabyte of `mdat`; with
+/// `moov_last`, the `moov` after the media, as files not made for streaming have it.
+fn mp4(seed: u64, moov_last: bool) -> Vec<u8> {
     let stco = mp4_box(b"stco", &[0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]);
     let stbl = mp4_box(b"stbl", &stco);
     let minf = mp4_box(b"minf", &stbl);
-    let mdia = [
-        mp4_box(b"mdhd", &[0u8; 24]),
-        mp4_box(b"hdlr", &[0u8; 25]),
-        minf,
-    ]
-    .concat();
+    // Version and flags, pre_defined, then the handler type.
+    let mut hdlr = vec![0u8; 25];
+    hdlr[8..12].copy_from_slice(b"vide");
+    let mdia = [mp4_box(b"mdhd", &[0u8; 24]), mp4_box(b"hdlr", &hdlr), minf].concat();
+    // The picture size ends tkhd, 16.16 fixed point.
+    let mut tkhd = vec![0u8; 84];
+    tkhd[76..80].copy_from_slice(&(1280u32 << 16).to_be_bytes());
+    tkhd[80..84].copy_from_slice(&(720u32 << 16).to_be_bytes());
     let trak = mp4_box(
         b"trak",
-        &[mp4_box(b"tkhd", &[0u8; 84]), mp4_box(b"mdia", &mdia)].concat(),
+        &[mp4_box(b"tkhd", &tkhd), mp4_box(b"mdia", &mdia)].concat(),
     );
-    let moov = mp4_box(b"moov", &[mp4_box(b"mvhd", &[0u8; 100]), trak].concat());
+    // Version 0: times, then the timescale and the duration: 90 000 / 1000 s.
+    let mut mvhd = vec![0u8; 100];
+    mvhd[12..16].copy_from_slice(&1000u32.to_be_bytes());
+    mvhd[16..20].copy_from_slice(&90_000u32.to_be_bytes());
+    let moov = mp4_box(b"moov", &[mp4_box(b"mvhd", &mvhd), trak].concat());
     let mut media = vec![0u8; 1 << 20];
     content::fill(seed, 0, &mut media);
-    [
-        mp4_box(b"ftyp", b"isom\0\0\x02\0isomiso2mp41"),
-        moov,
-        mp4_box(b"mdat", &media),
-    ]
-    .concat()
+    let ftyp = mp4_box(b"ftyp", b"isom\0\0\x02\0isomiso2mp41");
+    let mdat = mp4_box(b"mdat", &media);
+    if moov_last {
+        [ftyp, mdat, moov].concat()
+    } else {
+        [ftyp, moov, mdat].concat()
+    }
 }
 
 /// An EBML element: its ID bytes, an 8-byte size, the data.
@@ -238,6 +249,8 @@ pub(crate) struct Params {
     seed: u64,
     corrupt_at: Option<u64>,
     corrupt_get: Option<u64>,
+    /// Bytes per second each response is sent at.
+    rate: Option<crate::scenario::Size>,
 }
 
 impl Default for Params {
@@ -247,6 +260,7 @@ impl Default for Params {
             seed: 1,
             corrupt_at: None,
             corrupt_get: None,
+            rate: None,
         }
     }
 }
@@ -300,5 +314,30 @@ pub(crate) async fn serve(
     {
         out.insert(header::CONTENT_RANGE, v);
     }
-    (status, out, data[start as usize..end as usize].to_vec()).into_response()
+    let body = data[start as usize..end as usize].to_vec();
+    match p.rate.map(|r| r.0).filter(|r| *r > 0) {
+        None => (status, out, body).into_response(),
+        Some(rate) => (
+            status,
+            out,
+            axum::body::Body::from_stream(paced(body, rate)),
+        )
+            .into_response(),
+    }
+}
+
+/// `body` sent at `rate` bytes per second, in pieces of a tenth of a second.
+fn paced(
+    body: Vec<u8>,
+    rate: u64,
+) -> impl futures_util::Stream<Item = Result<bytes::Bytes, std::io::Error>> {
+    let piece = (rate / 10).max(1) as usize;
+    let pieces: Vec<bytes::Bytes> = body
+        .chunks(piece)
+        .map(bytes::Bytes::copy_from_slice)
+        .collect();
+    futures_util::stream::iter(pieces).then(|c| async move {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        Ok(c)
+    })
 }

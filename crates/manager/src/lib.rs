@@ -28,6 +28,7 @@ pub mod hints;
 pub mod net;
 pub mod origin;
 mod pages;
+mod peek;
 mod queue;
 mod relocate;
 pub mod rescue;
@@ -159,6 +160,8 @@ pub struct Config {
     pub net_rules: net::NetRules,
     /// How often the network and the power are looked at.
     pub sense_every: Duration,
+    /// Read an archive's, a video's or a document's skeleton when it starts (see `peek`).
+    pub skeleton_first: bool,
 }
 
 /// A [`disk::FreeSpace`] in the configuration.
@@ -194,6 +197,7 @@ impl Default for Config {
             sensor: None,
             net_rules: net::NetRules::default(),
             sense_every: Duration::from_secs(15),
+            skeleton_first: true,
         }
     }
 }

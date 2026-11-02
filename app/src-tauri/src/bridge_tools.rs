@@ -445,5 +445,6 @@ pub(crate) fn task_view(t: &Task, live: Option<&Live>) -> serde_json::Value {
         "after_log": t.after_log,
         "structure": t.structure,
         "deadline": t.deadline.map(utc_time),
+        "skeleton": t.skeleton,
     })
 }

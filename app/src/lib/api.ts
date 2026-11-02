@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { After, AfterDone, Rule } from './api/after.ts';
 import type { Hint } from './api/hints.ts';
+import type { Skeleton } from './api/skeleton.ts';
 import type { Login } from './api/logins.ts';
 import type { NetRules } from './api/net.ts';
 import type { Schedule } from './api/schedule.ts';
@@ -55,6 +56,8 @@ export interface Task {
 	structure: Structure | null;
 	/** Wanted finished by this time, Unix ms. */
 	deadline: number | null;
+	/** What it holds, read from its skeleton while it downloads. */
+	skeleton: Skeleton | null;
 }
 
 /** A finished file that may not be what it says: a program named like a document
@@ -74,17 +77,6 @@ export interface Recording {
 	/** Start then (Unix milliseconds), not at once. */
 	start_at: number | null;
 }
-
-/** Downloads added together; the list folds them into one row. */
-export interface Group {
-	id: number;
-	name: string;
-	added_at: number;
-}
-
-export const listGroups = () => invoke<Group[]>('list_groups');
-/** A group for downloads about to be added together (give its id to `addTask`). */
-export const newGroup = (name: string) => invoke<Group>('new_group', { name });
 
 export interface TaskProgress {
 	id: TaskId;
@@ -634,6 +626,8 @@ export async function onManagerEvent(
 export * from './api/extensions.ts';
 export * from './api/after.ts';
 export * from './api/deadline.ts';
+export * from './api/groups.ts';
+export * from './api/skeleton.ts';
 export * from './api/update.ts';
 export * from './api/hints.ts';
 export * from './api/logins.ts';

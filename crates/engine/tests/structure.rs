@@ -51,7 +51,7 @@ fn flip_at(kind: &str, file: &[u8]) -> usize {
                 + 1000
         }
         // The size of `moov`.
-        "mp4" => find(b"moov") - 2,
+        "mp4" | "mp4end" => find(b"moov") - 2,
         // Inside the second cluster's block.
         "mkv" => {
             let first = find(&[0x1F, 0x43, 0xB6, 0x75]);

@@ -20,6 +20,20 @@ impl Db {
         Ok(())
     }
 
+    /// What a download holds, read from its skeleton.
+    pub(crate) async fn set_skeleton(
+        &self,
+        id: TaskId,
+        skeleton: &shardload_engine::skeleton::Skeleton,
+    ) -> Result<()> {
+        sqlx::query("UPDATE tasks SET skeleton = ? WHERE id = ?")
+            .bind(serde_json::to_string(skeleton)?)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// When a download is wanted finished by, Unix milliseconds; `None` clears it.
     pub(crate) async fn set_deadline(&self, id: TaskId, at: Option<i64>) -> Result<()> {
         sqlx::query("UPDATE tasks SET deadline = ? WHERE id = ?")
