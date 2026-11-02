@@ -8,8 +8,9 @@
 //
 // Screenshots of a few views, light and dark, are compared with ui-test/baseline/ (a share of
 // pixels may differ a little: anti-aliasing); `npm run ui-test -- --update` writes new ones,
-// `-- --no-compare` only saves them (to ui-test/out/). A running Shardload must be closed
-// first: the app lets one copy run.
+// `-- --no-compare` only saves them (to ui-test/out/). WebView2 draws with the monitor's colour
+// profile, so pictures from one machine do not fit another: CI keeps its own (CI=true, in
+// ui-test/baseline-ci/). A running Shardload must be closed first: the app lets one copy run.
 
 import { execFileSync, spawn } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -199,7 +200,7 @@ async function shoot(page, name) {
 		const file = `${name}-${scheme}.png`;
 		mkdirSync(join(HERE, 'out'), { recursive: true });
 		writeFileSync(join(HERE, 'out', file), png);
-		const baseline = join(HERE, 'baseline', file);
+		const baseline = join(HERE, process.env.CI ? 'baseline-ci' : 'baseline', file);
 		if ((UPDATE || (COMPARE && !existsSync(baseline))) && failures > 0) {
 			problems.push(`${file}: not made the baseline after a failed flow`);
 		} else if (UPDATE || (COMPARE && !existsSync(baseline))) {

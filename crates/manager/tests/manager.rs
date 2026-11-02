@@ -596,7 +596,8 @@ async fn a_metalinks_piece_hashes_repair_a_corrupt_piece() {
         .chunks(MB as usize)
         .map(|p| format!("<hash>{}</hash>", hex(&Sha256::digest(p))))
         .collect();
-    let file = "piece.bin?size=6M&seed=31&corrupt_at=2500000";
+    // The second request carries the corrupt byte: the first asks about the file.
+    let file = "piece.bin?size=6M&seed=31&corrupt_at=2500000&corrupt_get=2";
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
@@ -668,7 +669,7 @@ async fn a_torrents_piece_hashes_check_an_http_download() {
         .add(NewTask {
             pieces_from: Some(torrent_path.to_string_lossy().into_owned()),
             ..new_task(format!(
-                "{base}/file/x.bin?size=6M&seed=32&corrupt_at=4200000"
+                "{base}/file/x.bin?size=6M&seed=32&corrupt_at=4200000&corrupt_get=2"
             ))
         })
         .await

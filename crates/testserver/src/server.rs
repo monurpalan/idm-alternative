@@ -333,7 +333,8 @@ async fn serve_file(
     let corrupt = sc
         .corrupt_at
         .map(|c| c.0)
-        .filter(|c| (start..end).contains(c));
+        .filter(|c| (start..end).contains(c))
+        .filter(|_| sc.corrupt_get.is_none_or(|k| k == nth_get));
     let body = BodyState {
         corrupt,
         guard,

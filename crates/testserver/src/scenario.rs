@@ -155,6 +155,9 @@ pub struct Scenario {
     /// The first response to send the byte at this offset sends it flipped, like a flaky
     /// mirror or a bad line; later ones are clean.
     pub corrupt_at: Option<Size>,
+    /// With `corrupt_at`: only the K-th GET to the URL (from 1) sends the byte flipped, so a
+    /// request before the download (a client asking about the file) cannot use it up.
+    pub corrupt_get: Option<u64>,
     /// The file starts like this kind of file (see [`crate::content::magic`]): `exe`, `pdf`,
     /// `html`, `zip`, `docx`, `png`, `mp4`, `sh`; the rest is the usual seeded bytes.
     pub kind: Option<String>,
@@ -192,6 +195,7 @@ impl Default for Scenario {
             latency_ms: 0,
             only_ua: None,
             corrupt_at: None,
+            corrupt_get: None,
             kind: None,
             ctype: None,
             only_header: None,
