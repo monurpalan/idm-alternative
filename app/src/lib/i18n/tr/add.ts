@@ -158,5 +158,12 @@ export default {
 	Minutes: 'Dakika',
 	'Begin at': 'Şu saatte başla',
 	'Time (HH:MM)': 'Saat (SS:DD)',
-	'Unpack it into a folder when done': 'Bitince bir klasöre aç'
+	'Unpack it into a folder when done': 'Bitince bir klasöre aç',
+	// The same content downloaded before
+	'The same file, by its checksum, is already at {path}.':
+		'Aynı dosya (sağlama toplamına göre) zaten burada: {path}.',
+	'Copy it here': 'Buraya kopyala',
+	'Link it here': 'Buraya bağla',
+	'A second name for the same file: it takes no space; changing one changes both':
+		'Aynı dosyaya ikinci bir ad: yer kaplamaz; birini değiştirmek ikisini de değiştirir'
 };

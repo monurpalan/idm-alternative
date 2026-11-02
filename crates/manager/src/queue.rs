@@ -270,6 +270,7 @@ impl Inner {
                     if let Err(e) = self.db.record_history(&task, page).await {
                         tracing::warn!(id, "could not keep the download in the history: {e}");
                     }
+                    self.hash_later(&task);
                 }
                 match self.db.finish(id, outcome.size, at).await {
                     Ok(()) if note.is_some() => {

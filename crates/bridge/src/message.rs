@@ -227,6 +227,10 @@ pub struct AddDownload {
     /// action can be asked for here: commands and webhooks come only from the user's rules.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unpack: bool,
+    /// A file with the same content downloaded before is still there: `copy` it, or `link`
+    /// it (a hard link, same drive only), into place instead of downloading it again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reuse: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

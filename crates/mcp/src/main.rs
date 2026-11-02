@@ -102,6 +102,12 @@ struct AddParams {
     /// tar.xz; not 7z or RAR). Moving, running a program or calling a webhook when it is done
     /// can only be set up by the user in Shardload's settings, not from here.
     unpack: Option<bool>,
+    /// When the same file (the same address, the same name and size, or the same content by
+    /// `checksum`, `page_checksum` or a checksum published next to it) was downloaded before and
+    /// is still on disk: `copy` puts a copy of it in place, `link` a hard link (same drive only,
+    /// takes no space), instead of downloading it again or refusing. The result is then a
+    /// finished download.
+    reuse: Option<String>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -273,6 +279,7 @@ impl Downloads {
             page_checksum: p.page_checksum,
             headers: p.headers.unwrap_or_default(),
             unpack: p.unpack.unwrap_or(false),
+            reuse: p.reuse,
         }))
         .await
     }

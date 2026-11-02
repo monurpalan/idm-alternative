@@ -65,6 +65,9 @@ saves videos and torrents. No ads, no trial, no account.</p>
 - **Damage found without a checksum:** a finished ZIP, gzip, xz, PNG, PDF, MP4 or MKV is
   checked by its own structure (its CRCs, its compressed streams, its index); a damaged part is
   downloaded again on its own, not the whole file.
+- **Already have it?** A finished file's SHA-256 is kept; when a new download is expected to
+  have the same checksum (shown on its page, published next to it), the file you already have
+  is offered: copy it, or hard-link it on the same drive, instead of downloading it again.
 - **Rescue what the browser gave up on:** the extension's popup lists downloads the browser left
   interrupted; "Continue in Shardload" keeps what the browser already has when the server still
   sends the same file, and fetches only the rest.

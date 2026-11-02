@@ -67,6 +67,9 @@ AppImage (`chmod +x` ve çalıştırın).
 - **Sağlama toplamı olmadan da bozukluğu bulur:** biten ZIP, gzip, xz, PNG, PDF, MP4 ya da
   MKV kendi yapısıyla (CRC'leri, sıkıştırılmış akışları, dizini) denetlenir; bozuk kısım tek
   başına yeniden indirilir, dosyanın tamamı değil.
+- **Zaten var mı?** Biten dosyaların SHA-256'sı saklanır; yeni indirmenin beklenen sağlama
+  toplamı (sayfada gösterilen, yanında yayımlanan) aynıysa elinizdeki dosya önerilir: yeniden
+  indirmek yerine kopyalayın ya da aynı sürücüdeyse sabit bağlantı yapın.
 - **Tarayıcının yarıda bıraktığını kurtarır:** eklentinin penceresi tarayıcıda yarım kalan
   indirmeleri listeler; "Shardload'da devam et", sunucu aynı dosyayı veriyorsa tarayıcının
   indirdiği kısmı korur, yalnız kalanını çeker.

@@ -13,6 +13,7 @@
 		isTorrent,
 		isZip,
 		canUnpack,
+		reusePrevious,
 		probe,
 		findPrevious,
 		headerLines,
@@ -108,6 +109,19 @@
 	let command = $state('');
 	let commandNote = $state<string | null>(null);
 	/** The browser's headers with the user's on top (a name given twice: the user's). */
+	/** Puts the earlier download's file in place instead of downloading it again. */
+	async function reuse(how: 'copy' | 'link') {
+		if (previous?.history == null) return;
+		busy = true;
+		try {
+			await reusePrevious(previous.history, dir || null, name.trim() || null, how);
+			onclose();
+		} catch (e) {
+			error = String(e);
+			busy = false;
+		}
+	}
+
 	async function sentHeaders(): Promise<Headers | null> {
 		if (!ownHeaders.trim()) return headers;
 		const own = await parseHeaders(ownHeaders);
@@ -195,7 +209,8 @@
 			info = p;
 			if (!p.needs_login) {
 				name = initialName || p.name;
-				const prev = await findPrevious(u, p.url, p.name, p.size).catch(() => null);
+				const more = { checksum: pageChecksum, headers: await sentHeaders(), dir: dir || null };
+				const prev = await findPrevious(u, p.url, p.name, p.size, more).catch(() => null);
 				if (asked === u) previous = prev;
 			}
 		} catch (e) {
@@ -378,7 +393,7 @@
 	</p>
 
 	{#if previous}
-		<PreviousNotice {previous} {onshow} onerror={(e) => (error = e)} />
+		<PreviousNotice {previous} {onshow} onerror={(e) => (error = e)} onreuse={reuse} />
 	{/if}
 
 	{#if !archive && !torrent && canUnpack(name.trim() || info?.name)}

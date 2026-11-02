@@ -10,12 +10,15 @@
 	let {
 		previous,
 		onshow,
-		onerror
+		onerror,
+		onreuse
 	}: {
 		previous: Previous;
 		/** Goes to the download on the list (and closes what asked). */
 		onshow: (id: TaskId) => void;
 		onerror: (message: string) => void;
+		/** Puts its file in place instead of downloading it again: copied, or hard-linked. */
+		onreuse?: (how: 'copy' | 'link') => void;
 	} = $props();
 
 	const unfinished = $derived(previous.status !== null && previous.status !== 'done');
@@ -40,6 +43,8 @@
 	<Text>
 		{#if unfinished}
 			{t('Already on the list, not finished yet.')}
+		{:else if previous.matched === 'content'}
+			{t('The same file, by its checksum, is already at {path}.', { path: previous.path ?? '' })}
 		{:else if previous.matched === 'name_size'}
 			{t('A file with the same name and size was downloaded on {date}.', { date: when })}
 		{:else}
@@ -57,6 +62,17 @@
 		<div class="actions">
 			<Button variant="link" onclick={open}>{t('Open')}</Button>
 			<Button variant="link" onclick={show}>{t('Show in folder')}</Button>
+			{#if onreuse}
+				<Button variant="link" onclick={() => onreuse('copy')}>{t('Copy it here')}</Button>
+				{#if previous.linkable}
+					<Button
+						variant="link"
+						onclick={() => onreuse('link')}
+						title={t('A second name for the same file: it takes no space; changing one changes both')}
+						>{t('Link it here')}</Button
+					>
+				{/if}
+			{/if}
 		</div>
 	{/if}
 </div>

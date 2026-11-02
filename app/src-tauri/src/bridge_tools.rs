@@ -16,6 +16,8 @@ pub(crate) async fn tool_add(
     add: shardload_bridge::AddDownload,
 ) -> CmdResult<Task> {
     let app = handle.state::<App>();
+    // What was asked, kept whole for the duplicate check after its parts are taken.
+    let asked = add.clone();
     let headers = shardload_manager::command::parse_header_lines(&add.headers.join("\n"))?;
     let mut name = add.name.filter(|n| !n.trim().is_empty());
     let mut stream = None;
@@ -102,28 +104,10 @@ pub(crate) async fn tool_add(
             ));
         }
     }
-    if add.allow_duplicate != Some(true) {
-        // A plain link is asked about first, so a file of the same name and size counts too.
-        let plain = stream.is_none()
-            && !shardload_engine::metalink::is_metalink(&add.url)
-            && !shardload_manager::torrent::is_torrent(&add.url);
-        let probe = match plain {
-            true => app.manager.probe(&add.url, &[]).await.ok(),
-            false => None,
-        };
-        let previous = app
-            .manager
-            .find_previous(
-                &add.url,
-                probe.as_ref().map(|p| p.url.as_str()),
-                probe.as_ref().map(|p| p.name.as_str()),
-                probe.as_ref().and_then(|p| p.size),
-            )
-            .await
-            .map_err(msg)?;
-        if let Some(p) = previous {
-            return Err(already_downloaded(&p));
-        }
+    if add.allow_duplicate != Some(true)
+        && let Some(reused) = duplicate(&app, &asked, stream.is_none(), dir.as_deref()).await?
+    {
+        return Ok(reused);
     }
     app.manager
         .add(NewTask {
@@ -271,6 +255,62 @@ pub(crate) async fn tool_file_origin(
 }
 
 /// Why a tool's download was not added: what was found, and how to add it anyway.
+/// Refuses a download already on the list or downloaded before, unless `reuse` says to copy
+/// or link a file with the same content into place instead (then the new download, finished).
+async fn duplicate(
+    app: &App,
+    add: &shardload_bridge::AddDownload,
+    plain: bool,
+    dir: Option<&std::path::Path>,
+) -> Result<Option<Task>, String> {
+    // A plain link is asked about first, so a file of the same name and size counts too.
+    let plain = plain
+        && !shardload_engine::metalink::is_metalink(&add.url)
+        && !shardload_manager::torrent::is_torrent(&add.url);
+    let probe = match plain {
+        true => app.manager.probe(&add.url, &[]).await.ok(),
+        false => None,
+    };
+    let (url, name, size) = (
+        probe.as_ref().map(|p| p.url.as_str()),
+        probe.as_ref().map(|p| p.name.as_str()),
+        probe.as_ref().and_then(|p| p.size),
+    );
+    let mut previous = app
+        .manager
+        .find_previous(&add.url, url, name, size)
+        .await
+        .map_err(msg)?;
+    if previous.is_none() {
+        let checksum = add.checksum.as_deref().or(add.page_checksum.as_deref());
+        previous = app
+            .manager
+            .find_same_content(url.unwrap_or(&add.url), name, size, checksum, &[], dir)
+            .await
+            .map_err(msg)?;
+    }
+    let Some(p) = previous else {
+        return Ok(None);
+    };
+    match (add.reuse.as_deref(), p.history) {
+        (Some(how), Some(history)) if p.on_disk && !p.unfinished() => {
+            let how = match how {
+                "copy" => shardload_manager::Reuse::Copy,
+                "link" => shardload_manager::Reuse::Link,
+                other => return Err(format!("reuse must be copy or link, not {other}")),
+            };
+            let name = add.name.clone().or_else(|| name.map(str::to_owned));
+            let task = app
+                .manager
+                .reuse(history, dir.map(std::path::Path::to_owned), name, how)
+                .await
+                .map_err(msg)?;
+            Ok(Some(task))
+        }
+        _ => Err(already_downloaded(&p)),
+    }
+}
+
 pub(crate) fn already_downloaded(p: &shardload_manager::Previous) -> String {
     let found = serde_json::json!({
         "id": p.id,
@@ -281,6 +321,7 @@ pub(crate) fn already_downloaded(p: &shardload_manager::Previous) -> String {
         "finished": p.finished_at.map(utc_date),
         "file_still_there": p.on_disk,
         "matched": p.matched,
+        "can_link": p.linkable,
     });
     let what = if p.unfinished() {
         "already on the list, not finished yet"
@@ -289,7 +330,12 @@ pub(crate) fn already_downloaded(p: &shardload_manager::Previous) -> String {
     } else {
         "downloaded before, but the file is no longer where it was saved"
     };
-    format!("{what}; pass allow_duplicate: true to add it again. Found: {found}")
+    let reuse = if p.on_disk && !p.unfinished() {
+        ", or reuse: \"copy\" (or \"link\" when can_link) to put that file in place instead"
+    } else {
+        ""
+    };
+    format!("{what}; pass allow_duplicate: true to add it again{reuse}. Found: {found}")
 }
 
 /// `2026-10-03` for Unix milliseconds (UTC).

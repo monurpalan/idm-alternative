@@ -114,8 +114,9 @@ pub(crate) async fn trace_content(
     let wanted = sha256.and_then(|s| format!("sha256:{s}").parse::<Checksum>().ok());
     for h in &candidates {
         let recorded = h
-            .checksum
+            .sha256
             .as_deref()
+            .or(h.checksum.as_deref())
             .and_then(|c| c.parse::<Checksum>().ok())
             .filter(|c| c.algorithm == Algorithm::Sha256);
         let same = match (&wanted, recorded) {

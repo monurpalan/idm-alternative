@@ -403,6 +403,8 @@ pub struct HistoryEntry {
     pub size: Option<u64>,
     /// `algorithm:hex` the file was checked against.
     pub checksum: Option<String>,
+    /// `sha256:<hex>` of the file, once known (see [`crate::dedup`]).
+    pub sha256: Option<String>,
     /// Unix milliseconds.
     pub finished_at: i64,
 }

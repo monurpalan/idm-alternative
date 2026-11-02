@@ -291,6 +291,7 @@ fn main() {
             list_groups,
             new_group,
             find_previous,
+            reuse_previous,
             known_links,
             open_previous,
             show_previous,

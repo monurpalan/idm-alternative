@@ -136,37 +136,6 @@ export const addBatch = (request: {
 	skip_known?: boolean;
 }) => invoke<number>('add_batch', { request: { ...request, name: null, stream: null } });
 
-/** An earlier download of what is about to be added. */
-export interface Previous {
-	/** `url`: the same address; `name_size`: another one, but the same name and size. */
-	matched: 'url' | 'name_size';
-	/** On the list: its id and status (not `done`: still to finish). */
-	id: TaskId | null;
-	status: Status | null;
-	/** Its history entry, once finished: for opening the file. */
-	history: number | null;
-	name: string | null;
-	path: string | null;
-	size: number | null;
-	finished_at: number | null;
-	/** The finished file is still where it was saved. */
-	on_disk: boolean;
-}
-
-/** `finalUrl`, `name` and `size` are what the server said (see `probe`). */
-export const findPrevious = (
-	url: string,
-	finalUrl: string | null = null,
-	name: string | null = null,
-	size: number | null = null
-) => invoke<Previous | null>('find_previous', { url, finalUrl, name, size });
-/** For each link, whether it was downloaded before or is on the list. */
-export const knownLinks = (urls: string[]) => invoke<boolean[]>('known_links', { urls });
-export const openPrevious = (history: number) => invoke<void>('open_previous', { history });
-export const showPrevious = (history: number) => invoke<void>('show_previous', { history });
-/** Forgets the finished downloads; their files stay. */
-export const clearHistory = () => invoke<void>('clear_history');
-
 /** The interface's language now: the setting, or Windows' for 'system'. */
 export const uiLanguage = () => invoke<'en' | 'tr'>('ui_language');
 
@@ -695,5 +664,6 @@ export * from './api/extensions.ts';
 export * from './api/after.ts';
 export * from './api/hints.ts';
 export * from './api/logins.ts';
+export * from './api/previous.ts';
 export * from './api/structure.ts';
 

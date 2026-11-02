@@ -18,6 +18,7 @@ pub mod batch;
 pub mod clip;
 pub mod command;
 mod db;
+mod dedup;
 pub mod disk;
 pub mod eta;
 pub mod folder;
@@ -52,6 +53,7 @@ use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 
 use db::{Db, Insert};
+pub use dedup::{Reuse, same_volume};
 pub use secret::{open_setting, seal_setting};
 pub use sites::SiteMemory;
 pub use task::{
@@ -457,6 +459,8 @@ pub enum Matched {
     Url,
     /// Another address, but a file of the same name and size.
     NameSize,
+    /// The same content, by the checksum the new download is expected to have.
+    Content,
 }
 
 /// An earlier download of what is about to be added.
@@ -476,6 +480,8 @@ pub struct Previous {
     pub finished_at: Option<i64>,
     /// The finished file is still where it was saved, with its size.
     pub on_disk: bool,
+    /// It is on the drive the new download would go to, so a hard link can stand in for it.
+    pub linkable: bool,
 }
 
 impl Previous {
@@ -495,6 +501,7 @@ impl Previous {
             size: t.size,
             finished_at: None,
             on_disk: false,
+            linkable: false,
         }
     }
 
@@ -513,12 +520,13 @@ impl Previous {
             path: Some(h.path),
             size: h.size,
             finished_at: Some(h.finished_at),
+            linkable: false,
         }
     }
 }
 
 /// The history entry's file is still where it was saved, with the size it had.
-fn on_disk(h: &HistoryEntry) -> bool {
+pub(crate) fn on_disk(h: &HistoryEntry) -> bool {
     std::fs::metadata(&h.path).is_ok_and(|m| match h.size {
         Some(size) if m.is_file() => m.len() == size,
         _ => true,

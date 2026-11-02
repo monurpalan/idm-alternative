@@ -149,17 +149,58 @@ pub(crate) struct AddRequest {
 }
 
 /// An earlier download of what is about to be added: `final_url`, `name` and `size` are
-/// what the server said when asked.
+/// what the server said when asked; `checksum` the one it is expected to have (shown on its
+/// page), for finding the same content under another address; `dir` where it would go.
 #[tauri::command]
+#[allow(clippy::too_many_arguments, reason = "a command's named arguments")]
 pub(crate) async fn find_previous(
     app: State<'_, App>,
     url: String,
     final_url: Option<String>,
     name: Option<String>,
     size: Option<u64>,
+    checksum: Option<String>,
+    headers: Option<Vec<(String, String)>>,
+    dir: Option<PathBuf>,
 ) -> CmdResult<Option<shardload_manager::Previous>> {
-    app.manager
+    let found = app
+        .manager
         .find_previous(&url, final_url.as_deref(), name.as_deref(), size)
+        .await
+        .map_err(msg)?;
+    if found.is_some() {
+        return Ok(found);
+    }
+    app.manager
+        .find_same_content(
+            final_url.as_deref().unwrap_or(&url),
+            name.as_deref(),
+            size,
+            checksum.as_deref(),
+            &headers.unwrap_or_default(),
+            dir.as_deref().filter(|d| !d.as_os_str().is_empty()),
+        )
+        .await
+        .map_err(msg)
+}
+
+/// Puts the file of an earlier download with the same content into place, copied or as a
+/// hard link, instead of downloading it again.
+#[tauri::command]
+pub(crate) async fn reuse_previous(
+    app: State<'_, App>,
+    history: i64,
+    dir: Option<PathBuf>,
+    name: Option<String>,
+    how: shardload_manager::Reuse,
+) -> CmdResult<Task> {
+    app.manager
+        .reuse(
+            history,
+            dir.filter(|d| !d.as_os_str().is_empty()),
+            name,
+            how,
+        )
         .await
         .map_err(msg)
 }

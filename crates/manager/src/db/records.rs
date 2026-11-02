@@ -4,6 +4,22 @@
 use super::*;
 
 impl Db {
+    /// The SHA-256 of a finished download's file, worked out after it finished.
+    pub(crate) async fn set_history_sha256(
+        &self,
+        task_id: TaskId,
+        path: &Path,
+        sha256: &str,
+    ) -> Result<()> {
+        sqlx::query("UPDATE history SET sha256 = ? WHERE task_id = ? AND path = ?")
+            .bind(sha256)
+            .bind(task_id)
+            .bind(path.to_string_lossy())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// How a finished download checked out by its structure.
     pub(crate) async fn set_structure(
         &self,
@@ -187,8 +203,8 @@ impl Db {
             .await?;
         sqlx::query(
             "INSERT INTO history (task_id, url, final_url, page, name, path, size, checksum,
-                                  finished_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                  sha256, finished_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(task.id)
         .bind(&task.url)
@@ -198,6 +214,7 @@ impl Db {
         .bind(path.to_string_lossy())
         .bind(task.size.map(|v| v as i64))
         .bind(&task.checksum)
+        .bind(crate::dedup::sha256_of(task.checksum.as_deref()))
         .bind(task.finished_at.unwrap_or_else(crate::now_ms))
         .execute(&self.pool)
         .await?;
@@ -284,6 +301,7 @@ pub(crate) fn history_entry(r: &SqliteRow) -> Result<HistoryEntry> {
         path: PathBuf::from(r.try_get::<String, _>("path")?),
         size: r.try_get::<Option<i64>, _>("size")?.map(|v| v as u64),
         checksum: r.try_get("checksum")?,
+        sha256: r.try_get("sha256")?,
         finished_at: r.try_get("finished_at")?,
     })
 }
