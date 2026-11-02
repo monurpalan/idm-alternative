@@ -1,9 +1,11 @@
 name: Network tests
 
-# The tests that need the Internet (`#[ignore]`d in the normal run): YouTube and Twitch through
-# yt-dlp, GitHub's API and releases, a real torrent, the Internet Archive. Sites change and
-# sometimes turn CI machines away, so this runs on its own: weekly and by hand. A failure only
-# shows red here.
+# The tests that need the Internet (`#[ignore]`d in the normal run): Twitch through yt-dlp,
+# GitHub's API and releases (yt-dlp and ffmpeg set up, yt-dlp updated), a real torrent. Sites
+# change, so this runs on its own: weekly and by hand. A failure only shows red here.
+#
+# YouTube asks CI machines to sign in ("confirm you're not a bot"), so its tests are left out
+# here; run them on a desktop: cargo test --workspace -- --ignored youtube
 on:
   schedule:
     - cron: "17 4 * * 1"
@@ -37,6 +39,12 @@ jobs:
           unzip -q deno.zip && rm deno.zip
           chmod +x yt-dlp deno
           echo "SHARDLOAD_TOOLS=$RUNNER_TEMP/tools" >> "$GITHUB_ENV"
+          # An older yt-dlp for the update test to replace.
+          mkdir -p "$RUNNER_TEMP/old/tools"
+          old=https://github.com/yt-dlp/yt-dlp/releases/download/2024.08.06/yt-dlp_linux
+          curl -fsSL -o "$RUNNER_TEMP/old/tools/yt-dlp" "$old"
+          chmod +x "$RUNNER_TEMP/old/tools/yt-dlp"
+          echo "SHARDLOAD_TOOLS_TEST=$RUNNER_TEMP/old" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -49,4 +57,6 @@ jobs:
           npm ci
           npm run build
       - name: Network tests
-        run: cargo test --workspace --no-fail-fast -- --ignored
+        run: |
+          skip="--skip youtube --skip without_ffmpeg_a_page_is_one_file_with_sound"
+          cargo test --workspace --no-fail-fast -- --ignored $skip
