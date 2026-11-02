@@ -162,7 +162,19 @@ impl Inner {
                 .or(deadlines.get(&t.id).copied())
                 .unwrap_or(i64::MAX)
         });
-        for t in queued.into_iter().filter(|t| !waiting.contains(&t.id)) {
+        // A recording set to start later waits for its time, also before `start_later` has
+        // noted it (a fill can come between adding it and that).
+        let later = |t: &Task| {
+            t.stream
+                .as_ref()
+                .and_then(|s| s.record.as_ref())
+                .and_then(|r| r.start_at)
+                .is_some_and(|at| at > now_ms())
+        };
+        for t in queued
+            .into_iter()
+            .filter(|t| !waiting.contains(&t.id) && !later(t))
+        {
             match self.held(&t) {
                 None => startable.push(t),
                 Some(why) if t.error.as_deref() != Some(why) => {
