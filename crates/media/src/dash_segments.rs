@@ -46,6 +46,9 @@ const LIVE_DEPTH: f64 = 30.0;
 /// keep the parser filling memory.
 const MAX_SEGMENTS: usize = 500_000;
 
+/// The widest `%0Nd` a template's number is padded to.
+const MAX_WIDTH: usize = 20;
+
 fn too_many() -> Error {
     Error(format!(
         "the manifest lists more than {MAX_SEGMENTS} segments"
@@ -93,12 +96,14 @@ pub(crate) fn fill(template: &str, rep: &str, bandwidth: u64, number: u64, time:
         };
         match value {
             Some(v) => {
-                // `%05d`: pad with zeros to width 5.
+                // `%05d`: pad with zeros to width 5. No real manifest asks for more than a few
+                // digits; a width of millions would make every segment's address that long.
                 let width = format
                     .trim_start_matches('0')
                     .trim_end_matches('d')
                     .parse::<usize>()
-                    .unwrap_or(0);
+                    .unwrap_or(0)
+                    .min(MAX_WIDTH);
                 if width > v.len() && !name.is_empty() {
                     out.push_str(&"0".repeat(width - v.len()));
                 }
@@ -375,6 +380,8 @@ mod tests {
             "v1/800/9000.m4s"
         );
         assert_eq!(fill("a$$b$Unknown$", "v", 0, 0, 0), "a$b$Unknown$");
+        // Found by fuzzing: a width of hundreds of millions, for every segment.
+        assert_eq!(fill("$Number%0777777775d$", "v", 0, 7, 0).len(), MAX_WIDTH);
     }
 
     #[test]
