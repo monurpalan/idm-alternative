@@ -3,7 +3,8 @@
 	// the files found to the links dialog to pick from.
 
 	import { onDestroy, onMount } from 'svelte';
-	import { cancelGrab, grabSite, onGrabProgress, type CapturedLinks } from '../api.ts';
+	import type { CapturedLinks } from '../api.ts';
+	import { cancelGrab, grabSite, onGrabProgress } from '../api/grab.ts';
 	import { t } from '../i18n.svelte.ts';
 	import { Button, Checkbox, Dialog, Field, Input, Select, Text } from './ui/index.ts';
 

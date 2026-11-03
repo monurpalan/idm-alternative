@@ -1,19 +1,45 @@
 //! SFTP logging in with a key held by the user's SSH agent (`SSH_AUTH_SOCK`), against the
-//! OpenSSH server of `real_servers.rs`. A test binary of its own: it sets the agent for the
-//! whole process. Unix only (OpenSSH's `ssh-agent`).
+//! OpenSSH server of `real_servers.rs`. The downloads run in a child process of this test,
+//! which is given the agent. Unix only (OpenSSH's `ssh-agent`).
 
 #![cfg(unix)]
 
 mod common;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use common::*;
 use shardload_engine::{Error, Options};
 
+const NAME: &str = "sftp_logs_in_with_the_agents_key";
+
+/// The child: downloads with the keys in `SSH_KEYS_DIR`, and the agent if it was given one.
+fn child(keys: &Path) {
+    let dir = keys.parent().expect("dir");
+    let options = Options {
+        known_hosts: Some(dir.join("known_hosts")),
+        ssh_dir: Some(keys.to_owned()),
+        ..opts(2)
+    };
+    let url = "sftp://shard@127.0.0.1:9922/home/shard/pub/file.bin".to_owned();
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    let out = dir.join(format!("{}.bin", std::process::id()));
+    let done = runtime.block_on(get(&request(url, &out), &options));
+    if std::env::var_os("SSH_AUTH_SOCK").is_some() {
+        done.expect("with the agent's key");
+        assert_eq!(std::fs::metadata(&out).expect("file").len(), 13_631_489);
+    } else {
+        // Without the agent, the key in the folder is locked.
+        assert!(matches!(done, Err(Error::KeyLocked { .. })), "{done:?}");
+    }
+}
+
 #[test]
 fn sftp_logs_in_with_the_agents_key() {
+    if let Some(keys) = std::env::var_os("SSH_KEYS_DIR") {
+        return child(Path::new(&keys));
+    }
     let Some(servers) = std::env::var_os("SHARDLOAD_REAL_SERVERS").map(PathBuf::from) else {
         assert!(
             std::env::var("GITHUB_JOB").as_deref() != Ok("linux"),
@@ -57,25 +83,21 @@ fn sftp_logs_in_with_the_agents_key() {
         .status()
         .expect("ssh-add");
     assert!(added.success());
-    // SAFETY: set before the runtime starts, in a test binary with this one test.
-    unsafe { std::env::set_var("SSH_AUTH_SOCK", &sock) };
-
-    let options = Options {
-        known_hosts: Some(dir.join("known_hosts")),
-        ssh_dir: Some(keys),
-        ..opts(2)
+    let run = |agent: Option<&Path>| {
+        let mut child = Command::new(std::env::current_exe().expect("exe"));
+        child
+            .args(["--exact", NAME, "--nocapture"])
+            .env("SSH_KEYS_DIR", &keys);
+        match agent {
+            Some(sock) => child.env("SSH_AUTH_SOCK", sock),
+            None => child.env_remove("SSH_AUTH_SOCK"),
+        };
+        child.status().expect("child").success()
     };
-    let url = "sftp://shard@127.0.0.1:9922/home/shard/pub/file.bin".to_owned();
-    let out = dir.join("f.bin");
-    let runtime = tokio::runtime::Runtime::new().expect("runtime");
-    let done = runtime.block_on(get(&request(url.clone(), &out), &options));
+    let with = run(Some(&sock));
+    let without = run(None);
     agent.kill().ok();
     agent.wait().ok();
-    done.expect("with the agent's key");
-    let len = std::fs::metadata(&out).expect("file").len();
-    assert_eq!(len, 13_631_489);
-    // Without the agent, the key in the folder is locked.
-    let runtime = tokio::runtime::Runtime::new().expect("runtime");
-    let e = runtime.block_on(get(&request(url, &dir.join("g.bin")), &options));
-    assert!(matches!(e, Err(Error::KeyLocked { .. })), "{e:?}");
+    assert!(with, "with the agent");
+    assert!(without, "without the agent");
 }
