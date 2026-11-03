@@ -62,12 +62,14 @@ impl Inner {
         let mut part = req.output.clone().into_os_string();
         part.push(".shardload-part");
         let resuming = PathBuf::from(part).exists();
+        // A delta download that stopped part way goes on as one, from where it stopped.
+        let delta_resumes = shardload_engine::zsync::resumes(&req.output);
         let web = req.url.starts_with("http://") || req.url.starts_with("https://");
-        if !web || (resuming && !explicit) {
+        if !web || (resuming && !explicit && !delta_resumes) {
             return shardload_engine::download(req, opts, Some(tx), cancel).await;
         }
         let seeds = self.seeds(&req.url, &req.output).await;
-        if seeds.is_empty() && !explicit {
+        if seeds.is_empty() && !explicit && !delta_resumes {
             return shardload_engine::download(req, opts, Some(tx), cancel).await;
         }
         let control_url = if explicit {

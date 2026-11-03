@@ -34,6 +34,20 @@ pub struct State {
     /// not clean: after a power loss its last seconds may be missing (ADR 0002).
     #[serde(default)]
     pub clean: bool,
+    /// A zsync download (see [`crate::zsync`]): its segments are the ranges still to download;
+    /// what is outside them came from the older copies already.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zsync: Option<ZsyncState>,
+}
+
+/// What a zsync download keeps besides its ranges.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ZsyncState {
+    /// Which `.zsync` it follows: another one is another file.
+    pub control: String,
+    /// Bytes taken from the older copies, and the copy most came from.
+    pub reused: u64,
+    pub from: Option<PathBuf>,
 }
 
 impl State {
@@ -45,6 +59,7 @@ impl State {
             validators,
             segments,
             clean: false,
+            zsync: None,
         }
     }
 

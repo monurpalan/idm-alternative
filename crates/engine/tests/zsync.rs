@@ -13,11 +13,14 @@ use common::*;
 use shardload_engine::CancellationToken;
 use shardload_engine::zsync::{Control, update};
 
-/// Files served from memory with ranges; the bytes sent are counted.
+/// Files served from memory with ranges; the bytes sent are counted, the ranges asked for
+/// kept, and each range answered after `delay_ms`.
 #[derive(Default)]
 struct Files {
     files: std::sync::Mutex<std::collections::HashMap<String, Vec<u8>>>,
     sent: AtomicU64,
+    asked: std::sync::Mutex<Vec<(u64, u64)>>,
+    delay_ms: AtomicU64,
 }
 
 async fn serve(
@@ -45,6 +48,9 @@ async fn serve(
     let total = data.len();
     match range {
         Some((a, b)) if a <= b => {
+            s.asked.lock().expect("lock").push((a as u64, b as u64 + 1));
+            let delay = s.delay_ms.load(Ordering::Relaxed);
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
             s.sent.fetch_add((b + 1 - a) as u64, Ordering::Relaxed);
             (
                 StatusCode::PARTIAL_CONTENT,
@@ -178,6 +184,151 @@ async fn a_wrong_match_falls_back_to_the_whole_file() {
     .expect("whole file");
     assert_eq!(delta.reused, 0);
     assert_eq!(std::fs::read(&out).expect("file"), new);
+}
+
+/// Run as a child of [`a_killed_update_resumes_with_only_the_missing_ranges`]: the update it
+/// gets killed in.
+async fn child_update(control_url: &str) {
+    let control = shardload_engine::zsync::fetch_control(control_url, &[], &opts(1))
+        .await
+        .expect("control");
+    let seed = std::env::var_os("ZSYNC_KILL_SEED").expect("seed");
+    let out = std::env::var_os("ZSYNC_KILL_OUT").expect("out");
+    let done = update(
+        control_url,
+        &control,
+        &[seed.into()],
+        &request(String::new(), std::path::Path::new(&out)),
+        &opts(1),
+        None,
+        &CancellationToken::new(),
+    )
+    .await;
+    panic!("not killed: {done:?}");
+}
+
+/// Killed part way (the process, not a cancel), an update resumes from its state file: only
+/// the ranges it had not saved are asked for, the copies are not matched again, and the
+/// file comes out the same.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_killed_update_resumes_with_only_the_missing_ranges() {
+    if let Some(url) = std::env::var_os("ZSYNC_KILL_URL") {
+        return child_update(&url.to_string_lossy()).await;
+    }
+    // 16 MiB, of which the old copy lacks 12 in the middle: four ranges of 4 MiB at most.
+    let mut new = vec![0u8; (16 * MB) as usize];
+    shardload_testserver::content::fill(62, 0, &mut new);
+    let mut old = new.clone();
+    old[(2 * MB) as usize..(14 * MB) as usize].fill(7);
+    let zsync = shardload_testserver::zsync::make(&new, "disk.iso", "disk.iso", 4096, 4, 8);
+    let (base, served) = server(vec![
+        ("disk.iso", new.clone()),
+        ("disk.iso.zsync", zsync.clone()),
+    ])
+    .await;
+    served.delay_ms.store(700, Ordering::Relaxed);
+    let dir = workdir("zsync-kill");
+    let seed = dir.join("old.iso");
+    std::fs::write(&seed, &old).expect("old copy");
+    let out = dir.join("disk.iso");
+    let state_path = dir.join("disk.iso.shardload-state");
+    let control_url = format!("{base}/disk.iso.zsync");
+    let mut child = std::process::Command::new(std::env::current_exe().expect("exe"))
+        .args([
+            "--exact",
+            "a_killed_update_resumes_with_only_the_missing_ranges",
+            "--nocapture",
+        ])
+        .env("ZSYNC_KILL_URL", &control_url)
+        .env("ZSYNC_KILL_SEED", &seed)
+        .env("ZSYNC_KILL_OUT", &out)
+        .spawn()
+        .expect("child");
+    // Killed once it has saved a range or two.
+    let left = |state: &serde_json::Value| -> Vec<(u64, u64)> {
+        state["segments"]
+            .as_array()
+            .expect("segments")
+            .iter()
+            .map(|s| {
+                (
+                    s["written"].as_u64().expect("w"),
+                    s["end"].as_u64().expect("e"),
+                )
+            })
+            .filter(|(w, e)| w < e)
+            .collect()
+    };
+    let read = || -> Option<serde_json::Value> {
+        serde_json::from_slice(&std::fs::read(&state_path).ok()?).ok()
+    };
+    let deadline = std::time::Instant::now() + LIMIT;
+    let total = loop {
+        assert!(std::time::Instant::now() < deadline, "no progress saved");
+        assert!(
+            child.try_wait().expect("child").is_none(),
+            "the child ended"
+        );
+        if let Some(state) = read() {
+            let segments = state["segments"].as_array().expect("segments");
+            let all: u64 = segments
+                .iter()
+                .map(|s| s["end"].as_u64().expect("e") - s["start"].as_u64().expect("s"))
+                .sum();
+            let missing: u64 = left(&state).iter().map(|(w, e)| e - w).sum();
+            if missing < all {
+                break all;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    };
+    child.kill().expect("kill");
+    child.wait().expect("wait");
+    let state = read().expect("state after the kill");
+    let missing = left(&state);
+    let missing_bytes: u64 = missing.iter().map(|(w, e)| e - w).sum();
+    assert!(missing_bytes > 0 && missing_bytes < total, "{missing:?}");
+    assert!(shardload_engine::zsync::resumes(&out));
+
+    served.delay_ms.store(0, Ordering::Relaxed);
+    served.asked.lock().expect("lock").clear();
+    let control = Control::parse(&zsync).expect("parse");
+    // No copy this time: had it been matched again, its blocks would not be found.
+    let delta = update(
+        &control_url,
+        &control,
+        &[],
+        &request(String::new(), &out),
+        &opts(1),
+        None,
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("resume");
+    assert_eq!(std::fs::read(&out).expect("file"), new);
+    assert!(!state_path.exists());
+    assert_eq!(delta.outcome.resumed_from, new.len() as u64 - missing_bytes);
+    assert!(delta.reused > 0, "the copy's part counts as reused");
+    // Besides the one-byte probe, exactly the ranges it had not saved.
+    let asked: Vec<(u64, u64)> = served
+        .asked
+        .lock()
+        .expect("lock")
+        .iter()
+        .copied()
+        .filter(|&(a, b)| (a, b) != (0, 1))
+        .collect();
+    let asked_bytes: u64 = asked.iter().map(|(a, b)| b - a).sum();
+    assert_eq!(
+        asked_bytes, missing_bytes,
+        "asked {asked:?}, missing {missing:?}"
+    );
+    assert!(
+        asked
+            .iter()
+            .all(|&(a, b)| missing.iter().any(|&(w, e)| w <= a && b <= e)),
+        "asked {asked:?}, missing {missing:?}"
+    );
 }
 
 #[test]

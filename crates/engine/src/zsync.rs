@@ -17,8 +17,9 @@ use tokio_util::sync::CancellationToken;
 use crate::checksum::{Algorithm, Checksum};
 use crate::download::{Options, Outcome, Phase, Progress, Request, http_config};
 use crate::error::{Error, Result};
-use crate::remote::Http;
-use crate::state::sibling;
+use crate::remote::{Http, Validators};
+use crate::segments::SavedSegment;
+use crate::state::{State, ZsyncState, sibling};
 
 /// A `.zsync` larger than this is not one.
 const MAX_CONTROL: usize = 64 << 20;
@@ -144,6 +145,19 @@ impl Control {
         md4.finalize()[..self.strong_len] == self.blocks[i].strong[..]
     }
 
+    /// Identifies this `.zsync` (its file's length and every block's checksums), for a
+    /// download that resumes to follow the same one.
+    fn fingerprint(&self) -> String {
+        let mut md4 = Md4::new();
+        md4.update(self.length.to_le_bytes());
+        md4.update((self.blocksize as u64).to_le_bytes());
+        for b in &self.blocks {
+            md4.update(b.weak.to_le_bytes());
+            md4.update(&b.strong);
+        }
+        md4.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    }
+
     /// Block `i`'s place in the file.
     fn block(&self, i: usize) -> (u64, u64) {
         let start = i as u64 * self.blocksize as u64;
@@ -262,7 +276,8 @@ pub struct Delta {
 
 /// Downloads the file `control` (read from `control_url`) describes to `req.output`, taking
 /// every block it can from `seeds`. `req.url` is not used: the file's address comes from the
-/// `.zsync`.
+/// `.zsync`. The state file keeps the ranges still to download, so a download stopped (or
+/// killed) part way resumes with only those, without matching the copies again.
 pub async fn update(
     control_url: &str,
     control: &Control,
@@ -279,56 +294,36 @@ pub async fn update(
         ..req.clone()
     };
     let part = sibling(&req.output, ".shardload-part");
+    let state_path = sibling(&req.output, ".shardload-state");
     // Held while this writes the file; given up before downloading it whole, which takes it.
     let lock = crate::place::Lock::acquire(&req.output)?;
-    let found = match_seeds(control, seeds, cancel).await?;
-    let (reused, from) = {
-        let mut file = std::fs::File::create(&part)?;
-        file.set_len(control.length)?;
-        let copied = copy_blocks(control, seeds, &found, &mut file)?;
-        file.sync_all()?;
-        copied
-    };
     let http = Http::new(&http_config(&req.headers, opts))?;
     let (remote, _) = http.probe_sample(&target, 1, 0).await?;
     if !remote.ranges || remote.size != Some(control.length) {
         std::fs::remove_file(&part).ok();
+        std::fs::remove_file(&state_path).ok();
         drop(lock);
         return whole_file(&whole, opts, progress, cancel).await;
     }
-    let missing = ranges(control, &found);
-    let mut file = std::fs::OpenOptions::new().write(true).open(&part)?;
-    let mut received = reused;
-    for (start, end) in missing {
-        let mut at = start;
-        while at < end {
-            if cancel.is_cancelled() {
-                return Err(Error::Cancelled);
-            }
-            let to = (at + MAX_RANGE).min(end);
-            let bytes = http.fetch(&remote, at, to, 0).await?;
-            if bytes.len() as u64 != to - at {
-                return Err(Error::Truncated);
-            }
-            for l in &opts.limiters {
-                l.acquire(bytes.len()).await;
-            }
-            file.seek(SeekFrom::Start(at))?;
-            file.write_all(&bytes)?;
-            at = to;
-            received += bytes.len() as u64;
-            if let Some(p) = progress {
-                p.send_modify(|p| {
-                    p.phase = Phase::Downloading;
-                    p.size = Some(control.length);
-                    p.received = received;
-                    p.connections = 1;
-                });
-            }
+    let (mut state, resumed_from) = match resumable(control, req, &remote.validators) {
+        Some(state) => {
+            let left: u64 = state.segments.iter().map(|s| s.end - s.written).sum();
+            (state, control.length - left)
         }
-    }
-    file.sync_all()?;
-    drop(file);
+        None => (
+            start(control, seeds, req, remote.validators.clone(), cancel).await?,
+            0,
+        ),
+    };
+    let missing = Missing {
+        http: &http,
+        remote: &remote,
+        part: &part,
+        state_path: &state_path,
+        opts,
+        progress,
+    };
+    missing.fetch(&mut state, cancel).await?;
     if let Some(hex) = &control.sha1 {
         let want = Checksum {
             algorithm: Algorithm::Sha1,
@@ -342,6 +337,7 @@ pub async fn update(
             Err(Error::ChecksumMismatch { .. }) => {
                 tracing::warn!("a block reused by zsync was wrong; downloading the whole file");
                 std::fs::remove_file(&part).ok();
+                std::fs::remove_file(&state_path).ok();
                 drop(lock);
                 return whole_file(&whole, opts, progress, cancel).await;
             }
@@ -349,16 +345,18 @@ pub async fn update(
         }
     }
     std::fs::rename(&part, &req.output)?;
+    std::fs::remove_file(&state_path).ok();
     if opts.mark_of_the_web {
         crate::mark_of_the_web(&req.output, &target, &req.headers);
     }
     if let Some(p) = progress {
         p.send_modify(|p| p.phase = Phase::Done);
     }
+    let (reused, from) = state.zsync.map_or((0, None), |z| (z.reused, z.from));
     Ok(Delta {
         outcome: Outcome {
             size: control.length,
-            resumed_from: 0,
+            resumed_from,
             elapsed: started.elapsed(),
             checksum: None,
             checksum_from: None,
@@ -367,6 +365,123 @@ pub async fn update(
         reused,
         from,
     })
+}
+
+/// Whether a zsync download to `output` stopped part way, to be resumed by [`update`].
+pub fn resumes(output: &Path) -> bool {
+    State::load(&sibling(output, ".shardload-state")).is_some_and(|s| s.zsync.is_some())
+        && sibling(output, ".shardload-part").exists()
+}
+
+/// The state of a download of `control` to `req.output` that stopped part way, when it
+/// follows the same `.zsync`, the server's file is the same and its partial file is there.
+fn resumable(control: &Control, req: &Request, validators: &Validators) -> Option<State> {
+    let state = State::load(&sibling(&req.output, ".shardload-state"))?;
+    let part = std::fs::metadata(sibling(&req.output, ".shardload-part")).ok()?;
+    let same = state.url == req.url
+        && state.size == control.length
+        && part.len() == control.length
+        && &state.validators == validators
+        && state
+            .zsync
+            .as_ref()
+            .is_some_and(|z| z.control == control.fingerprint());
+    same.then_some(state)
+}
+
+/// Starts the download: the blocks found in `seeds` copied into the partial file, and a
+/// state whose segments are the ranges still to download, saved.
+async fn start(
+    control: &Control,
+    seeds: &[PathBuf],
+    req: &Request,
+    validators: Validators,
+    cancel: &CancellationToken,
+) -> Result<State> {
+    let found = match_seeds(control, seeds, cancel).await?;
+    let (reused, from) = {
+        let mut file = std::fs::File::create(sibling(&req.output, ".shardload-part"))?;
+        file.set_len(control.length)?;
+        let copied = copy_blocks(control, seeds, &found, &mut file)?;
+        file.sync_all()?;
+        copied
+    };
+    let segments = ranges(control, &found)
+        .into_iter()
+        .map(|(start, end)| SavedSegment {
+            start,
+            end,
+            written: start,
+            speed: 0,
+        })
+        .collect();
+    let mut state = State::new(&req.url, control.length, validators, segments);
+    // Every byte it counts is on the disk (see `Missing::fetch`).
+    state.clean = true;
+    state.zsync = Some(ZsyncState {
+        control: control.fingerprint(),
+        reused,
+        from,
+    });
+    state.save(&sibling(&req.output, ".shardload-state"))?;
+    Ok(state)
+}
+
+/// Where the ranges a zsync download still misses come from and go to.
+struct Missing<'a> {
+    http: &'a Http,
+    remote: &'a crate::remote::Remote,
+    part: &'a Path,
+    state_path: &'a Path,
+    opts: &'a Options,
+    progress: Option<&'a watch::Sender<Progress>>,
+}
+
+impl Missing<'_> {
+    /// Downloads what `state`'s segments still miss, saving the state as it goes.
+    async fn fetch(&self, state: &mut State, cancel: &CancellationToken) -> Result<()> {
+        let mut file = std::fs::OpenOptions::new().write(true).open(self.part)?;
+        let left: u64 = state.segments.iter().map(|s| s.end - s.written).sum();
+        let mut received = state.size - left;
+        self.report(state.size, received);
+        for i in 0..state.segments.len() {
+            while state.segments[i].written < state.segments[i].end {
+                if cancel.is_cancelled() {
+                    return Err(Error::Cancelled);
+                }
+                let at = state.segments[i].written;
+                let to = (at + MAX_RANGE).min(state.segments[i].end);
+                let bytes = self.http.fetch(self.remote, at, to, 0).await?;
+                if bytes.len() as u64 != to - at {
+                    return Err(Error::Truncated);
+                }
+                for l in &self.opts.limiters {
+                    l.acquire(bytes.len()).await;
+                }
+                file.seek(SeekFrom::Start(at))?;
+                file.write_all(&bytes)?;
+                // On the disk before the state counts it: resuming after anything, a power
+                // loss too, downloads only what is missing. A few MB each time, so not often.
+                file.sync_data()?;
+                state.segments[i].written = to;
+                state.save(self.state_path)?;
+                received += bytes.len() as u64;
+                self.report(state.size, received);
+            }
+        }
+        Ok(())
+    }
+
+    fn report(&self, size: u64, received: u64) {
+        if let Some(p) = self.progress {
+            p.send_modify(|p| {
+                p.phase = Phase::Downloading;
+                p.size = Some(size);
+                p.received = received;
+                p.connections = 1;
+            });
+        }
+    }
 }
 
 async fn whole_file(
