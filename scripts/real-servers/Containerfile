@@ -1,0 +1,8 @@
+# Real FTPS and SSH servers for the tests in crates/engine/tests/real_servers.rs; see setup.sh.
+FROM docker.io/library/debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends vsftpd openssh-server openssh-client openssl \
+    && rm -rf /var/lib/apt/lists/*
+COPY setup.sh /setup.sh
+EXPOSE 9921 9990 9922 30000-30009
+CMD ["sh", "-c", "sh /setup.sh /out && sleep infinity"]

@@ -7729,6 +7729,7 @@ dependencies = [
  "lzma-rust2",
  "md-5 0.11.0",
  "md4",
+ "percent-encoding",
  "quick-xml 0.42.0",
  "reqwest 0.12.28",
  "russh",

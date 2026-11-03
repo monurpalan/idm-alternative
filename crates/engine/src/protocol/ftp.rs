@@ -47,7 +47,7 @@ impl Ftp {
         Self {
             host: url.host_str().unwrap_or_default().to_owned(),
             port,
-            path: super::path(url),
+            path: relative(&super::path(url)),
             login,
             tls,
             insecure,
@@ -82,9 +82,18 @@ impl Ftp {
             AsyncRustlsConnector::from(tokio_rustls::TlsConnector::from(Arc::new(config)));
         let addr = (self.host.as_str(), self.port);
         let mut ftp = if self.tls == Tls::Implicit {
-            AsyncRustlsFtpStream::connect_secure_implicit(addr, connector, &self.host)
-                .await
-                .map_err(remote)?
+            let mut ftp =
+                AsyncRustlsFtpStream::connect_secure_implicit(addr, connector, &self.host)
+                    .await
+                    .map_err(remote)?;
+            // The file comes over TLS too: asked for as `AUTH TLS` does (suppaftp only does
+            // it there), or a server that insists refuses the transfer.
+            for command in ["PBSZ 0", "PROT P"] {
+                ftp.custom_command(command, &[Status::CommandOk])
+                    .await
+                    .map_err(remote)?;
+            }
+            ftp
         } else {
             AsyncRustlsFtpStream::connect(addr)
                 .await
@@ -172,6 +181,27 @@ impl<T: TokioTlsStream + Send> AsyncRead for Retr<T> {
     }
 }
 
+/// The path of an `ftp://` address is from the folder the login lands in (RFC 1738, as curl
+/// reads it): `ftp://host/pub/f` is `pub/f` there; `ftp://host//srv/f` (or `/%2Fsrv/f`) is
+/// `/srv/f` from the root.
+fn relative(path: &str) -> String {
+    path.strip_prefix('/').unwrap_or(path).to_owned()
+}
+
 fn remote(e: FtpError) -> Error {
     Error::Remote(format!("FTP: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn paths_are_from_the_login_folder() {
+        let path =
+            |u: &str| super::relative(&super::super::path(&url::Url::parse(u).expect("url")));
+        assert_eq!(path("ftp://h/pub/f.bin"), "pub/f.bin");
+        assert_eq!(path("ftp://h//srv/f.bin"), "/srv/f.bin");
+        assert_eq!(path("ftp://h/%2Fsrv/f.bin"), "/srv/f.bin");
+        assert_eq!(path("ftp://h/a%20b.bin"), "a b.bin");
+        assert_eq!(path("ftp://h/a&b=c+d.bin"), "a&b=c+d.bin");
+    }
 }

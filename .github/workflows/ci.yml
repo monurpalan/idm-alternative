@@ -105,7 +105,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
-            libssl-dev cmake clang libclang-dev patchelf file zsync
+            libssl-dev cmake clang libclang-dev patchelf file zsync vsftpd openssh-server
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -129,6 +129,11 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: File size
         run: node scripts/check-size.mjs
+      # vsftpd and OpenSSH for crates/engine/tests/real_servers.rs.
+      - name: Real FTPS and SSH servers
+        run: |
+          sudo sh scripts/real-servers/setup.sh "$RUNNER_TEMP/real-servers"
+          echo "SHARDLOAD_REAL_SERVERS=$RUNNER_TEMP/real-servers" >> "$GITHUB_ENV"
       - name: Test
         run: cargo test --workspace
       - name: Packages (.deb, .rpm, AppImage)

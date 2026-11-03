@@ -110,9 +110,9 @@ fn login(url: &url::Url, headers: &[(String, String)]) -> Login {
 }
 
 fn percent_encoding_decode(s: &str) -> String {
-    url::form_urlencoded::parse(format!("x={}", s.replace('+', "%2B")).as_bytes())
-        .next()
-        .map_or_else(|| s.to_owned(), |(_, v)| v.into_owned())
+    percent_encoding::percent_decode_str(s)
+        .decode_utf8_lossy()
+        .into_owned()
 }
 
 /// The file's path on the server, decoded.
@@ -541,4 +541,17 @@ async fn attempt(
     }
     file.flush().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn logins_in_the_address_are_decoded_whole() {
+        let login = |u: &str| super::login(&url::Url::parse(u).expect("url"), &[]);
+        assert_eq!(
+            login("ftp://me:p&ss=1+2%40x@h/f"),
+            Some(("me".to_owned(), "p&ss=1+2@x".to_owned()))
+        );
+        assert_eq!(login("ftp://h/f"), None);
+    }
 }

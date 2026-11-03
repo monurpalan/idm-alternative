@@ -44,6 +44,16 @@ cargo build
 cargo test
 ```
 
+FTPS and SFTP are also tested against real servers (vsftpd, OpenSSH): CI starts them on its
+Linux runner; elsewhere `scripts/real-servers/run.sh` starts them in a container (Podman, or
+Docker with `ENGINE=docker`), and the tests in `crates/engine/tests/real_servers.rs` run when
+`SHARDLOAD_REAL_SERVERS` names the folder it filled:
+
+```bash
+scripts/real-servers/run.sh /tmp/real-servers
+SHARDLOAD_REAL_SERVERS=/tmp/real-servers cargo test -p shardload-engine --test real_servers
+```
+
 The desktop app (`app/`) also needs Node 24. It embeds the built web UI, so plain `cargo`
 commands leave it out:
 
