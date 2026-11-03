@@ -127,6 +127,20 @@ pub async fn grab(
     Ok(found)
 }
 
+/// For the fuzz target: the links of an untrusted page, each an http, https or ftp address.
+pub fn fuzz_links(html: &str) {
+    let Ok(page) = Url::parse("https://www.example.org/files/index.html") else {
+        return;
+    };
+    for link in links(html, &page) {
+        assert!(
+            matches!(link.url.scheme(), "http" | "https" | "ftp"),
+            "{}",
+            link.url
+        );
+    }
+}
+
 /// A link in a page.
 #[derive(Debug, PartialEq, Eq)]
 struct Link {
@@ -311,7 +325,8 @@ fn decode_entities(s: &str) -> String {
     while let Some(amp) = rest.find('&') {
         out.push_str(&rest[..amp]);
         rest = &rest[amp..];
-        let Some(semi) = rest[..rest.len().min(12)].find(';') else {
+        // Looked for in the bytes: the 12th can fall inside a letter.
+        let Some(semi) = rest.bytes().take(12).position(|b| b == b';') else {
             out.push('&');
             rest = &rest[1..];
             continue;
@@ -456,5 +471,13 @@ mod tests {
         assert!(!is_page(&u("https://x.org/a.tar.gz?x=1")));
         assert!(is_page(&u("https://x.org/a.msi.mirrorlist")));
         assert_eq!(site_of(&u("https://WWW.x.org/a")), "x.org");
+    }
+
+    #[test]
+    fn an_unended_entity_before_a_wide_letter() {
+        // The 12th byte falls inside `ğ`.
+        assert_eq!(decode_entities("&abcdefghijğ;"), "&abcdefghijğ;");
+        let got = links(r#"<a href="x.zip" title="&aaaaaaaaaağ">x</a>"#, &page());
+        assert_eq!(got[0].url.as_str(), "https://www.example.org/files/x.zip");
     }
 }

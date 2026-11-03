@@ -104,3 +104,10 @@ path = "fuzz_targets/zsync.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "html_links"
+path = "fuzz_targets/html_links.rs"
+test = false
+doc = false
+bench = false

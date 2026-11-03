@@ -148,7 +148,11 @@ fn children(body: &[u8]) -> Vec<([u8; 4], &[u8])> {
             } else {
                 8
             };
-        out.push((kind, &body[at + header..at + len as usize]));
+        // A 64-bit length shorter than its own header says nothing.
+        let Some(contents) = body.get(at + header..at + len as usize) else {
+            break;
+        };
+        out.push((kind, contents));
         at += len as usize;
     }
     out
@@ -297,5 +301,17 @@ mod tests {
                 "{kind}"
             );
         }
+    }
+
+    #[test]
+    fn a_large_box_shorter_than_its_own_header_is_not_read() {
+        // `moov` holding a box whose 64-bit length (10) is less than its 16-byte header.
+        let mut moov = vec![0, 0, 0, 32];
+        moov.extend_from_slice(b"moov");
+        moov.extend_from_slice(&[0, 0, 0, 1]);
+        moov.extend_from_slice(b"mvhd");
+        moov.extend_from_slice(&10u64.to_be_bytes());
+        moov.extend_from_slice(&[0; 8]);
+        assert_eq!(parse_moov(&moov), None);
     }
 }
