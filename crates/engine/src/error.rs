@@ -28,6 +28,14 @@ pub enum Error {
     /// download.
     #[error("the server asks for a user name and password{}", .realm.as_ref().map(|r| format!(" ({r})")).unwrap_or_default())]
     AuthRequired { realm: Option<String> },
+    /// SFTP: the user's SSH key `key` is protected by a passphrase, and none was given or
+    /// (`wrong`) the one given does not open it. The download's password is tried as the
+    /// passphrase.
+    #[error(
+        "the SSH key {key} is protected by a passphrase: {}",
+        if *.wrong { "the password given is not it" } else { "give it as the password" }
+    )]
+    KeyLocked { key: String, wrong: bool },
     #[error("server is busy (HTTP {0})")]
     Busy(u16),
     #[error("the file on the server changed since the download started")]
@@ -107,6 +115,7 @@ impl Error {
                 | Error::Cancelled
                 | Error::LinkExpired(_)
                 | Error::AuthRequired { .. }
+                | Error::KeyLocked { .. }
                 | Error::DiskFull { .. }
                 | Error::NoRanges
                 | Error::Archive(_)

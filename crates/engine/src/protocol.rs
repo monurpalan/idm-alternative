@@ -62,12 +62,7 @@ impl Source {
         }
         let login = login(&parsed, headers);
         Ok(if parsed.scheme() == "sftp" {
-            Self::Sftp(sftp::Sftp::new(
-                &parsed,
-                login,
-                opts.known_hosts.clone(),
-                opts.insecure,
-            ))
+            Self::Sftp(sftp::Sftp::new(&parsed, login, opts))
         } else {
             Self::Ftp(ftp::Ftp::new(&parsed, login, opts.insecure))
         })
@@ -89,14 +84,23 @@ impl Source {
 }
 
 /// The user name and password in the address, or else in a `Basic` `Authorization` header (a
-/// saved login).
+/// saved login). An address with a user name alone takes the saved login's password when it
+/// is that user's.
 fn login(url: &url::Url, headers: &[(String, String)]) -> Login {
-    if !url.username().is_empty() {
-        return Some((
-            percent_encoding_decode(url.username()),
-            percent_encoding_decode(url.password().unwrap_or_default()),
-        ));
+    let user = percent_encoding_decode(url.username());
+    let password = percent_encoding_decode(url.password().unwrap_or_default());
+    if !password.is_empty() {
+        return Some((user, password));
     }
+    match saved_login(headers) {
+        Some(saved) if user.is_empty() || saved.0 == user => Some(saved),
+        _ if user.is_empty() => None,
+        _ => Some((user, password)),
+    }
+}
+
+/// The user name and password of a `Basic` `Authorization` header.
+fn saved_login(headers: &[(String, String)]) -> Login {
     use base64::Engine;
     let basic = headers
         .iter()
@@ -553,5 +557,19 @@ mod tests {
             Some(("me".to_owned(), "p&ss=1+2@x".to_owned()))
         );
         assert_eq!(login("ftp://h/f"), None);
+        // A user name alone: the saved login's password when it is that user's.
+        let saved = [crate::basic_auth("me", "secret")];
+        let with = |u: &str| super::login(&url::Url::parse(u).expect("url"), &saved);
+        let me = Some(("me".to_owned(), "secret".to_owned()));
+        assert_eq!(with("sftp://me@h/f"), me);
+        assert_eq!(with("sftp://h/f"), me);
+        assert_eq!(
+            with("sftp://you@h/f"),
+            Some(("you".to_owned(), String::new()))
+        );
+        assert_eq!(
+            with("sftp://me:other@h/f"),
+            Some(("me".to_owned(), "other".to_owned()))
+        );
     }
 }

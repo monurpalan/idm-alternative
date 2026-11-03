@@ -31,6 +31,10 @@ export default {
 	'The server asks for a user name and password ({realm}).':
 		'Sunucu kullanıcı adı ve parola istiyor ({realm}).',
 	'The server asks for a user name and password.': 'Sunucu kullanıcı adı ve parola istiyor.',
+	'The password is not the passphrase of the SSH key {key}.':
+		'Parola, {key} SSH anahtarının parolası değil.',
+	'The SSH key {key} is protected by a passphrase: enter it as the password.':
+		'{key} SSH anahtarı parolayla korunuyor: parolasını parola alanına girin.',
 	'Logs in as {user} (saved for this site)': '{user} olarak giriş yapılır (bu site için kayıtlı)',
 	'Size unknown': 'Boyut bilinmiyor',
 	'Checked against the {algorithm} checksum shown on the page, if the publisher posts none':

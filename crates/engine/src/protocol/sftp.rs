@@ -1,8 +1,9 @@
 //! SFTP over SSH. The server's host key is checked against `~/.ssh/known_hosts` and, when the
 //! download gives one, a known-hosts file of the program's own, where a server seen for the
-//! first time is recorded; a key that changed is refused. Logs in with the password given, or
-//! else with the user's usual keys (`~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`, without a
-//! passphrase).
+//! first time is recorded; a key that changed is refused. Logs in with the password given,
+//! else with the keys in the user's SSH agent, else with the user's usual keys
+//! (`~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`): a key protected by a passphrase is opened
+//! with the password given, kept as passwords are (a saved login).
 
 use std::io::SeekFrom;
 use std::path::PathBuf;
@@ -10,6 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use russh::client::{self, Handle};
 use russh::keys;
+use russh::keys::agent::client::{AgentClient, AgentStream};
 use russh::keys::{PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate, known_hosts};
 use russh_sftp::client::SftpSession;
 use tokio::io::AsyncSeekExt;
@@ -24,16 +26,12 @@ pub(super) struct Sftp {
     login: Login,
     user: String,
     known_hosts: Option<PathBuf>,
+    ssh_dir: Option<PathBuf>,
     insecure: bool,
 }
 
 impl Sftp {
-    pub(super) fn new(
-        url: &url::Url,
-        login: Login,
-        known_hosts: Option<PathBuf>,
-        insecure: bool,
-    ) -> Self {
+    pub(super) fn new(url: &url::Url, login: Login, opts: &crate::download::Options) -> Self {
         let user = match &login {
             Some((user, _)) => user.clone(),
             None => std::env::var("USERNAME")
@@ -46,8 +44,9 @@ impl Sftp {
             path: super::path(url),
             login,
             user,
-            known_hosts,
-            insecure,
+            known_hosts: opts.known_hosts.clone(),
+            ssh_dir: opts.ssh_dir.clone(),
+            insecure: opts.insecure,
         }
     }
 
@@ -110,25 +109,39 @@ impl Sftp {
     }
 
     async fn log_in(&self, ssh: &mut Handle<Client>) -> Result<()> {
-        if let Some((user, password)) = &self.login {
+        // With no password, the user name alone (`sftp://me@host/`): a passphrase is not given.
+        let secret = self
+            .login
+            .as_ref()
+            .map(|(_, password)| password.as_str())
+            .filter(|p| !p.is_empty());
+        if let Some(password) = secret {
             let done = ssh
-                .authenticate_password(user, password)
+                .authenticate_password(&self.user, password)
                 .await
                 .map_err(ssh_error)?;
-            return if done.success() {
-                Ok(())
-            } else {
-                Err(Error::AuthRequired { realm: None })
-            };
+            if done.success() {
+                return Ok(());
+            }
         }
-        let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"));
-        let keys = ["id_ed25519", "id_ecdsa", "id_rsa"]
-            .iter()
-            .filter_map(|name| Some(PathBuf::from(home.clone()?).join(".ssh").join(name)))
-            .filter(|p| p.is_file());
-        for path in keys {
-            let Ok(key) = keys::load_secret_key(&path, None) else {
-                continue; // a passphrase, or a kind of key that cannot be read
+        if self.log_in_with_agent(ssh).await {
+            return Ok(());
+        }
+        let mut locked = None;
+        for path in self.key_files() {
+            let key = match keys::load_secret_key(&path, None) {
+                Ok(key) => key,
+                Err(keys::Error::KeyIsEncrypted) => {
+                    let opened = secret.and_then(|s| keys::load_secret_key(&path, Some(s)).ok());
+                    match opened {
+                        Some(key) => key,
+                        None => {
+                            locked.get_or_insert(path);
+                            continue;
+                        }
+                    }
+                }
+                Err(_) => continue, // a kind of key that cannot be read
             };
             let hash = ssh.best_supported_rsa_hash().await.ok().flatten().flatten();
             let key = PrivateKeyWithHashAlg::new(Arc::new(key), hash);
@@ -141,7 +154,51 @@ impl Sftp {
                 return Ok(());
             }
         }
-        Err(Error::AuthRequired { realm: None })
+        Err(match locked {
+            Some(key) => Error::KeyLocked {
+                key: key.display().to_string(),
+                wrong: secret.is_some(),
+            },
+            None => Error::AuthRequired { realm: None },
+        })
+    }
+
+    /// The user's usual keys, those that are there.
+    fn key_files(&self) -> Vec<PathBuf> {
+        let dir = self.ssh_dir.clone().or_else(|| {
+            let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))?;
+            Some(PathBuf::from(home).join(".ssh"))
+        });
+        let Some(dir) = dir else { return Vec::new() };
+        ["id_ed25519", "id_ecdsa", "id_rsa"]
+            .iter()
+            .map(|name| dir.join(name))
+            .filter(|p| p.is_file())
+            .collect()
+    }
+
+    /// Logs in with a key the user's SSH agent holds, when there is an agent: OpenSSH's
+    /// (`SSH_AUTH_SOCK`; on Windows its service's pipe) or Pageant. Whatever goes wrong with
+    /// the agent, the key files are tried next.
+    async fn log_in_with_agent(&self, ssh: &mut Handle<Client>) -> bool {
+        let Some(mut agent) = agent().await else {
+            return false;
+        };
+        let Ok(identities) = agent.request_identities().await else {
+            return false;
+        };
+        for identity in identities {
+            let key = identity.public_key().into_owned();
+            let hash = ssh.best_supported_rsa_hash().await.ok().flatten().flatten();
+            if let Ok(done) = ssh
+                .authenticate_publickey_with(&self.user, key, hash, &mut agent)
+                .await
+                && done.success()
+            {
+                return true;
+            }
+        }
+        false
     }
 
     fn failed(&self, e: &russh_sftp::client::error::Error) -> Error {
@@ -154,6 +211,29 @@ impl Sftp {
             _ => Error::Remote(format!("SFTP: {e}")),
         }
     }
+}
+
+type Agent = AgentClient<Box<dyn AgentStream + Send + Unpin>>;
+
+#[cfg(unix)]
+async fn agent() -> Option<Agent> {
+    AgentClient::connect_env()
+        .await
+        .ok()
+        .map(AgentClient::dynamic)
+}
+
+#[cfg(windows)]
+async fn agent() -> Option<Agent> {
+    let pipe =
+        std::env::var_os("SSH_AUTH_SOCK").unwrap_or_else(|| r"\\.\pipe\openssh-ssh-agent".into());
+    if let Ok(agent) = AgentClient::connect_named_pipe(pipe).await {
+        return Some(agent.dynamic());
+    }
+    AgentClient::connect_pageant()
+        .await
+        .ok()
+        .map(AgentClient::dynamic)
 }
 
 fn ssh_error(e: russh::Error) -> Error {

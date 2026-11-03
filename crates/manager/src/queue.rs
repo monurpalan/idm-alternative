@@ -267,7 +267,10 @@ impl Inner {
         let logged_in = why.is_none()
             && matches!(
                 result,
-                Err(Error::Engine(shardload_engine::Error::AuthRequired { .. }))
+                Err(Error::Engine(
+                    shardload_engine::Error::AuthRequired { .. }
+                        | shardload_engine::Error::KeyLocked { .. }
+                ))
             )
             && self.use_saved_login(id).await;
         let recorded = match (&result, why) {

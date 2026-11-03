@@ -363,9 +363,15 @@
 			<span title={batch.last}>{batch.last.split('/').pop()}</span>
 		{:else if info?.needs_login}
 			<span class="strong"
-				>{info.realm
-					? t('The server asks for a user name and password ({realm}).', { realm: info.realm })
-					: t('The server asks for a user name and password.')}</span
+				>{info.ssh_key
+					? info.wrong_passphrase
+						? t('The password is not the passphrase of the SSH key {key}.', { key: info.ssh_key })
+						: t('The SSH key {key} is protected by a passphrase: enter it as the password.', {
+								key: info.ssh_key
+							})
+					: info.realm
+						? t('The server asks for a user name and password ({realm}).', { realm: info.realm })
+						: t('The server asks for a user name and password.')}</span
 			>
 		{:else if info}
 			{#if info.saved_login}{t('Logs in as {user} (saved for this site)', { user: info.saved_login })} ·{/if}

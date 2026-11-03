@@ -106,6 +106,8 @@ pub struct Options {
     /// is recorded (its key is then trusted, and a changed key refused). Without it only
     /// servers in `~/.ssh/known_hosts` are trusted.
     pub known_hosts: Option<PathBuf>,
+    /// SFTP: the folder with the user's SSH keys; `None` is `~/.ssh`.
+    pub ssh_dir: Option<PathBuf>,
     /// Never negotiate HTTP/2.
     pub http1_only: bool,
     pub split: SplitPolicy,
@@ -191,6 +193,7 @@ impl Default for Options {
             proxy: None,
             insecure: false,
             known_hosts: None,
+            ssh_dir: None,
             http1_only: false,
             split: SplitPolicy::default(),
             limiters: Vec::new(),

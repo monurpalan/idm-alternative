@@ -147,7 +147,7 @@ impl ErrorKind {
     pub(crate) fn of(e: &shardload_engine::Error) -> Option<Self> {
         use shardload_engine::Error as E;
         Some(match e {
-            E::AuthRequired { .. } => ErrorKind::Auth,
+            E::AuthRequired { .. } | E::KeyLocked { .. } => ErrorKind::Auth,
             E::Status(404) | E::LinkExpired(410) | E::NotFound(_) => ErrorKind::Missing,
             E::LinkExpired(_) => ErrorKind::Expired,
             E::FileChanged | E::HtmlResponse => ErrorKind::Changed,

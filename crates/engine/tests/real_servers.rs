@@ -126,3 +126,75 @@ async fn ftps_resumes() {
     );
     assert_same(&servers, &out);
 }
+
+/// A folder of SSH keys holding `key` (from setup.sh) as `id_ed25519`.
+fn ssh_dir(servers: &Path, dir: &WorkDir, key: &str) -> PathBuf {
+    let keys = dir.join(&format!("keys-{key}"));
+    std::fs::create_dir_all(&keys).expect("keys");
+    std::fs::copy(servers.join(key), keys.join("id_ed25519")).expect("key");
+    keys
+}
+
+/// SFTP from OpenSSH with the user's key: without a passphrase; with one, opened by the
+/// password given (and a clear error without it, or with a wrong one); or with the password.
+#[tokio::test(flavor = "multi_thread")]
+async fn sftp_keys_with_and_without_a_passphrase() {
+    let Some(servers) = servers() else { return };
+    let dir = workdir("real-sftp");
+    let known = dir.join("known_hosts");
+    let options = |key: &str| Options {
+        known_hosts: Some(known.clone()),
+        ssh_dir: Some(ssh_dir(&servers, &dir, key)),
+        ..opts(4)
+    };
+    let url = |login: &str| format!("sftp://{login}@127.0.0.1:9922/home/shard/pub/file.bin");
+
+    let out = dir.join("plain.bin");
+    let p = probe(&url(USER), &[], &options("id_plain"))
+        .await
+        .expect("probe");
+    assert_eq!((p.size, p.resumable), (Some(SIZE), true));
+    get(&request(url(USER), &out), &options("id_plain"))
+        .await
+        .expect("with a key without a passphrase");
+    assert_same(&servers, &out);
+
+    let locked = options("id_locked");
+    let e = get(&request(url(USER), &dir.join("none.bin")), &locked).await;
+    assert!(
+        matches!(&e, Err(Error::KeyLocked { key, wrong: false }) if key.ends_with("id_ed25519")),
+        "{e:?}"
+    );
+    let e = get(
+        &request(url(&format!("{USER}:nope")), &dir.join("wrong.bin")),
+        &locked,
+    )
+    .await;
+    assert!(
+        matches!(&e, Err(Error::KeyLocked { wrong: true, .. })),
+        "{e:?}"
+    );
+    let message = e.expect_err("wrong").to_string();
+    assert!(
+        message.contains("passphrase") && message.contains("not it"),
+        "{message}"
+    );
+
+    let out = dir.join("locked.bin");
+    get(&request(url(&format!("{USER}:key-pass")), &out), &locked)
+        .await
+        .expect("with the passphrase");
+    assert_same(&servers, &out);
+    // As a saved login sends it.
+    let out = dir.join("saved.bin");
+    let mut req = request(url(USER), &out);
+    req.headers = vec![shardload_engine::basic_auth(USER, "key-pass")];
+    get(&req, &locked).await.expect("with a saved passphrase");
+    assert_same(&servers, &out);
+    // The account's password still logs in, the key unopened.
+    let out = dir.join("password.bin");
+    get(&request(url(&format!("{USER}:{PASSWORD}")), &out), &locked)
+        .await
+        .expect("with the password");
+    assert_same(&servers, &out);
+}

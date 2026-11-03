@@ -108,6 +108,10 @@ export interface Probe {
 	/** The site's saved login answered: its user name. */
 	saved_login: string | null;
 	realm: string | null;
+	/** SFTP: the user's SSH key that needs its passphrase, given as the password. */
+	ssh_key: string | null;
+	/** The password given does not open that key. */
+	wrong_passphrase: boolean;
 }
 
 

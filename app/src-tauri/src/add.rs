@@ -18,6 +18,10 @@ pub(crate) struct ProbeView {
     /// The server asks for a user name and password first.
     needs_login: bool,
     realm: Option<String>,
+    /// SFTP: the user's SSH key that needs its passphrase (given as the password), and
+    /// whether the password given was not it.
+    ssh_key: Option<String>,
+    wrong_passphrase: bool,
     /// The login saved for the site answered it: its user name.
     saved_login: Option<String>,
 }
@@ -85,7 +89,15 @@ pub(crate) async fn probe(
         .await
     {
         Ok(p) => Ok(view(p, None)),
-        Err(shardload_manager::Error::Engine(shardload_engine::Error::AuthRequired { realm })) => {
+        Err(shardload_manager::Error::Engine(
+            e @ (shardload_engine::Error::AuthRequired { .. }
+            | shardload_engine::Error::KeyLocked { .. }),
+        )) => {
+            let (realm, ssh_key, wrong_passphrase) = match e {
+                shardload_engine::Error::KeyLocked { key, wrong } => (None, Some(key), wrong),
+                shardload_engine::Error::AuthRequired { realm } => (realm, None, false),
+                _ => (None, None, false),
+            };
             // A saved login for the site: the download will use it, so ask with it too.
             if login.is_none()
                 && let Ok(Some((user, password))) = app.manager.saved_login(&url).await
@@ -107,6 +119,8 @@ pub(crate) async fn probe(
                 url,
                 needs_login: true,
                 realm,
+                ssh_key,
+                wrong_passphrase,
                 ..ProbeView::default()
             })
         }
