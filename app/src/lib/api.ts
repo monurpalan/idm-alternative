@@ -29,7 +29,7 @@ export interface Task {
 	status: Status;
 	error: string | null;
 	/** What the failure needs from the user, when it is something they can fix. */
-	error_kind: 'auth' | 'expired' | 'changed' | 'disk' | 'checksum' | 'offline' | null;
+	error_kind: 'auth' | 'expired' | 'changed' | 'disk' | 'checksum' | 'offline' | 'missing' | null;
 	category: Category;
 	connections: number;
 	speed_limit: number | null;
@@ -583,6 +583,7 @@ export async function onManagerEvent(
 
 export * from './api/extensions.ts';
 export * from './api/origin.ts';
+export * from './api/wayback.ts';
 export * from './api/after.ts';
 export * from './api/deadline.ts';
 export * from './api/groups.ts';

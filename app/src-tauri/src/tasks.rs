@@ -148,6 +148,28 @@ pub(crate) async fn set_speed_limit(
         .map_err(msg)
 }
 
+/// Opens the Wayback Machine's list of the copies it has of a download's address, in the
+/// browser: for a file its server no longer has.
+#[tauri::command]
+pub(crate) async fn search_wayback(
+    handle: AppHandle,
+    app: State<'_, App>,
+    id: TaskId,
+) -> CmdResult<()> {
+    let task = app.manager.get(id).await.map_err(msg)?;
+    let url = shardload_manager::wayback::search_url(&task.url);
+    handle.opener().open_url(url, None::<&str>).map_err(msg)
+}
+
+/// Asks the Wayback Machine once for its closest copy of a download's address and adds it.
+#[tauri::command]
+pub(crate) async fn add_archived_copy(
+    app: State<'_, App>,
+    id: TaskId,
+) -> CmdResult<Option<shardload_manager::wayback::ArchivedCopy>> {
+    app.manager.add_archived_copy(id).await.map_err(msg)
+}
+
 /// Opens the page the download came from (or its address) in the default browser and waits
 /// for the extension to capture the download again: the captured link then continues this
 /// download instead of starting a new one.

@@ -196,6 +196,11 @@ fn compressed_and_cut_short_files_are_refused() {
 #[tokio::test(flavor = "multi_thread")]
 async fn files_made_by_zsyncmake_work() {
     let Ok(_) = std::process::Command::new("zsyncmake").arg("-V").output() else {
+        // CI installs it on Linux: there it must not be skipped.
+        assert!(
+            !(cfg!(target_os = "linux") && std::env::var_os("CI").is_some()),
+            "zsyncmake missing on CI"
+        );
         eprintln!("zsyncmake not found: skipped");
         return;
     };

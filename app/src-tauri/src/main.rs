@@ -266,6 +266,8 @@ fn main() {
             set_speed_limit,
             refresh_link,
             refresh_in_browser,
+            search_wayback,
+            add_archived_copy,
             inspect_media,
             inspect_torrent,
             inspect_archive,

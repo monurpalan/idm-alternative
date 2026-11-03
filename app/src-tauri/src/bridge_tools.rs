@@ -427,6 +427,10 @@ pub(crate) fn task_view(t: &Task, live: Option<&Live>) -> serde_json::Value {
         "path": t.path,
         "status": t.status,
         "error": t.error,
+        "error_kind": t.error_kind,
+        // A file its server no longer has: where the Wayback Machine lists its copies.
+        "wayback": (t.error_kind == Some(shardload_manager::ErrorKind::Missing))
+            .then(|| shardload_manager::wayback::search_url(&t.url)),
         "size": t.size,
         "received": received,
         "speed": speed.round(),

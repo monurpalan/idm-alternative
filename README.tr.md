@@ -60,6 +60,9 @@ AppImage (`chmod +x` ve çalıştırın).
 - **Torrent.** Magnet bağlantıları ve `.torrent` dosyaları aynı listede, dosya seçerek;
   indirme bitince arkada paylaşmaya devam etmez.
 - **FTP, FTPS ve SFTP** aynı listede: parça parça, kaldığı yerden, kayıtlı girişle.
+- **Sunucudan kalkmış mı?** "Bulunamadı" ile biten indirme Wayback Machine'i önerir: adresin
+  arşivdeki kopyaları tarayıcıda, ya da en yakın kopya yeni bir indirme olarak. Siz tıklamadan
+  hiçbir şey sorulmaz.
 - **Yalnız değişen kısım.** Elinizdeki bir dosyanın yeni sürümü, sunucu yanında bir `.zsync`
   yayınlıyorsa sizdeki kopyadan kurulur: yalnız değişen kısımlar iner.
 - **Bir dosyayı aynı anda birkaç sunucudan indirir** (aynalar ve Metalink); her sunucunun aynı

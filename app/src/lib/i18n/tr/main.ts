@@ -74,6 +74,7 @@ export default {
 	'Moving {p}%': 'Taşınıyor %{p}',
 	'Login needed': 'Giriş gerekli',
 	'Link expired': 'Bağlantı eskidi',
+	'Not found': 'Bulunamadı',
 	'No downloads here': 'Burada indirme yok',
 	'Paste a link with Ctrl+V, drop one on the window, or choose New download.':
 		'Ctrl+V ile bir bağlantı yapıştırın, pencereye bırakın ya da Yeni indirme’yi seçin.',

@@ -5,6 +5,7 @@
 	import SkeletonFact from './SkeletonFact.svelte';
 	import SlowHints from './SlowHints.svelte';
 	import StructureFact from './StructureFact.svelte';
+	import ArchiveFact from './ArchiveFact.svelte';
 	// Details of one download: where it goes, live numbers, a speed graph, the segment map
 	// (the engine's live splitting, one bar per connection's range), its own speed limit and
 	// "refresh link" for links that expired.
@@ -335,6 +336,9 @@
 			{#if task.structure && task.status === 'done'}
 				<StructureFact structure={task.structure} />
 			{/if}
+			{#if task.error_kind === 'missing' && task.status === 'error'}
+				<ArchiveFact id={task.id} {onerror} />
+			{/if}
 			{#if disguised}
 				<dt>{t('Warning')}</dt>
 				<dd class="error wrap">
@@ -380,7 +384,7 @@
 			</form>
 		{/if}
 		{#if task.status !== 'done'}
-			<form class="inline two" class:attention={task.error_kind === 'expired' || link?.expired} onsubmit={refresh}>
+			<form class="inline two" class:attention={task.error_kind === 'expired' || task.error_kind === 'missing' || link?.expired} onsubmit={refresh}>
 				<label for="newurl">{t('New link')}</label>
 				<Input id="newurl" type="url" bind:value={newUrl} placeholder={t('A fresh link to the same file')} />
 				<Button type="submit" disabled={refreshing || !newUrl.trim()}>{t('Use it')}</Button>

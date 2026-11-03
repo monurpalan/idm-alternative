@@ -58,6 +58,9 @@ saves videos and torrents. No ads, no trial, no account.</p>
 - **Torrents.** Magnet links and `.torrent` files in the same list, with a choice of files;
   nothing keeps seeding afterwards.
 - **FTP, FTPS and SFTP** in the same list: in parts, resumable, with a saved login.
+- **Gone from its server?** A download that fails with "not found" offers the Wayback Machine:
+  its copies of the address in your browser, or its closest copy added as a download. Nothing
+  is asked until you click.
 - **Only what changed.** A newer version of a file you have, from a server that publishes a
   `.zsync` next to it, is built from your copy: only the changed parts are downloaded.
 - **One file from several servers at once** (mirrors and Metalink), each checked to serve the

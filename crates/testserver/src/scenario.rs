@@ -129,6 +129,8 @@ pub struct Scenario {
     pub refuse_status: Option<u16>,
     /// The URL starts returning `403` this many seconds after its first request.
     pub ttl: Option<u64>,
+    /// Every request is answered with this status and no file (`410`: gone for good).
+    pub status: Option<u16>,
     /// How validators behave.
     pub etag: EtagMode,
     /// GET requests after the first `n` get `200 text/html` (a login / error page).
@@ -185,6 +187,7 @@ impl Default for Scenario {
             max_conns: None,
             refuse_status: None,
             ttl: None,
+            status: None,
             etag: EtagMode::Static,
             html_error_after: None,
             no_length: false,

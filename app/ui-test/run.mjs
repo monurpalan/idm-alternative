@@ -353,6 +353,21 @@ async function flows(page, home, test) {
 		await waitFor(() => page.exists('tbody tr.s-done', 'data.iso'), 'the download to finish', 60_000);
 		execFileSync(exe('testserver'), ['verify', join(home, 'downloads', 'data.iso'), '--size', '5M', '--seed', '61']);
 	});
+
+	await test('a file the server no longer has offers the Wayback Machine', async () => {
+		await page.click('aside button.primary');
+		await waitFor(() => page.exists('dialog[open] input.field'), 'the dialog');
+		await page.click('dialog[open] input.field');
+		await page.type(`${SERVER}/file/gone.iso?status=410`);
+		// Not asked about first: the server answers nothing but 410.
+		await page.click('dialog[open] button[type=submit]');
+		await waitFor(async () => !(await page.exists('dialog[open]')), 'the dialog to close');
+		await waitFor(() => page.exists('tbody tr', 'Not found'), 'it to fail as not found', 30_000);
+		await page.click(row, 'Not found');
+		await waitFor(() => page.exists('section.pane', 'Search the Wayback Machine'), 'the archive actions');
+		if (!(await page.exists('section.pane button', 'Add the archived copy'))) throw new Error('no "Add the archived copy"');
+		await page.click('section.pane button.icon-only');
+	});
 }
 
 /** An FTP server over `root` with `pub/data.iso` (5 MiB, seed 61) in it; its port. */

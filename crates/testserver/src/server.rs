@@ -117,6 +117,13 @@ async fn serve_file(
     if sc.latency_ms > 0 {
         tokio::time::sleep(Duration::from_millis(sc.latency_ms)).await;
     }
+    if let Some(code) = sc.status.and_then(|c| StatusCode::from_u16(c).ok()) {
+        return text(
+            code,
+            "no such file here
+",
+        );
+    }
 
     if sc.redirect > 0 {
         let query = uri.query().unwrap_or_default();

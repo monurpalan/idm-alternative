@@ -41,6 +41,7 @@ mod streams;
 mod task;
 pub mod torrent;
 mod transfer;
+pub mod wayback;
 pub mod ytdlp;
 
 use std::collections::{HashMap, HashSet};

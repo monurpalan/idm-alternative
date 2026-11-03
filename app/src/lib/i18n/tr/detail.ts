@@ -13,6 +13,11 @@ export default {
 	password: 'parola',
 	Remember: 'Hatırla',
 	'New link': 'Yeni bağlantı',
+	Archive: 'Arşiv',
+	'Search the Wayback Machine': "Wayback Machine'de ara",
+	'Add the archived copy': 'Arşivdeki kopyayı ekle',
+	'Added the copy archived on {date}.': '{date} tarihli arşiv kopyası eklendi.',
+	'The Wayback Machine has no copy of this address.': "Wayback Machine'de bu adresin kopyası yok.",
 	'Waiting for the browser: start the download again on the page':
 		'Tarayıcı bekleniyor: indirmeyi sayfada yeniden başlatın',
 	'Link not changed: {e}': 'Bağlantı değiştirilmedi: {e}',

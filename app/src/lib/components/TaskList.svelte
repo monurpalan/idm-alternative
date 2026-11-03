@@ -251,7 +251,9 @@
 					? t('Login needed')
 					: task.error_kind === 'expired'
 						? t('Link expired')
-						: t('Failed');
+						: task.error_kind === 'missing'
+							? t('Not found')
+							: t('Failed');
 		}
 	}
 </script>

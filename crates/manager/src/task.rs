@@ -138,6 +138,9 @@ pub enum ErrorKind {
     /// No route to the internet: the download is queued and checks again on its own. Not a
     /// failure, so nothing needs doing.
     Offline,
+    /// The server has no such file (404, 410, or an FTP/SFTP server says so): an archived copy
+    /// may still exist (see [`crate::wayback`]).
+    Missing,
 }
 
 impl ErrorKind {
@@ -145,6 +148,7 @@ impl ErrorKind {
         use shardload_engine::Error as E;
         Some(match e {
             E::AuthRequired { .. } => ErrorKind::Auth,
+            E::Status(404) | E::LinkExpired(410) | E::NotFound(_) => ErrorKind::Missing,
             E::LinkExpired(_) => ErrorKind::Expired,
             E::FileChanged | E::HtmlResponse => ErrorKind::Changed,
             E::DiskFull { .. } => ErrorKind::Disk,
@@ -161,6 +165,7 @@ impl ErrorKind {
             ErrorKind::Disk => "disk",
             ErrorKind::Checksum => "checksum",
             ErrorKind::Offline => "offline",
+            ErrorKind::Missing => "missing",
         }
     }
 
@@ -172,6 +177,7 @@ impl ErrorKind {
             "disk" => ErrorKind::Disk,
             "checksum" => ErrorKind::Checksum,
             "offline" => ErrorKind::Offline,
+            "missing" => ErrorKind::Missing,
             _ => return None,
         })
     }
