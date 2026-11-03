@@ -90,11 +90,6 @@ pub(crate) fn parse_playlist(url: &str, text: &str) -> Result<Playlist> {
 }
 
 /// A playlist, a live one too.
-#[allow(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "one long sequence kept together; to be split when it next changes"
-)]
 pub(crate) fn parse_any(url: &str, text: &str) -> Result<Playlist> {
     let lines: Vec<&str> = text
         .lines()
@@ -105,45 +100,8 @@ pub(crate) fn parse_any(url: &str, text: &str) -> Result<Playlist> {
         return Err(Error::State(format!("{url} is not an HLS playlist")));
     }
 
-    // Master playlist: the variant with the most pixels, then bandwidth.
-    let mut best: Option<(u64, u64, String, Option<String>)> = None;
-    let mut audio_groups: HashMap<String, String> = HashMap::new();
-    for (i, line) in lines.iter().enumerate() {
-        if let Some(a) = line.strip_prefix("#EXT-X-MEDIA:")
-            && attr(a, "TYPE") == Some("AUDIO")
-            && let (Some(group), Some(uri)) = (attr(a, "GROUP-ID"), attr(a, "URI"))
-        {
-            let default = attr(a, "DEFAULT") == Some("YES");
-            if default || !audio_groups.contains_key(group) {
-                audio_groups.insert(group.to_owned(), resolve(url, uri));
-            }
-        }
-        if let Some(a) = line.strip_prefix("#EXT-X-STREAM-INF:")
-            && let Some(uri) = lines[i + 1..].iter().find(|l| !l.starts_with('#'))
-        {
-            let pixels = attr(a, "RESOLUTION")
-                .and_then(|r| r.split_once('x'))
-                .and_then(|(w, h)| Some(w.parse::<u64>().ok()? * h.parse::<u64>().ok()?))
-                .unwrap_or(0);
-            let bw = attr(a, "BANDWIDTH")
-                .and_then(|b| b.parse().ok())
-                .unwrap_or(0);
-            if best
-                .as_ref()
-                .is_none_or(|(p, b, ..)| (pixels, bw) > (*p, *b))
-            {
-                best = Some((
-                    pixels,
-                    bw,
-                    resolve(url, uri),
-                    attr(a, "AUDIO").map(str::to_owned),
-                ));
-            }
-        }
-    }
-    if let Some((_, _, video, group)) = best {
-        let audio = group.and_then(|g| audio_groups.get(&g).cloned());
-        return Ok(Playlist::Best { video, audio });
+    if let Some(best) = master(url, &lines) {
+        return Ok(best);
     }
 
     let mut segments = Vec::new();
@@ -238,6 +196,48 @@ pub(crate) fn parse_any(url: &str, text: &str) -> Result<Playlist> {
         ended,
         target,
     }))
+}
+
+/// A master playlist: the variant with the most pixels, then bandwidth, with its audio.
+fn master(url: &str, lines: &[&str]) -> Option<Playlist> {
+    let mut best: Option<(u64, u64, String, Option<String>)> = None;
+    let mut audio_groups: HashMap<String, String> = HashMap::new();
+    for (i, line) in lines.iter().enumerate() {
+        if let Some(a) = line.strip_prefix("#EXT-X-MEDIA:")
+            && attr(a, "TYPE") == Some("AUDIO")
+            && let (Some(group), Some(uri)) = (attr(a, "GROUP-ID"), attr(a, "URI"))
+        {
+            let default = attr(a, "DEFAULT") == Some("YES");
+            if default || !audio_groups.contains_key(group) {
+                audio_groups.insert(group.to_owned(), resolve(url, uri));
+            }
+        }
+        if let Some(a) = line.strip_prefix("#EXT-X-STREAM-INF:")
+            && let Some(uri) = lines[i + 1..].iter().find(|l| !l.starts_with('#'))
+        {
+            let pixels = attr(a, "RESOLUTION")
+                .and_then(|r| r.split_once('x'))
+                .and_then(|(w, h)| Some(w.parse::<u64>().ok()? * h.parse::<u64>().ok()?))
+                .unwrap_or(0);
+            let bw = attr(a, "BANDWIDTH")
+                .and_then(|b| b.parse().ok())
+                .unwrap_or(0);
+            if best
+                .as_ref()
+                .is_none_or(|(p, b, ..)| (pixels, bw) > (*p, *b))
+            {
+                best = Some((
+                    pixels,
+                    bw,
+                    resolve(url, uri),
+                    attr(a, "AUDIO").map(str::to_owned),
+                ));
+            }
+        }
+    }
+    let (_, _, video, group) = best?;
+    let audio = group.and_then(|g| audio_groups.get(&g).cloned());
+    Some(Playlist::Best { video, audio })
 }
 
 /// `length[@offset]`.

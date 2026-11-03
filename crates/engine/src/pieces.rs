@@ -76,11 +76,6 @@ pub(crate) async fn bad_pieces(
 
 /// Checks a complete `part` of `size` bytes against `pieces` and downloads the corrupt ones
 /// again from `urls` (the first that serves them), written in place; then checks again.
-#[allow(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "one long sequence kept together; to be split when it next changes"
-)]
 pub(crate) async fn repair(
     http: &Http,
     urls: &[String],
@@ -108,34 +103,50 @@ pub(crate) async fn repair(
     tracing::warn!(pieces = ?bad, "corrupt pieces: downloading them again");
     for &i in &bad {
         let (start, end) = pieces.range(i, size);
-        let mut last = None;
-        for url in urls {
-            match fetch_range(http, url, start, end, cancel).await {
-                Ok(data) => {
-                    let mut f = std::fs::OpenOptions::new().write(true).open(part)?;
-                    f.seek(SeekFrom::Start(start))?;
-                    f.write_all(&data)?;
-                    last = None;
-                    break;
-                }
-                Err(Error::Cancelled) => return Err(Error::Cancelled),
-                Err(e) => last = Some(e),
-            }
-        }
-        if let Some(e) = last {
-            return Err(e);
-        }
+        refetch(http, urls, part, (start, end), cancel).await?;
     }
     let still = bad_pieces(part, pieces, cancel).await?;
-    if still.is_empty() {
-        tracing::info!(repaired = bad.len(), "corrupt pieces downloaded again");
+    repaired(bad.len(), still.len(), pieces.hashes.len())
+}
+
+/// How the repair went: `bad` pieces downloaded again, of which `still` are corrupt.
+fn repaired(bad: usize, still: usize, all: usize) -> Result<()> {
+    if still == 0 {
+        tracing::info!(repaired = bad, "corrupt pieces downloaded again");
         Ok(())
     } else {
         Err(Error::State(format!(
-            "{} of {} pieces are still corrupt after downloading them again",
-            still.len(),
-            pieces.hashes.len()
+            "{still} of {all} pieces are still corrupt after downloading them again"
         )))
+    }
+}
+
+/// Downloads `start..end` of the file again from the first of `urls` that serves it, into
+/// `part`; the last address's error when none does.
+async fn refetch(
+    http: &Http,
+    urls: &[String],
+    part: &Path,
+    (start, end): (u64, u64),
+    cancel: &CancellationToken,
+) -> Result<()> {
+    let mut last = None;
+    for url in urls {
+        match fetch_range(http, url, start, end, cancel).await {
+            Ok(data) => {
+                let mut f = std::fs::OpenOptions::new().write(true).open(part)?;
+                f.seek(SeekFrom::Start(start))?;
+                f.write_all(&data)?;
+                last = None;
+                break;
+            }
+            Err(Error::Cancelled) => return Err(Error::Cancelled),
+            Err(e) => last = Some(e),
+        }
+    }
+    match last {
+        Some(e) => Err(e),
+        None => Ok(()),
     }
 }
 

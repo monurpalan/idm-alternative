@@ -6,11 +6,6 @@ impl Inner {
     /// A stream (HLS or DASH): the name comes from the page title (or the playlist URL) with
     /// the extension of what will be written: `.mp4` with ffmpeg or for DASH (fragmented
     /// MP4), `.ts` for HLS without ffmpeg.
-    #[allow(
-        clippy::too_many_lines,
-        clippy::cognitive_complexity,
-        reason = "one long sequence kept together; to be split when it next changes"
-    )]
     pub(crate) async fn download_stream(
         &self,
         mut task: Task,
@@ -23,37 +18,8 @@ impl Inner {
         let path = match &task.path {
             Some(p) => p.clone(),
             None => {
-                std::fs::create_dir_all(&task.dir).map_err(shardload_engine::Error::from)?;
-                let base = task
-                    .name
-                    .clone()
-                    .or_else(|| shardload_engine::name::from_url(&task.url))
-                    .unwrap_or_else(|| "video".to_owned());
-                let stem = clip_stem(shardload_engine::name::split_extension(&base).0, &stream);
-                let ext = if ffmpeg.is_some() || stream.dash.is_some() {
-                    "mp4"
-                } else {
-                    "ts"
-                };
-                let name = shardload_engine::name::sanitize(&format!("{stem}.{ext}"));
-                let _one_at_a_time = self.naming.lock().await;
-                let taken: std::collections::HashSet<PathBuf> =
-                    self.db.paths_except(task.id).await?.into_iter().collect();
-                let path =
-                    shardload_engine::target_avoiding(&task.dir, &name, &task.url, conflict, |p| {
-                        taken.contains(p)
-                    });
-                let file_name = path
-                    .file_name()
-                    .map_or_else(|| name.clone(), |n| n.to_string_lossy().into_owned());
-                self.db
-                    .set_target(task.id, &file_name, &path, None, Category::Video)
-                    .await?;
-                task.name = Some(file_name);
-                task.path = Some(path.clone());
-                task.category = Category::Video;
-                self.emit(Event::Updated(task.clone()));
-                path
+                self.name_stream(&mut task, &stream, ffmpeg.is_some(), conflict)
+                    .await?
             }
         };
         // A clip's subtitles would not match its times.
@@ -133,33 +99,50 @@ impl Inner {
         reporter.await.ok();
         let outcome = result?;
         // Subtitles go next to the video; a subtitle that fails does not fail the download.
-        for (i, sub) in subtitles.iter().enumerate() {
-            let source = if is_dash {
-                shardload_engine::SubtitleSource::Dash {
-                    manifest: task.url.clone(),
-                    representation: sub.id.clone(),
-                }
-            } else {
-                shardload_engine::SubtitleSource::Hls {
-                    playlist: sub.id.clone(),
-                }
-            };
-            let label = sub.language.clone().unwrap_or_else(|| (i + 1).to_string());
-            let out = subtitle_path(&video_path, &label, "vtt");
-            match shardload_engine::download_subtitles(&source, &out, &task.headers, &opts).await {
-                Ok(_) => {
-                    // A DASH text track can be TTML rather than WebVTT.
-                    let is_xml = std::fs::read(&out)
-                        .map(|b| b.iter().find(|c| !c.is_ascii_whitespace()) == Some(&b'<'))
-                        .unwrap_or(false);
-                    if is_xml {
-                        std::fs::rename(&out, subtitle_path(&video_path, &label, "ttml")).ok();
-                    }
-                }
-                Err(e) => tracing::warn!(id = task.id, "subtitles {label} not saved: {e}"),
-            }
-        }
+        save_subtitles(&task, &subtitles, is_dash, &video_path, &opts).await;
         Ok(outcome)
+    }
+
+    /// Names a stream's file, in its folder, by the page title (or the playlist URL) with the
+    /// extension of what will be written: `.mp4` with ffmpeg or for DASH (fragmented MP4),
+    /// `.ts` for HLS without ffmpeg.
+    async fn name_stream(
+        &self,
+        task: &mut Task,
+        stream: &Stream,
+        ffmpeg: bool,
+        conflict: Conflict,
+    ) -> Result<PathBuf> {
+        std::fs::create_dir_all(&task.dir).map_err(shardload_engine::Error::from)?;
+        let base = task
+            .name
+            .clone()
+            .or_else(|| shardload_engine::name::from_url(&task.url))
+            .unwrap_or_else(|| "video".to_owned());
+        let stem = clip_stem(shardload_engine::name::split_extension(&base).0, stream);
+        let ext = if ffmpeg || stream.dash.is_some() {
+            "mp4"
+        } else {
+            "ts"
+        };
+        let name = shardload_engine::name::sanitize(&format!("{stem}.{ext}"));
+        let _one_at_a_time = self.naming.lock().await;
+        let taken: std::collections::HashSet<PathBuf> =
+            self.db.paths_except(task.id).await?.into_iter().collect();
+        let path = shardload_engine::target_avoiding(&task.dir, &name, &task.url, conflict, |p| {
+            taken.contains(p)
+        });
+        let file_name = path
+            .file_name()
+            .map_or_else(|| name.clone(), |n| n.to_string_lossy().into_owned());
+        self.db
+            .set_target(task.id, &file_name, &path, None, Category::Video)
+            .await?;
+        task.name = Some(file_name);
+        task.path = Some(path.clone());
+        task.category = Category::Video;
+        self.emit(Event::Updated(task.clone()));
+        Ok(path)
     }
 
     /// Some files out of a ZIP archive: on the first start a folder named after the archive
@@ -273,5 +256,41 @@ impl Inner {
             checksum_from: None,
             structure: None,
         })
+    }
+}
+
+/// Saves `subtitles` next to the video at `video_path`; one that fails is logged.
+async fn save_subtitles(
+    task: &Task,
+    subtitles: &[Subtitle],
+    is_dash: bool,
+    video_path: &Path,
+    opts: &Options,
+) {
+    for (i, sub) in subtitles.iter().enumerate() {
+        let source = if is_dash {
+            shardload_engine::SubtitleSource::Dash {
+                manifest: task.url.clone(),
+                representation: sub.id.clone(),
+            }
+        } else {
+            shardload_engine::SubtitleSource::Hls {
+                playlist: sub.id.clone(),
+            }
+        };
+        let label = sub.language.clone().unwrap_or_else(|| (i + 1).to_string());
+        let out = subtitle_path(video_path, &label, "vtt");
+        match shardload_engine::download_subtitles(&source, &out, &task.headers, opts).await {
+            Ok(_) => {
+                // A DASH text track can be TTML rather than WebVTT.
+                let is_xml = std::fs::read(&out)
+                    .map(|b| b.iter().find(|c| !c.is_ascii_whitespace()) == Some(&b'<'))
+                    .unwrap_or(false);
+                if is_xml {
+                    std::fs::rename(&out, subtitle_path(video_path, &label, "ttml")).ok();
+                }
+            }
+            Err(e) => tracing::warn!(id = task.id, "subtitles {label} not saved: {e}"),
+        }
     }
 }

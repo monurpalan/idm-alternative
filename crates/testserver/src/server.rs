@@ -1,5 +1,7 @@
 //! The HTTP router: `/file/{name}?<scenario>` plus `/_stats` and `/_reset`.
 
+mod request;
+
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -18,6 +20,7 @@ use bytes::Bytes;
 
 use crate::content;
 use crate::scenario::{EtagMode, Scenario};
+use request::*;
 
 /// Largest chunk written to the socket at once.
 const CHUNK: u64 = 64 << 10;
@@ -85,11 +88,6 @@ fn text(status: StatusCode, body: &'static str) -> Response {
     (status, body).into_response()
 }
 
-#[allow(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "one long sequence kept together; to be split when it next changes"
-)]
 async fn serve_file(
     State(app): State<Arc<AppState>>,
     Query(sc): Query<Scenario>,
@@ -103,16 +101,8 @@ async fn serve_file(
         extensions,
         ..
     } = parts;
-    // `<file>.zsync`: the `.zsync` of the file the same query serves.
     if let Some(file) = uri.path().strip_suffix(".zsync") {
-        let mut data = vec![0u8; sc.size.0 as usize];
-        crate::content::fill(sc.seed, 0, &mut data);
-        let name = file.rsplit('/').next().unwrap_or_default();
-        let url = match uri.query() {
-            Some(q) => format!("{name}?{q}"),
-            None => name.to_owned(),
-        };
-        return crate::zsync::make(&data, name, &url, 2048, 3, 5).into_response();
+        return zsync_of(&sc, file, uri.query());
     }
     if sc.latency_ms > 0 {
         tokio::time::sleep(Duration::from_millis(sc.latency_ms)).await;
@@ -126,109 +116,17 @@ async fn serve_file(
     }
 
     if sc.redirect > 0 {
-        let query = uri.query().unwrap_or_default();
-        let mut next: Vec<String> = query
-            .split('&')
-            .filter(|kv| !kv.starts_with("hop="))
-            .map(|kv| {
-                if kv.starts_with("redirect=") {
-                    format!("redirect={}", sc.redirect - 1)
-                } else {
-                    kv.to_owned()
-                }
-            })
-            .collect();
-        if sc.redirect_unique {
-            next.push(format!(
-                "hop={}",
-                app.next_hop.fetch_add(1, Ordering::Relaxed)
-            ));
-        }
-        // The path as received, still percent-encoded: a decoded non-ASCII name is not a
-        // valid Location.
-        let location = format!("{}?{}", uri.path(), next.join("&"));
-        return (StatusCode::FOUND, [(header::LOCATION, location)]).into_response();
+        return redirect(&app, &sc, &uri);
     }
 
     let url = app.url(&uri.to_string());
-    if version == Version::HTTP_2 {
-        url.h2_gets.fetch_add(1, Ordering::Relaxed);
-    }
-    if let Some(ConnectInfo(peer)) = extensions.get::<ConnectInfo<SocketAddr>>() {
-        url.peers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(*peer);
-    }
-    *url.user_agent
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner) = headers
-        .get(header::USER_AGENT)
-        .and_then(|v| v.to_str().ok())
-        .map(str::to_owned);
+    record_request(&url, version, &headers, &extensions);
 
-    if let Some(wanted) = &sc.only_ua {
-        let ua = headers
-            .get(header::USER_AGENT)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or_default();
-        if !ua.contains(wanted.as_str()) {
-            return text(StatusCode::FORBIDDEN, "browser not allowed\n");
-        }
+    if let Some(refused) = refused(&sc, &headers, &url) {
+        return refused;
     }
 
-    if let Some((name, wanted)) = sc.only_header.as_deref().and_then(|h| h.split_once(':')) {
-        let given = headers
-            .get(name.trim())
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or_default();
-        if !given.contains(wanted.trim()) {
-            return text(StatusCode::FORBIDDEN, "missing header\n");
-        }
-    }
-
-    if let Some(expected) = &sc.auth {
-        let given = headers
-            .get(header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Basic "))
-            .and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok());
-        if given.as_deref() != Some(expected.as_bytes()) {
-            return (
-                StatusCode::UNAUTHORIZED,
-                [(header::WWW_AUTHENTICATE, "Basic realm=\"shardload test\"")],
-                "login required\n",
-            )
-                .into_response();
-        }
-    }
-
-    if let Some(ttl) = sc.ttl {
-        let first = *url
-            .first_seen
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get_or_insert_with(Instant::now);
-        if first.elapsed() > Duration::from_secs(ttl) {
-            return text(StatusCode::FORBIDDEN, "link expired\n");
-        }
-    }
-
-    let nth_get = if method == Method::GET {
-        url.ranges
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(
-                headers
-                    .get(header::RANGE)
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or_default()
-                    .to_owned(),
-            );
-        url.gets.fetch_add(1, Ordering::Relaxed) + 1
-    } else {
-        url.gets.load(Ordering::Relaxed)
-    };
+    let nth_get = count_get(&url, &method, &headers);
 
     if sc.html_error_after.is_some_and(|n| nth_get > n) {
         return (
@@ -243,17 +141,7 @@ async fn serve_file(
     if sc.max_conns.is_some_and(|max| active > max) {
         url.active.fetch_sub(1, Ordering::AcqRel);
         url.refused.fetch_add(1, Ordering::Relaxed);
-        return match sc.refuse_status.and_then(|s| StatusCode::from_u16(s).ok()) {
-            Some(status) if status != StatusCode::SERVICE_UNAVAILABLE => {
-                text(status, "too many connections\n")
-            }
-            _ => (
-                StatusCode::SERVICE_UNAVAILABLE,
-                [(header::RETRY_AFTER, "1")],
-                "too many connections\n",
-            )
-                .into_response(),
-        };
+        return too_many_connections(&sc);
     }
     url.peak_active.fetch_max(active, Ordering::Relaxed);
     // From here on the connection guard owns the `active` slot.
@@ -279,64 +167,21 @@ async fn serve_file(
     );
 
     let ranges = sc.ranges && !sc.no_length;
-    let mut status = StatusCode::OK;
-    let (mut start, mut end) = (0u64, size); // end is exclusive
+    let Some((status, start, end)) =
+        requested(&sc, &headers, ranges, etag.as_deref(), &last_modified)
+    else {
+        let range = [(header::CONTENT_RANGE, format!("bytes */{size}"))];
+        return (StatusCode::RANGE_NOT_SATISFIABLE, range).into_response();
+    };
 
-    if ranges
-        && !sc.range_as_200
-        && let Some(range) = headers.get(header::RANGE).and_then(|v| v.to_str().ok())
-        && if_range_matches(&headers, etag.as_deref(), &last_modified)
-    {
-        match parse_range(range, size) {
-            RangeResult::Satisfiable(s, e) => {
-                status = StatusCode::PARTIAL_CONTENT;
-                (start, end) = (s, e);
-            }
-            RangeResult::Unsatisfiable => {
-                return (
-                    StatusCode::RANGE_NOT_SATISFIABLE,
-                    [(header::CONTENT_RANGE, format!("bytes */{size}"))],
-                )
-                    .into_response();
-            }
-            RangeResult::Ignore => {}
-        }
-    }
-
-    let mut resp_headers = HeaderMap::new();
-    resp_headers.insert(
-        header::CONTENT_TYPE,
-        sc.ctype
-            .as_deref()
-            .and_then(|c| HeaderValue::from_str(c).ok())
-            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+    let resp_headers = response_headers(
+        &sc,
+        ranges,
+        etag.as_deref(),
+        &last_modified,
+        (status, start, end),
+        size,
     );
-    if ranges {
-        resp_headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-    }
-    if let Some(etag) = &etag
-        && let Ok(v) = HeaderValue::from_str(etag)
-    {
-        resp_headers.insert(header::ETAG, v);
-    }
-    if let Ok(v) = HeaderValue::from_str(&last_modified) {
-        resp_headers.insert(header::LAST_MODIFIED, v);
-    }
-    if !sc.no_length
-        && let Ok(v) = HeaderValue::from_str(&(end - start).to_string())
-    {
-        resp_headers.insert(header::CONTENT_LENGTH, v);
-    }
-    if status == StatusCode::PARTIAL_CONTENT
-        && let Ok(v) = HeaderValue::from_str(&format!("bytes {start}-{}/{size}", end - 1))
-    {
-        resp_headers.insert(header::CONTENT_RANGE, v);
-    }
-    if let Some(cd) = &sc.cd
-        && let Ok(v) = HeaderValue::from_str(&content_disposition(cd))
-    {
-        resp_headers.insert(header::CONTENT_DISPOSITION, v);
-    }
 
     let rate = match sc.slow_conn {
         Some(slow) if slow.nth == nth_get => Some(slow.rate.0),

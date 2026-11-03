@@ -5,6 +5,7 @@ mod connection;
 mod ctx;
 mod health;
 mod job;
+mod steer;
 
 pub use ask::{Probe, fetch_bytes, fetch_text, probe};
 use connection::*;
@@ -12,6 +13,7 @@ use ctx::*;
 pub use health::Health;
 use health::*;
 use job::*;
+use steer::*;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -278,11 +280,6 @@ pub struct Outcome {
 ///
 /// On error or cancellation the partial file and the state file are kept (except when the
 /// remote file changed), so calling again resumes.
-#[allow(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "one long sequence kept together; to be split when it next changes"
-)]
 pub async fn download(
     req: &Request,
     opts: &Options,
@@ -344,58 +341,16 @@ pub async fn download(
                     crate::pieces::repair(&http, &urls, &part, size, pieces, progress, cancel)
                         .await?;
                 }
-                let (checksum, checksum_from) = match &opts.checksum {
-                    Some(c) => (Some(c.clone()), opts.checksum_from.clone()),
-                    None => {
-                        let found = tokio::select! {
-                            f = discovery.join_next() => f.and_then(Result::ok).flatten(),
-                            () = cancel.cancelled() => return Err(Error::Cancelled),
-                        };
-                        match (found, &opts.page_checksum) {
-                            (Some(f), _) => (Some(f.checksum), Some(f.from)),
-                            (None, Some(page)) => {
-                                (Some(page.clone()), Some(crate::FROM_PAGE.to_owned()))
-                            }
-                            (None, None) => (None, None),
-                        }
-                    }
-                };
-                let structure = match &checksum {
-                    None if opts.check_structure && opts.pieces.is_none() => {
-                        let urls: Vec<String> = std::iter::once(current.url.clone())
-                            .chain(current.mirrors.iter().cloned())
-                            .collect();
-                        crate::structure::repair(&http, &urls, &part, progress, cancel).await?
-                    }
-                    _ => None,
-                };
-                if let Some(want) = &checksum {
-                    match verify(&part, want, checksum_from.as_deref(), progress, cancel).await {
-                        // Interrupted: the complete part and its state stay, so the next
-                        // attempt only verifies again.
-                        Err(Error::Cancelled) => return Err(Error::Cancelled),
-                        // Keep the file for inspection; downloading again starts over.
-                        Err(Error::ChecksumMismatch {
-                            expected, actual, ..
-                        }) => {
-                            std::fs::rename(&part, &req.output)?;
-                            std::fs::remove_file(&state_path).ok();
-                            mark(&req.output, &current, opts);
-                            return Err(Error::ChecksumMismatch {
-                                expected,
-                                actual,
-                                origin: checksum_from,
-                            });
-                        }
-                        other => other?,
-                    }
-                }
-                std::fs::rename(&part, &req.output)?;
-                std::fs::remove_file(&state_path).ok();
-                mark(&req.output, &current, opts);
-                if let Some(p) = progress {
-                    p.send_modify(|p| p.phase = Phase::Done);
-                }
+                let (checksum, checksum_from) = checksum(opts, &mut discovery, cancel).await?;
+                let structure = check_and_place(
+                    &job,
+                    &req.output,
+                    checksum.as_ref(),
+                    checksum_from.clone(),
+                    progress,
+                    cancel,
+                )
+                .await?;
                 return Ok(Outcome {
                     size,
                     resumed_from,
@@ -423,6 +378,78 @@ pub async fn download(
             Err(e) => return Err(e),
         }
     }
+}
+
+/// The checksum the finished file is checked against, and where it came from: the one given,
+/// else one the publisher posted (waiting for the search to end), else the page's.
+async fn checksum(
+    opts: &Options,
+    discovery: &mut JoinSet<Option<crate::discover::Found>>,
+    cancel: &CancellationToken,
+) -> Result<(Option<Checksum>, Option<String>)> {
+    Ok(match &opts.checksum {
+        Some(c) => (Some(c.clone()), opts.checksum_from.clone()),
+        None => {
+            let found = tokio::select! {
+                f = discovery.join_next() => f.and_then(Result::ok).flatten(),
+                () = cancel.cancelled() => return Err(Error::Cancelled),
+            };
+            match (found, &opts.page_checksum) {
+                (Some(f), _) => (Some(f.checksum), Some(f.from)),
+                (None, Some(page)) => (Some(page.clone()), Some(crate::FROM_PAGE.to_owned())),
+                (None, None) => (None, None),
+            }
+        }
+    })
+}
+
+/// Checks a finished part (by its checksum, or else by its structure when asked) and puts it
+/// in place; how its structure checked out.
+async fn check_and_place(
+    job: &Job<'_>,
+    output: &Path,
+    checksum: Option<&Checksum>,
+    checksum_from: Option<String>,
+    progress: Option<&watch::Sender<Progress>>,
+    cancel: &CancellationToken,
+) -> Result<Option<crate::structure::Checked>> {
+    let structure = match checksum {
+        None if job.opts.check_structure && job.opts.pieces.is_none() => {
+            let urls: Vec<String> = std::iter::once(job.req.url.clone())
+                .chain(job.req.mirrors.iter().cloned())
+                .collect();
+            crate::structure::repair(job.http, &urls, job.part, progress, cancel).await?
+        }
+        _ => None,
+    };
+    if let Some(want) = checksum {
+        match verify(job.part, want, checksum_from.as_deref(), progress, cancel).await {
+            // Interrupted: the complete part and its state stay, so the next
+            // attempt only verifies again.
+            Err(Error::Cancelled) => return Err(Error::Cancelled),
+            // Keep the file for inspection; downloading again starts over.
+            Err(Error::ChecksumMismatch {
+                expected, actual, ..
+            }) => {
+                std::fs::rename(job.part, output)?;
+                std::fs::remove_file(job.state_path).ok();
+                mark(output, job.req, job.opts);
+                return Err(Error::ChecksumMismatch {
+                    expected,
+                    actual,
+                    origin: checksum_from,
+                });
+            }
+            other => other?,
+        }
+    }
+    std::fs::rename(job.part, output)?;
+    std::fs::remove_file(job.state_path).ok();
+    mark(output, job.req, job.opts);
+    if let Some(p) = progress {
+        p.send_modify(|p| p.phase = Phase::Done);
+    }
+    Ok(structure)
 }
 
 /// The Mark of the Web for a finished file, with the address it came from in the end (a

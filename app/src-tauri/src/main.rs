@@ -104,11 +104,6 @@ fn msg(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-#[allow(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "one long sequence kept together; to be split when it next changes"
-)]
 fn main() {
     log_panics();
     let _log = init_logging();
@@ -130,107 +125,7 @@ fn main() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![HIDDEN_ARG]),
         ))
-        .setup(|app| {
-            // `SHARDLOAD_HOME` keeps the list and downloads in one folder of its own, for trying
-            // the app out without touching the real list or the Downloads folder.
-            let home = std::env::var_os("SHARDLOAD_HOME").map(PathBuf::from);
-            let data = match &home {
-                Some(h) => h.clone(),
-                None => app.path().app_data_dir()?,
-            };
-            if home.is_none() {
-                shardload_bridge::migrate_legacy_data(&data);
-            }
-            std::fs::create_dir_all(&data)?;
-            let default_dir = match &home {
-                Some(h) => h.join("downloads"),
-                None => app
-                    .path()
-                    .download_dir()
-                    .unwrap_or_else(|_| data.join("downloads")),
-            };
-            let db = data.join("downloads.db");
-
-            let mut settings: Settings =
-                tauri::async_runtime::block_on(Manager::read_setting(&db, settings::KEY))?
-                    .map(Settings::restored)
-                    .unwrap_or_default();
-            if settings.dir.as_os_str().is_empty() {
-                settings.dir = default_dir;
-            }
-            let mut seen: extensions::Record =
-                tauri::async_runtime::block_on(Manager::read_setting(&db, extensions::KEY))?
-                    .unwrap_or_default();
-            seen.integration(settings.browser_integration, extensions::now());
-            // One the user installed is kept: they may want their own build.
-            let path_ffmpeg = find_on_path("ffmpeg");
-            let config = manager_config(&settings, path_ffmpeg.clone(), &data);
-            let manager = tauri::async_runtime::block_on(Manager::open(&db, config))?;
-            if settings.browser_integration
-                && let Err(e) = set_browser_integration(&data, true)
-            {
-                tracing::warn!("could not register with the browsers: {e}");
-            }
-            if let Err(e) =
-                tauri::async_runtime::block_on(manager.save_setting(extensions::KEY, &seen))
-            {
-                tracing::warn!("could not save the extensions heard from: {e}");
-            }
-            manager.set_global_limit(settings.speed_limit);
-
-            tauri::async_runtime::spawn(forward_events(app.handle().clone(), manager.subscribe()));
-
-            // The browser bridge: a fresh token per start, a pipe only this user and data
-            // folder share.
-            let token = shardload_bridge::new_token(&data)?;
-            let pipe = shardload_bridge::pipe_name(&data);
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let serving = shardload_bridge::serve(&pipe, token, move |request| {
-                    let handle = handle.clone();
-                    async move { bridge_reply(&handle, request).await }
-                });
-                if let Err(e) = serving.await {
-                    tracing::error!("browser bridge stopped: {e}");
-                }
-            });
-            let tray = tray::build(
-                app.handle(),
-                settings.speed_limit,
-                i18n::resolve(&settings.language),
-            )?;
-            app.manage(App {
-                manager,
-                data: data.clone(),
-                settings: Mutex::new(settings),
-                tray: Mutex::new(Some(tray)),
-                awaiting_link: Mutex::new(None),
-                grabbing: Mutex::new(None),
-                when_done: Mutex::new(schedule::Armed::default()),
-                page: Mutex::new(Page::default()),
-                live: Mutex::new(HashMap::new()),
-                #[cfg(windows)]
-                clipboard: Mutex::new(None),
-                extensions: Mutex::new(seen),
-                path_ffmpeg,
-            });
-            tauri::async_runtime::spawn(daily_checks(app.handle().clone()));
-            if lock(&app.state::<App>().settings).watch_clipboard {
-                watch_clipboard(app.handle(), true);
-            }
-            tauri::async_runtime::spawn(schedule::run_scheduler(app.handle().clone()));
-            tauri::async_runtime::spawn(schedule::run_when_done(app.handle().clone()));
-            // The window is not in the config's start-up list (`create: false`): started for
-            // the tray, the app opens none.
-            let args: Vec<String> = std::env::args().collect();
-            let cwd = std::env::current_dir().unwrap_or_default();
-            if let Some(url) = torrent_arg(&args, &cwd) {
-                offer_torrent(app.handle(), &url);
-            } else if !args.iter().any(|a| a == HIDDEN_ARG) {
-                show_main(app.handle());
-            }
-            Ok(())
-        })
+        .setup(setup)
         .on_window_event(|window, event| {
             // Closing to the tray closes the window for real (see `show_main`); the app keeps
             // running because `RunEvent::ExitRequested` is turned down below.
@@ -339,6 +234,108 @@ fn main() {
             tauri::async_runtime::block_on(manager.close());
         }
     });
+}
+
+/// Opens the download list and starts what runs beside the window: the browser bridge, the
+/// tray, the daily checks, the scheduler; then shows the window unless started for the tray.
+fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // `SHARDLOAD_HOME` keeps the list and downloads in one folder of its own, for trying
+    // the app out without touching the real list or the Downloads folder.
+    let home = std::env::var_os("SHARDLOAD_HOME").map(PathBuf::from);
+    let data = match &home {
+        Some(h) => h.clone(),
+        None => app.path().app_data_dir()?,
+    };
+    if home.is_none() {
+        shardload_bridge::migrate_legacy_data(&data);
+    }
+    std::fs::create_dir_all(&data)?;
+    let default_dir = match &home {
+        Some(h) => h.join("downloads"),
+        None => app
+            .path()
+            .download_dir()
+            .unwrap_or_else(|_| data.join("downloads")),
+    };
+    let db = data.join("downloads.db");
+
+    let mut settings: Settings =
+        tauri::async_runtime::block_on(Manager::read_setting(&db, settings::KEY))?
+            .map(Settings::restored)
+            .unwrap_or_default();
+    if settings.dir.as_os_str().is_empty() {
+        settings.dir = default_dir;
+    }
+    let mut seen: extensions::Record =
+        tauri::async_runtime::block_on(Manager::read_setting(&db, extensions::KEY))?
+            .unwrap_or_default();
+    seen.integration(settings.browser_integration, extensions::now());
+    // One the user installed is kept: they may want their own build.
+    let path_ffmpeg = find_on_path("ffmpeg");
+    let config = manager_config(&settings, path_ffmpeg.clone(), &data);
+    let manager = tauri::async_runtime::block_on(Manager::open(&db, config))?;
+    if settings.browser_integration
+        && let Err(e) = set_browser_integration(&data, true)
+    {
+        tracing::warn!("could not register with the browsers: {e}");
+    }
+    if let Err(e) = tauri::async_runtime::block_on(manager.save_setting(extensions::KEY, &seen)) {
+        tracing::warn!("could not save the extensions heard from: {e}");
+    }
+    manager.set_global_limit(settings.speed_limit);
+
+    tauri::async_runtime::spawn(forward_events(app.handle().clone(), manager.subscribe()));
+
+    // The browser bridge: a fresh token per start, a pipe only this user and data
+    // folder share.
+    let token = shardload_bridge::new_token(&data)?;
+    let pipe = shardload_bridge::pipe_name(&data);
+    let handle = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        let serving = shardload_bridge::serve(&pipe, token, move |request| {
+            let handle = handle.clone();
+            async move { bridge_reply(&handle, request).await }
+        });
+        if let Err(e) = serving.await {
+            tracing::error!("browser bridge stopped: {e}");
+        }
+    });
+    let tray = tray::build(
+        app.handle(),
+        settings.speed_limit,
+        i18n::resolve(&settings.language),
+    )?;
+    app.manage(App {
+        manager,
+        data: data.clone(),
+        settings: Mutex::new(settings),
+        tray: Mutex::new(Some(tray)),
+        awaiting_link: Mutex::new(None),
+        grabbing: Mutex::new(None),
+        when_done: Mutex::new(schedule::Armed::default()),
+        page: Mutex::new(Page::default()),
+        live: Mutex::new(HashMap::new()),
+        #[cfg(windows)]
+        clipboard: Mutex::new(None),
+        extensions: Mutex::new(seen),
+        path_ffmpeg,
+    });
+    tauri::async_runtime::spawn(daily_checks(app.handle().clone()));
+    if lock(&app.state::<App>().settings).watch_clipboard {
+        watch_clipboard(app.handle(), true);
+    }
+    tauri::async_runtime::spawn(schedule::run_scheduler(app.handle().clone()));
+    tauri::async_runtime::spawn(schedule::run_when_done(app.handle().clone()));
+    // The window is not in the config's start-up list (`create: false`): started for
+    // the tray, the app opens none.
+    let args: Vec<String> = std::env::args().collect();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    if let Some(url) = torrent_arg(&args, &cwd) {
+        offer_torrent(app.handle(), &url);
+    } else if !args.iter().any(|a| a == HIDDEN_ARG) {
+        show_main(app.handle());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

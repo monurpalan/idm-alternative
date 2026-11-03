@@ -56,11 +56,6 @@ impl Entry {
 /// extra fields and the archive ends with a ZIP64 end of central directory record and
 /// locator, as tools write for archives past 4 GiB. `prefix` comes before the archive (like
 /// the program part of a self-extracting archive) and offsets do not account for it.
-#[allow(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "one long sequence kept together; to be split when it next changes"
-)]
 pub fn write(entries: &[Entry], zip64: bool, prefix: &[u8], comment: &[u8]) -> Vec<u8> {
     let mut out = prefix.to_vec();
     let mut central = Vec::new();
@@ -122,38 +117,7 @@ pub fn write(entries: &[Entry], zip64: bool, prefix: &[u8], comment: &[u8]) -> V
             }
         }
 
-        // Central directory record.
-        let mut extra = Vec::new();
-        if zip64 {
-            extra.extend_from_slice(&1u16.to_le_bytes());
-            extra.extend_from_slice(&24u16.to_le_bytes());
-            extra.extend_from_slice(&(e.data.len() as u64).to_le_bytes());
-            extra.extend_from_slice(&(packed.len() as u64).to_le_bytes());
-            extra.extend_from_slice(&offset.to_le_bytes());
-        }
-        let (c, u, o) = if zip64 {
-            (u32::MAX, u32::MAX, u32::MAX)
-        } else {
-            (packed.len() as u32, e.data.len() as u32, offset as u32)
-        };
-        central.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
-        central.extend_from_slice(&0x031eu16.to_le_bytes()); // made by: Unix, 3.0
-        central.extend_from_slice(&(if zip64 { 45u16 } else { 20 }).to_le_bytes());
-        central.extend_from_slice(&flags.to_le_bytes());
-        central.extend_from_slice(&e.method.to_le_bytes());
-        central.extend_from_slice(&[0, 0, 0x21, 0]);
-        central.extend_from_slice(&crc.to_le_bytes());
-        central.extend_from_slice(&c.to_le_bytes());
-        central.extend_from_slice(&u.to_le_bytes());
-        central.extend_from_slice(&(name.len() as u16).to_le_bytes());
-        central.extend_from_slice(&(extra.len() as u16).to_le_bytes());
-        central.extend_from_slice(&0u16.to_le_bytes()); // comment
-        central.extend_from_slice(&0u16.to_le_bytes()); // disk
-        central.extend_from_slice(&0u16.to_le_bytes()); // internal attributes
-        central.extend_from_slice(&0u32.to_le_bytes()); // external attributes
-        central.extend_from_slice(&o.to_le_bytes());
-        central.extend_from_slice(name);
-        central.extend_from_slice(&extra);
+        central_record(&mut central, e, packed.len(), crc, flags, offset, zip64);
     }
     let cd_offset = (out.len() - prefix.len()) as u64;
     let cd_size = central.len() as u64;
@@ -191,6 +155,50 @@ pub fn write(entries: &[Entry], zip64: bool, prefix: &[u8], comment: &[u8]) -> V
     out.extend_from_slice(&(comment.len() as u16).to_le_bytes());
     out.extend_from_slice(comment);
     out
+}
+
+/// `e`'s record in the central directory, appended to `central`.
+fn central_record(
+    central: &mut Vec<u8>,
+    e: &Entry,
+    packed: usize,
+    crc: u32,
+    flags: u16,
+    offset: u64,
+    zip64: bool,
+) {
+    let name = e.name.as_bytes();
+    let mut extra = Vec::new();
+    if zip64 {
+        extra.extend_from_slice(&1u16.to_le_bytes());
+        extra.extend_from_slice(&24u16.to_le_bytes());
+        extra.extend_from_slice(&(e.data.len() as u64).to_le_bytes());
+        extra.extend_from_slice(&(packed as u64).to_le_bytes());
+        extra.extend_from_slice(&offset.to_le_bytes());
+    }
+    let (c, u, o) = if zip64 {
+        (u32::MAX, u32::MAX, u32::MAX)
+    } else {
+        (packed as u32, e.data.len() as u32, offset as u32)
+    };
+    central.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+    central.extend_from_slice(&0x031eu16.to_le_bytes()); // made by: Unix, 3.0
+    central.extend_from_slice(&(if zip64 { 45u16 } else { 20 }).to_le_bytes());
+    central.extend_from_slice(&flags.to_le_bytes());
+    central.extend_from_slice(&e.method.to_le_bytes());
+    central.extend_from_slice(&[0, 0, 0x21, 0]);
+    central.extend_from_slice(&crc.to_le_bytes());
+    central.extend_from_slice(&c.to_le_bytes());
+    central.extend_from_slice(&u.to_le_bytes());
+    central.extend_from_slice(&(name.len() as u16).to_le_bytes());
+    central.extend_from_slice(&(extra.len() as u16).to_le_bytes());
+    central.extend_from_slice(&0u16.to_le_bytes()); // comment
+    central.extend_from_slice(&0u16.to_le_bytes()); // disk
+    central.extend_from_slice(&0u16.to_le_bytes()); // internal attributes
+    central.extend_from_slice(&0u32.to_le_bytes()); // external attributes
+    central.extend_from_slice(&o.to_le_bytes());
+    central.extend_from_slice(name);
+    central.extend_from_slice(&extra);
 }
 
 /// The entries of the archive `GET /zip/{name}` serves for `seed`: text, a large

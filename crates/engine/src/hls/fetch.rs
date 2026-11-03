@@ -255,11 +255,6 @@ pub(crate) enum Source {
 /// the first (video) and the second (audio, if any) into `output`, with ffmpeg when given.
 /// With `clip` (and ffmpeg), only the segments it falls in, and the result cut to it.
 #[allow(clippy::too_many_arguments)]
-#[allow(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "one long sequence kept together; to be split when it next changes"
-)]
 pub(crate) async fn segmented(
     http: Http,
     output: &Path,
@@ -299,40 +294,7 @@ pub(crate) async fn segmented(
         cancel: cancel.child_token(),
     });
 
-    let reporter = progress.map(|tx| {
-        let tx = tx.clone();
-        let run = Arc::clone(&run);
-        tokio::spawn(async move {
-            let mut last = (Instant::now(), run.received.load(Ordering::Relaxed));
-            let mut speed = 0.0;
-            loop {
-                tokio::time::sleep(Duration::from_millis(250)).await;
-                let received = run.received.load(Ordering::Relaxed);
-                let done = run.done.load(Ordering::Relaxed);
-                let dt = last.0.elapsed().as_secs_f64().max(1e-3);
-                let now = received.saturating_sub(last.1) as f64 / dt;
-                speed = if speed == 0.0 {
-                    now
-                } else {
-                    speed * 0.7 + now * 0.3
-                };
-                last = (Instant::now(), received);
-                // Segments are about the same size: estimate the total from those done.
-                let size = (done > 0).then(|| received / done as u64 * total as u64);
-                tx.send_modify(|p| {
-                    p.phase = Phase::Downloading;
-                    p.size = size.map(|s| s.max(received));
-                    p.received = received;
-                    p.speed = speed;
-                    p.connections = run.active.load(Ordering::Relaxed);
-                    p.segments.clear();
-                });
-                if run.cancel.is_cancelled() {
-                    return;
-                }
-            }
-        })
-    });
+    let reporter = progress.map(|tx| report(Arc::clone(&run), tx.clone(), total));
 
     let parallel = opts.connections.clamp(1, MAX_PARALLEL);
     let results: Vec<Result<()>> = futures_util::stream::iter(missing.into_iter().enumerate())
@@ -408,6 +370,40 @@ pub(crate) async fn segmented(
         checksum: None,
         checksum_from: None,
         structure: None,
+    })
+}
+
+/// Reports the progress of `run`, which has `total` segments, until it is cancelled.
+fn report(run: Arc<Run>, tx: watch::Sender<Progress>, total: usize) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut last = (Instant::now(), run.received.load(Ordering::Relaxed));
+        let mut speed = 0.0;
+        loop {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            let received = run.received.load(Ordering::Relaxed);
+            let done = run.done.load(Ordering::Relaxed);
+            let dt = last.0.elapsed().as_secs_f64().max(1e-3);
+            let now = received.saturating_sub(last.1) as f64 / dt;
+            speed = if speed == 0.0 {
+                now
+            } else {
+                speed * 0.7 + now * 0.3
+            };
+            last = (Instant::now(), received);
+            // Segments are about the same size: estimate the total from those done.
+            let size = (done > 0).then(|| received / done as u64 * total as u64);
+            tx.send_modify(|p| {
+                p.phase = Phase::Downloading;
+                p.size = size.map(|s| s.max(received));
+                p.received = received;
+                p.speed = speed;
+                p.connections = run.active.load(Ordering::Relaxed);
+                p.segments.clear();
+            });
+            if run.cancel.is_cancelled() {
+                return;
+            }
+        }
     })
 }
 

@@ -50,11 +50,6 @@ pub async fn fetch_metalink(
 }
 
 /// Reads a metalink document. Only metalinks of one file are supported.
-#[allow(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "one long sequence kept together; to be split when it next changes"
-)]
 pub fn parse(xml: &str) -> Result<Metalink> {
     let bad = |e: &dyn std::fmt::Display| Error::State(format!("not a metalink: {e}"));
     let mut reader = Reader::from_str(xml);
@@ -122,15 +117,7 @@ pub fn parse(xml: &str) -> Result<Metalink> {
             }
             Event::Text(t) => text.push_str(&t.into_inner()),
             Event::GeneralRef(r) => {
-                let entity = r.into_inner();
-                text.push_str(match entity.as_ref() {
-                    "amp" => "&",
-                    "lt" => "<",
-                    "gt" => ">",
-                    "quot" => "\"",
-                    "apos" => "'",
-                    _ => "",
-                });
+                text.push_str(entity(&r.into_inner()));
             }
             Event::End(e) => {
                 let tag = e.local_name().as_ref().to_owned();
@@ -181,6 +168,31 @@ pub fn parse(xml: &str) -> Result<Metalink> {
             )));
         }
     }
+    metalink(&name, size, &hashes, urls, piece_length, piece_hashes)
+}
+
+/// The text of an XML entity reference (`&amp;` and the like); unknown ones are dropped.
+fn entity(name: &str) -> &'static str {
+    match name {
+        "amp" => "&",
+        "lt" => "<",
+        "gt" => ">",
+        "quot" => "\"",
+        "apos" => "'",
+        _ => "",
+    }
+}
+
+/// The metalink of one file, from what [`parse`] read: its addresses best first, its
+/// strongest checksum and its pieces' hashes.
+fn metalink(
+    name: &str,
+    size: Option<u64>,
+    hashes: &[(String, String)],
+    mut urls: Vec<(u64, String)>,
+    piece_length: u64,
+    piece_hashes: Vec<String>,
+) -> Result<Metalink> {
     urls.sort_by_key(|(rank, _)| *rank);
     let mut ordered: Vec<String> = Vec::new();
     for (_, url) in urls {
@@ -210,7 +222,7 @@ pub fn parse(xml: &str) -> Result<Metalink> {
         hashes: piece_hashes,
     });
     Ok(Metalink {
-        name: crate::name::sanitize(&name),
+        name: crate::name::sanitize(name),
         size,
         checksum,
         urls: ordered,

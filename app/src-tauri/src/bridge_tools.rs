@@ -6,11 +6,6 @@ use super::*;
 /// A download added by a local tool: a file, a page of a video site (through yt-dlp, with
 /// `video_height` or `audio_only`), a torrent (with `torrent_files`), or files out of a ZIP
 /// archive (with `archive_entries`).
-#[allow(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "one long sequence kept together; to be split when it next changes"
-)]
 pub(crate) async fn tool_add(
     handle: &AppHandle,
     add: shardload_bridge::AddDownload,

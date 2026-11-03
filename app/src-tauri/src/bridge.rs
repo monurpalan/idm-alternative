@@ -4,11 +4,6 @@ use super::*;
 
 /// Answers the browser extension (through the native host): pings and hellos, and downloads
 /// or link lists it hands over, which open in the window for the user to confirm.
-#[allow(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "one long sequence kept together; to be split when it next changes"
-)]
 pub(crate) async fn bridge_reply(
     handle: &AppHandle,
     request: shardload_bridge::Request,
@@ -34,69 +29,7 @@ pub(crate) async fn bridge_reply(
                 ..Reply::ok()
             }
         }
-        Request::Download(capture) => {
-            // A download waiting for a fresh link takes this one if it is the same file.
-            let waiting = {
-                let app = handle.state::<App>();
-                let mut awaiting = lock(&app.awaiting_link);
-                match awaiting.take() {
-                    Some((id, since)) if since.elapsed() < AWAIT_LINK => Some(id),
-                    _ => None,
-                }
-            };
-            if let Some(id) = waiting {
-                let manager = handle.state::<App>().manager.clone();
-                let headers = capture.request_headers();
-                match manager.refresh_link(id, &capture.url, Some(&headers)).await {
-                    Ok(()) => {
-                        let name = manager
-                            .get(id)
-                            .await
-                            .ok()
-                            .and_then(|t| t.name)
-                            .unwrap_or_default();
-                        to_page(
-                            handle,
-                            "notice",
-                            i18n::t(
-                                lang(handle),
-                                "Link refreshed: {name} continues",
-                                &[("name", &name)],
-                            ),
-                            false,
-                        );
-                        return Reply::ok();
-                    }
-                    Err(e) => {
-                        tracing::info!("captured link is not the awaited file: {e}");
-                        to_page(
-                            handle,
-                            "notice",
-                            i18n::t(
-                                lang(handle),
-                                "That link leads to a different file, so it opens as a new download",
-                                &[],
-                            ),
-                            false,
-                        );
-                    }
-                }
-            }
-            to_page(
-                handle,
-                "capture",
-                serde_json::json!({
-                    "url": capture.url,
-                    "filename": capture.filename,
-                    "size": capture.size,
-                    "title": capture.title,
-                    "checksum": capture.checksum,
-                    "headers": capture.request_headers(),
-                }),
-                true,
-            );
-            Reply::ok()
-        }
+        Request::Download(capture) => captured(handle, capture).await,
         Request::Links { referrer, links } => {
             to_page(
                 handle,
@@ -121,24 +54,30 @@ pub(crate) async fn bridge_reply(
             );
             Reply::ok()
         }
-        Request::Tasks => {
-            let app = handle.state::<App>();
-            match app.manager.list().await {
-                Ok(tasks) => {
-                    let live = lock(&app.live).clone();
-                    Reply {
-                        data: Some(
-                            tasks
-                                .iter()
-                                .map(|t| task_view(t, live.get(&t.id)))
-                                .collect(),
-                        ),
-                        ..Reply::ok()
-                    }
-                }
-                Err(e) => Reply::error(e.to_string()),
-            }
-        }
+        Request::Hello { .. } => Reply::error("unexpected hello"),
+        r @ (Request::Tasks
+        | Request::Add(_)
+        | Request::InspectVideo { .. }
+        | Request::InspectTorrent { .. }
+        | Request::InspectArchive { .. }
+        | Request::Wait { .. }
+        | Request::Deadlines
+        | Request::Network
+        | Request::DiskSpace
+        | Request::Sites
+        | Request::FileOrigin { .. }) => tool_query(handle, r).await,
+        other => tool_command(handle, other).await,
+    }
+}
+
+/// Answers a local tool's question: the list, what a link or file is, waiting for downloads.
+async fn tool_query(
+    handle: &AppHandle,
+    request: shardload_bridge::Request,
+) -> shardload_bridge::Reply {
+    use shardload_bridge::{Reply, Request};
+    match request {
+        Request::Tasks => list(handle).await,
         Request::Add(add) if add.playlist_items.is_some() => {
             match tool_add_playlist(handle, add).await {
                 Ok(data) => Reply {
@@ -195,26 +134,57 @@ pub(crate) async fn bridge_reply(
                 Err(e) => Reply::error(e),
             }
         }
+        Request::Deadlines => match handle.state::<App>().manager.deadlines().await {
+            Ok(views) => Reply {
+                data: serde_json::to_value(views).ok(),
+                ..Reply::ok()
+            },
+            Err(e) => Reply::error(e.to_string()),
+        },
+        Request::Network => {
+            let status = handle.state::<App>().manager.net_status();
+            Reply {
+                data: serde_json::to_value(status).ok(),
+                ..Reply::ok()
+            }
+        }
+        Request::DiskSpace => disk_space(handle).await,
+        Request::Sites => {
+            let app = handle.state::<App>();
+            match app.manager.sites().await {
+                Ok(sites) => Reply {
+                    data: serde_json::to_value(sites).ok(),
+                    ..Reply::ok()
+                },
+                Err(e) => Reply::error(e.to_string()),
+            }
+        }
+        Request::FileOrigin {
+            path,
+            check_checksum,
+            check_update,
+        } => match tool_file_origin(handle, &path, check_checksum, check_update).await {
+            Ok(data) => Reply {
+                data: Some(data),
+                ..Reply::ok()
+            },
+            Err(e) => Reply::error(e),
+        },
+        _ => Reply::error("not a question"),
+    }
+}
+
+/// Carries out a local tool's command on the downloads, the queue or the settings.
+async fn tool_command(
+    handle: &AppHandle,
+    request: shardload_bridge::Request,
+) -> shardload_bridge::Reply {
+    use shardload_bridge::{Reply, Request};
+    match request {
         Request::SpeedLimit {
             id,
             bytes_per_second,
-        } => {
-            let app = handle.state::<App>();
-            let rate = bytes_per_second.filter(|r| *r > 0);
-            let result = match id {
-                Some(id) => app.manager.set_speed_limit(id, rate).await.map_err(msg),
-                None => {
-                    // Through the settings, so the window and the tray show it too.
-                    let mut settings = lock(&app.settings).clone();
-                    settings.speed_limit = rate;
-                    apply_settings(handle, settings).await.map(drop)
-                }
-            };
-            match result {
-                Ok(()) => Reply::ok(),
-                Err(e) => Reply::error(e),
-            }
-        }
+        } => speed_limit(handle, id, bytes_per_second).await,
         Request::Move { id, to } => {
             let app = handle.state::<App>();
             match serde_json::from_value::<Move>(serde_json::Value::String(to.clone())) {
@@ -238,35 +208,7 @@ pub(crate) async fn bridge_reply(
                 Err(e) => Reply::error(e.to_string()),
             }
         }
-        Request::Relocate { id, dir } => {
-            let app = handle.state::<App>();
-            // Like adding: a tool may move files only into the app's own folders.
-            let dir = PathBuf::from(dir);
-            let folders = app.manager.download_folders();
-            if !shardload_manager::folder::within(&dir, &folders) {
-                let allowed: Vec<String> =
-                    folders.iter().map(|f| f.display().to_string()).collect();
-                return Reply::error(format!(
-                    "{} is not a download folder or inside one; use one of: {}",
-                    dir.display(),
-                    allowed.join(", ")
-                ));
-            }
-            match app.manager.relocate(id, &dir).await {
-                Ok(t) => Reply {
-                    data: Some(task_view(&t, None)),
-                    ..Reply::ok()
-                },
-                Err(e) => Reply::error(e.to_string()),
-            }
-        }
-        Request::Deadlines => match handle.state::<App>().manager.deadlines().await {
-            Ok(views) => Reply {
-                data: serde_json::to_value(views).ok(),
-                ..Reply::ok()
-            },
-            Err(e) => Reply::error(e.to_string()),
-        },
+        Request::Relocate { id, dir } => relocate(handle, id, dir).await,
         Request::SetDeadline { id, minutes } => {
             let at = minutes.map(|m| shardload_manager::unix_ms() + m as i64 * 60_000);
             match handle.state::<App>().manager.set_deadline(id, at).await {
@@ -274,48 +216,6 @@ pub(crate) async fn bridge_reply(
                 Err(e) => Reply::error(e.to_string()),
             }
         }
-        Request::Network => {
-            let status = handle.state::<App>().manager.net_status();
-            Reply {
-                data: serde_json::to_value(status).ok(),
-                ..Reply::ok()
-            }
-        }
-        Request::DiskSpace => {
-            let app = handle.state::<App>();
-            let ids: Vec<TaskId> = match app.manager.list().await {
-                Ok(tasks) => tasks.iter().map(|t| t.id).collect(),
-                Err(e) => return Reply::error(e.to_string()),
-            };
-            match app.manager.disk_needs(&ids).await {
-                Ok(needs) => Reply {
-                    data: Some(needs.iter().map(drive_view).collect()),
-                    ..Reply::ok()
-                },
-                Err(e) => Reply::error(e.to_string()),
-            }
-        }
-        Request::Sites => {
-            let app = handle.state::<App>();
-            match app.manager.sites().await {
-                Ok(sites) => Reply {
-                    data: serde_json::to_value(sites).ok(),
-                    ..Reply::ok()
-                },
-                Err(e) => Reply::error(e.to_string()),
-            }
-        }
-        Request::FileOrigin {
-            path,
-            check_checksum,
-            check_update,
-        } => match tool_file_origin(handle, &path, check_checksum, check_update).await {
-            Ok(data) => Reply {
-                data: Some(data),
-                ..Reply::ok()
-            },
-            Err(e) => Reply::error(e),
-        },
         Request::ForgetSite { site } => {
             let app = handle.state::<App>();
             match app.manager.forget_site(site.trim()).await {
@@ -368,7 +268,163 @@ pub(crate) async fn bridge_reply(
                 Err(e) => Reply::error(e.to_string()),
             }
         }
-        Request::Hello { .. } => Reply::error("unexpected hello"),
+        _ => Reply::error("not a command"),
+    }
+}
+
+/// A download the browser handed over: a fresh link for the download waiting for one, or a
+/// new download for the user to confirm.
+async fn captured(
+    handle: &AppHandle,
+    capture: shardload_bridge::Capture,
+) -> shardload_bridge::Reply {
+    use shardload_bridge::Reply;
+    // A download waiting for a fresh link takes this one if it is the same file.
+    let waiting = {
+        let app = handle.state::<App>();
+        let mut awaiting = lock(&app.awaiting_link);
+        match awaiting.take() {
+            Some((id, since)) if since.elapsed() < AWAIT_LINK => Some(id),
+            _ => None,
+        }
+    };
+    if let Some(id) = waiting {
+        let manager = handle.state::<App>().manager.clone();
+        let headers = capture.request_headers();
+        match manager.refresh_link(id, &capture.url, Some(&headers)).await {
+            Ok(()) => {
+                let name = manager
+                    .get(id)
+                    .await
+                    .ok()
+                    .and_then(|t| t.name)
+                    .unwrap_or_default();
+                to_page(
+                    handle,
+                    "notice",
+                    i18n::t(
+                        lang(handle),
+                        "Link refreshed: {name} continues",
+                        &[("name", &name)],
+                    ),
+                    false,
+                );
+                return Reply::ok();
+            }
+            Err(e) => {
+                tracing::info!("captured link is not the awaited file: {e}");
+                to_page(
+                    handle,
+                    "notice",
+                    i18n::t(
+                        lang(handle),
+                        "That link leads to a different file, so it opens as a new download",
+                        &[],
+                    ),
+                    false,
+                );
+            }
+        }
+    }
+    to_page(
+        handle,
+        "capture",
+        serde_json::json!({
+            "url": capture.url,
+            "filename": capture.filename,
+            "size": capture.size,
+            "title": capture.title,
+            "checksum": capture.checksum,
+            "headers": capture.request_headers(),
+        }),
+        true,
+    );
+    Reply::ok()
+}
+
+/// The download list, with the live progress of running downloads.
+async fn list(handle: &AppHandle) -> shardload_bridge::Reply {
+    use shardload_bridge::Reply;
+    let app = handle.state::<App>();
+    match app.manager.list().await {
+        Ok(tasks) => {
+            let live = lock(&app.live).clone();
+            Reply {
+                data: Some(
+                    tasks
+                        .iter()
+                        .map(|t| task_view(t, live.get(&t.id)))
+                        .collect(),
+                ),
+                ..Reply::ok()
+            }
+        }
+        Err(e) => Reply::error(e.to_string()),
+    }
+}
+
+/// How much room every download still needs, per drive.
+async fn disk_space(handle: &AppHandle) -> shardload_bridge::Reply {
+    use shardload_bridge::Reply;
+    let app = handle.state::<App>();
+    let ids: Vec<TaskId> = match app.manager.list().await {
+        Ok(tasks) => tasks.iter().map(|t| t.id).collect(),
+        Err(e) => return Reply::error(e.to_string()),
+    };
+    match app.manager.disk_needs(&ids).await {
+        Ok(needs) => Reply {
+            data: Some(needs.iter().map(drive_view).collect()),
+            ..Reply::ok()
+        },
+        Err(e) => Reply::error(e.to_string()),
+    }
+}
+
+/// Moves a download into another folder: like adding, only into the app's own folders.
+async fn relocate(handle: &AppHandle, id: TaskId, dir: String) -> shardload_bridge::Reply {
+    use shardload_bridge::Reply;
+    let app = handle.state::<App>();
+    // Like adding: a tool may move files only into the app's own folders.
+    let dir = PathBuf::from(dir);
+    let folders = app.manager.download_folders();
+    if !shardload_manager::folder::within(&dir, &folders) {
+        let allowed: Vec<String> = folders.iter().map(|f| f.display().to_string()).collect();
+        return Reply::error(format!(
+            "{} is not a download folder or inside one; use one of: {}",
+            dir.display(),
+            allowed.join(", ")
+        ));
+    }
+    match app.manager.relocate(id, &dir).await {
+        Ok(t) => Reply {
+            data: Some(task_view(&t, None)),
+            ..Reply::ok()
+        },
+        Err(e) => Reply::error(e.to_string()),
+    }
+}
+
+/// Sets a download's speed limit, or (without `id`) the global one.
+async fn speed_limit(
+    handle: &AppHandle,
+    id: Option<TaskId>,
+    bytes_per_second: Option<u64>,
+) -> shardload_bridge::Reply {
+    use shardload_bridge::Reply;
+    let app = handle.state::<App>();
+    let rate = bytes_per_second.filter(|r| *r > 0);
+    let result = match id {
+        Some(id) => app.manager.set_speed_limit(id, rate).await.map_err(msg),
+        None => {
+            // Through the settings, so the window and the tray show it too.
+            let mut settings = lock(&app.settings).clone();
+            settings.speed_limit = rate;
+            apply_settings(handle, settings).await.map(drop)
+        }
+    };
+    match result {
+        Ok(()) => Reply::ok(),
+        Err(e) => Reply::error(e),
     }
 }
 

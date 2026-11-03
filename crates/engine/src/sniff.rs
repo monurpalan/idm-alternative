@@ -113,11 +113,6 @@ pub fn read_head(path: &Path) -> std::io::Result<Vec<u8>> {
 
 /// What `head` (the start of a file) is, when its bytes say so for certain; `None` for text,
 /// unknown formats and anything too short to tell.
-#[allow(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "one long sequence kept together; to be split when it next changes"
-)]
 pub fn sniff(head: &[u8]) -> Option<Content> {
     use Kind::*;
     let at = |offset: usize, magic: &[u8]| head.get(offset..offset + magic.len()) == Some(magic);
@@ -196,6 +191,13 @@ pub fn sniff(head: &[u8]) -> Option<Content> {
     if at(0, b"MSCF\0\0\0\0") {
         return Some(Content::of(Archive, "cab"));
     }
+    media_or_page(head)
+}
+
+/// [`sniff`] for images, sound, video and web pages.
+fn media_or_page(head: &[u8]) -> Option<Content> {
+    use Kind::*;
+    let at = |offset: usize, magic: &[u8]| head.get(offset..offset + magic.len()) == Some(magic);
     if at(0, b"\x89PNG\r\n\x1A\n") {
         return Some(Content::of(Image, "png"));
     }

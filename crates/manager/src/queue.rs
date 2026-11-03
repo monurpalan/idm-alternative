@@ -246,11 +246,6 @@ impl Inner {
     }
 
     /// One download from start to end, then records how it ended and starts the next.
-    #[allow(
-        clippy::too_many_lines,
-        clippy::cognitive_complexity,
-        reason = "one long sequence kept together; to be split when it next changes"
-    )]
     pub(crate) async fn run(
         self: Arc<Self>,
         task: Task,
@@ -264,59 +259,13 @@ impl Inner {
         let note = lock(&self.notes).remove(&id);
         let why = *lock(&stop);
         // The server asks to log in and a login is saved for the site: try it once.
-        let logged_in = why.is_none()
-            && matches!(
-                result,
-                Err(Error::Engine(
-                    shardload_engine::Error::AuthRequired { .. }
-                        | shardload_engine::Error::KeyLocked { .. }
-                ))
-            )
-            && self.use_saved_login(id).await;
+        let logged_in = why.is_none() && self.saved_login_may_help(id, &result).await;
         let recorded = match (&result, why) {
             _ if logged_in => {
                 tracing::info!(id, "trying the saved login");
                 self.db.set_status(id, Status::Queued, None).await
             }
-            (Ok(outcome), _) => 'done: {
-                lock(&self.retries).remove(&id);
-                match self.inspect(id).await {
-                    Ok(None) => {}
-                    Ok(Some(page)) => {
-                        tracing::warn!(id, "the server sent a web page instead of the file");
-                        break 'done self
-                            .db
-                            .fail_from_start(id, &page, Some(ErrorKind::Expired))
-                            .await;
-                    }
-                    Err(e) => tracing::warn!(id, "could not check what the file is: {e}"),
-                }
-                let structure = outcome.structure.as_ref().map(crate::task::Structure::from);
-                if let Err(e) = self.db.set_structure(id, structure.as_ref()).await {
-                    tracing::warn!(id, "could not keep how its structure checked out: {e}");
-                }
-                let at = now_ms();
-                // In the history before it shows as done: whatever sees it done finds it there.
-                if let Ok(Some(mut task)) = self.db.get(id).await {
-                    task.size = Some(outcome.size);
-                    task.finished_at = Some(at);
-                    let page = task
-                        .headers
-                        .iter()
-                        .find(|(k, _)| k.eq_ignore_ascii_case("referer"))
-                        .map(|(_, v)| v.as_str());
-                    if let Err(e) = self.db.record_history(&task, page).await {
-                        tracing::warn!(id, "could not keep the download in the history: {e}");
-                    }
-                    self.hash_later(&task);
-                }
-                match self.db.finish(id, outcome.size, at).await {
-                    Ok(()) if note.is_some() => {
-                        self.db.set_status(id, Status::Done, note.as_deref()).await
-                    }
-                    other => other,
-                }
-            }
+            (Ok(outcome), _) => self.record_done(id, outcome, note).await,
             (Err(Error::Engine(shardload_engine::Error::Cancelled)), Some(Stop::Pause)) => {
                 self.db.set_status(id, Status::Paused, None).await
             }
@@ -325,37 +274,29 @@ impl Inner {
                 Ok(())
             }
             (Err(Error::Engine(shardload_engine::Error::Cancelled)), Some(Stop::Remove)) => Ok(()),
-            (Err(e), _) => match self.schedule_retry(id, e) {
-                Some((delay, true)) => {
-                    tracing::info!(id, "no network connection, checking again in {delay:?}");
-                    let note = format!(
-                        "no network connection (checking again in {} s)",
-                        delay.as_secs().max(1)
-                    );
-                    self.db
-                        .set_failure(id, Status::Queued, Some(&note), Some(ErrorKind::Offline))
-                        .await
-                }
-                Some((delay, false)) => {
-                    tracing::info!(id, "download failed, retrying in {delay:?}: {e}");
-                    let note = format!("{e} (retrying in {} s)", delay.as_secs().max(1));
-                    self.db.set_status(id, Status::Queued, Some(&note)).await
-                }
-                None => {
-                    tracing::warn!(id, "download failed: {e}");
-                    let kind = match e {
-                        Error::Engine(e) => ErrorKind::of(e),
-                        _ => None,
-                    };
-                    self.db
-                        .set_failure(id, Status::Error, Some(&e.to_string()), kind)
-                        .await
-                }
-            },
+            (Err(e), _) => self.record_failure(id, e).await,
         };
         if let Err(e) = recorded {
             tracing::error!(id, "could not record the end of a download: {e}");
         }
+        self.ended(id, why, result.is_ok()).await;
+    }
+
+    /// The server asked to log in (or for an SSH key's passphrase) and a login is saved for
+    /// the site: the download is set to use it.
+    async fn saved_login_may_help(&self, id: TaskId, result: &Result<Outcome>) -> bool {
+        matches!(
+            result,
+            Err(Error::Engine(
+                shardload_engine::Error::AuthRequired { .. }
+                    | shardload_engine::Error::KeyLocked { .. }
+            ))
+        ) && self.use_saved_login(id).await
+    }
+
+    /// After a download's end is recorded: the list told, the next queued downloads started,
+    /// and (when it finished) what comes after it.
+    async fn ended(self: &Arc<Self>, id: TaskId, why: Option<Stop>, finished: bool) {
         if why != Some(Stop::Remove)
             && let Ok(Some(task)) = self.db.get(id).await
         {
@@ -365,10 +306,103 @@ impl Inner {
         if let Err(e) = self.fill().await {
             tracing::error!("could not start queued downloads: {e}");
         }
-        if why.is_none() && result.is_ok() {
-            let inner = Arc::clone(&self);
+        if why.is_none() && finished {
+            let inner = Arc::clone(self);
             tokio::spawn(async move { inner.after_done(id).await });
         }
+    }
+
+    /// Records a download that finished: what the file is, its structure, the history.
+    async fn record_done(
+        self: &Arc<Self>,
+        id: TaskId,
+        outcome: &Outcome,
+        note: Option<String>,
+    ) -> Result<()> {
+        lock(&self.retries).remove(&id);
+        if let Some(page) = self.web_page_instead(id).await {
+            return self
+                .db
+                .fail_from_start(id, &page, Some(ErrorKind::Expired))
+                .await;
+        }
+        let structure = outcome.structure.as_ref().map(crate::task::Structure::from);
+        if let Err(e) = self.db.set_structure(id, structure.as_ref()).await {
+            tracing::warn!(id, "could not keep how its structure checked out: {e}");
+        }
+        let at = now_ms();
+        // In the history before it shows as done: whatever sees it done finds it there.
+        self.keep_in_history(id, outcome.size, at).await;
+        match self.db.finish(id, outcome.size, at).await {
+            Ok(()) if note.is_some() => self.db.set_status(id, Status::Done, note.as_deref()).await,
+            other => other,
+        }
+    }
+
+    /// The message of the web page a finished download turned out to be, instead of the file.
+    async fn web_page_instead(&self, id: TaskId) -> Option<String> {
+        match self.inspect(id).await {
+            Ok(None) => None,
+            Ok(Some(page)) => {
+                tracing::warn!(id, "the server sent a web page instead of the file");
+                Some(page)
+            }
+            Err(e) => {
+                tracing::warn!(id, "could not check what the file is: {e}");
+                None
+            }
+        }
+    }
+
+    /// Keeps a finished download of `size` bytes in the history, and its hash for later.
+    async fn keep_in_history(self: &Arc<Self>, id: TaskId, size: u64, at: i64) {
+        if let Ok(Some(mut task)) = self.db.get(id).await {
+            task.size = Some(size);
+            task.finished_at = Some(at);
+            let page = task
+                .headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("referer"))
+                .map(|(_, v)| v.as_str());
+            if let Err(e) = self.db.record_history(&task, page).await {
+                tracing::warn!(id, "could not keep the download in the history: {e}");
+            }
+            self.hash_later(&task);
+        }
+    }
+
+    /// Records a download that failed: queued again to retry, or failed for good.
+    async fn record_failure(self: &Arc<Self>, id: TaskId, e: &Error) -> Result<()> {
+        match self.schedule_retry(id, e) {
+            Some((delay, true)) => {
+                tracing::info!(id, "no network connection, checking again in {delay:?}");
+                let note = format!(
+                    "no network connection (checking again in {} s)",
+                    delay.as_secs().max(1)
+                );
+                self.db
+                    .set_failure(id, Status::Queued, Some(&note), Some(ErrorKind::Offline))
+                    .await
+            }
+            Some((delay, false)) => {
+                tracing::info!(id, "download failed, retrying in {delay:?}: {e}");
+                let note = format!("{e} (retrying in {} s)", delay.as_secs().max(1));
+                self.db.set_status(id, Status::Queued, Some(&note)).await
+            }
+            None => self.failed(id, e).await,
+        }
+    }
+
+    /// Records a download that failed for good.
+    async fn failed(&self, id: TaskId, e: &Error) -> Result<()> {
+        tracing::warn!(id, "download failed: {e}");
+        let kind = match e {
+            Error::Engine(e) => ErrorKind::of(e),
+            _ => None,
+        };
+        self.db
+            .set_failure(id, Status::Error, Some(&e.to_string()), kind)
+            .await
     }
 
     /// Reads the start of a finished file and keeps what it is. A name that says nothing

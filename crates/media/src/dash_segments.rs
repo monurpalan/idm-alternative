@@ -149,11 +149,6 @@ pub fn dash_live(url: &str, text: &str, rep_id: &str, now: f64) -> Result<DashLi
 }
 
 /// `now` is set for a live manifest.
-#[allow(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "one long sequence kept together; to be split when it next changes"
-)]
 fn track(url: &str, mpd: Node, rep_id: &str, now: Option<f64>) -> Result<DashTrack, Error> {
     let period = child(mpd, "Period").ok_or_else(|| Error("the manifest has no period".into()))?;
     let (set, rep) = children(period, "AdaptationSet")
@@ -205,23 +200,7 @@ fn track(url: &str, mpd: Node, rep_id: &str, now: Option<f64>) -> Result<DashTra
         };
         let init = attr(&templates, "initialization").map(|i| piece(i, 0, 0, None));
 
-        // Where the media timeline is now, in ticks, for a live manifest.
-        let live_ticks = match now {
-            Some(now) => {
-                let start = mpd
-                    .attribute("availabilityStartTime")
-                    .and_then(iso_datetime)
-                    .ok_or_else(|| Error("a live manifest without its start time".into()))?;
-                let offset: u64 = attr(&templates, "presentationTimeOffset")
-                    .and_then(|o| o.parse().ok())
-                    .unwrap_or(0);
-                Some((
-                    ((now - start - period_start).max(0.0) * timescale as f64) as u64,
-                    offset,
-                ))
-            }
-            None => None,
-        };
+        let live_ticks = live_ticks(mpd, &templates, now, period_start, timescale)?;
         let mut segments = Vec::new();
         let mut first = start_number;
         if let Some(timeline) = templates.iter().find_map(|t| child(*t, "SegmentTimeline")) {
@@ -229,39 +208,9 @@ fn track(url: &str, mpd: Node, rep_id: &str, now: Option<f64>) -> Result<DashTra
                 Some((ticks, offset)) => Some(offset + ticks),
                 None => duration.map(|d| (d * timescale as f64).round() as u64),
             };
-            let mut time = 0u64;
-            let mut number = start_number;
-            let entries: Vec<Node> = children(timeline, "S").collect();
-            for (i, s) in entries.iter().enumerate() {
-                if let Some(t) = s.attribute("t").and_then(|t| t.parse().ok()) {
-                    time = t;
-                }
-                let d: u64 = s
-                    .attribute("d")
-                    .and_then(|d| d.parse().ok())
-                    .filter(|d| *d > 0)
-                    .ok_or_else(|| Error("SegmentTimeline entry without a duration".into()))?;
-                let r: i64 = s.attribute("r").and_then(|r| r.parse().ok()).unwrap_or(0);
-                // r = -1: repeat until the next entry's start, or the end of the period.
-                let until = if r < 0 {
-                    entries
-                        .get(i + 1)
-                        .and_then(|n| n.attribute("t"))
-                        .and_then(|t| t.parse().ok())
-                        .or(end)
-                        .ok_or_else(|| Error("an open-ended timeline needs a duration".into()))?
-                } else {
-                    time.saturating_add(d.saturating_mul(r as u64 + 1))
-                };
-                if until.saturating_sub(time) / d >= (MAX_SEGMENTS - segments.len()) as u64 {
-                    return Err(too_many());
-                }
-                while time < until {
-                    segments.push(piece(media, number, time, Some(d as f64)));
-                    time = time.saturating_add(d);
-                    number = number.saturating_add(1);
-                }
-            }
+            segments = timeline_pieces(timeline, end, start_number, &|number, time, d| {
+                piece(media, number, time, d)
+            })?;
         } else {
             let seg: f64 = attr(&templates, "duration")
                 .and_then(|d| d.parse().ok())
@@ -310,43 +259,7 @@ fn track(url: &str, mpd: Node, rep_id: &str, now: Option<f64>) -> Result<DashTra
     }
 
     if let Some(list) = child(rep, "SegmentList").or_else(|| child(set, "SegmentList")) {
-        let init = child(list, "Initialization").map(|i| Piece {
-            url: i
-                .attribute("sourceURL")
-                .map_or_else(|| base.clone(), |s| resolve(&base, s)),
-            range: i.attribute("range").and_then(byte_range),
-            duration: None,
-        });
-        let timescale: f64 = list
-            .attribute("timescale")
-            .and_then(|t| t.parse().ok())
-            .filter(|t: &f64| *t > 0.0)
-            .unwrap_or(1.0);
-        let each = list
-            .attribute("duration")
-            .and_then(|d| d.parse::<f64>().ok())
-            .map(|d| d / timescale);
-        let segments: Vec<Piece> = children(list, "SegmentURL")
-            .map(|s| Piece {
-                url: s
-                    .attribute("media")
-                    .map_or_else(|| base.clone(), |m| resolve(&base, m)),
-                range: s.attribute("mediaRange").and_then(byte_range),
-                duration: each,
-            })
-            .collect();
-        if segments.is_empty() && now.is_none() {
-            return Err(Error("the segment list is empty".into()));
-        }
-        return Ok(DashTrack {
-            init,
-            segments,
-            single: false,
-            first: list
-                .attribute("startNumber")
-                .and_then(|n| n.parse().ok())
-                .unwrap_or(1),
-        });
+        return from_list(list, &base, now);
     }
 
     // SegmentBase, or nothing: the BaseURL is the whole file.
@@ -360,6 +273,119 @@ fn track(url: &str, mpd: Node, rep_id: &str, now: Option<f64>) -> Result<DashTra
         single: true,
         first: 1,
     })
+}
+
+/// Where the media timeline of a live manifest (`now` set) is now, in ticks, with the
+/// presentation time offset.
+fn live_ticks(
+    mpd: Node,
+    templates: &[Node],
+    now: Option<f64>,
+    period_start: f64,
+    timescale: u64,
+) -> Result<Option<(u64, u64)>, Error> {
+    Ok(match now {
+        Some(now) => {
+            let start = mpd
+                .attribute("availabilityStartTime")
+                .and_then(iso_datetime)
+                .ok_or_else(|| Error("a live manifest without its start time".into()))?;
+            let offset: u64 = attr(templates, "presentationTimeOffset")
+                .and_then(|o| o.parse().ok())
+                .unwrap_or(0);
+            Some((
+                ((now - start - period_start).max(0.0) * timescale as f64) as u64,
+                offset,
+            ))
+        }
+        None => None,
+    })
+}
+
+/// A `SegmentList`'s segments, each by its own address or range.
+fn from_list(list: Node, base: &str, now: Option<f64>) -> Result<DashTrack, Error> {
+    let init = child(list, "Initialization").map(|i| Piece {
+        url: i
+            .attribute("sourceURL")
+            .map_or_else(|| base.to_owned(), |s| resolve(base, s)),
+        range: i.attribute("range").and_then(byte_range),
+        duration: None,
+    });
+    let timescale: f64 = list
+        .attribute("timescale")
+        .and_then(|t| t.parse().ok())
+        .filter(|t: &f64| *t > 0.0)
+        .unwrap_or(1.0);
+    let each = list
+        .attribute("duration")
+        .and_then(|d| d.parse::<f64>().ok())
+        .map(|d| d / timescale);
+    let segments: Vec<Piece> = children(list, "SegmentURL")
+        .map(|s| Piece {
+            url: s
+                .attribute("media")
+                .map_or_else(|| base.to_owned(), |m| resolve(base, m)),
+            range: s.attribute("mediaRange").and_then(byte_range),
+            duration: each,
+        })
+        .collect();
+    if segments.is_empty() && now.is_none() {
+        return Err(Error("the segment list is empty".into()));
+    }
+    Ok(DashTrack {
+        init,
+        segments,
+        single: false,
+        first: list
+            .attribute("startNumber")
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(1),
+    })
+}
+
+/// The segments a `SegmentTimeline` lists, numbered from `start_number`, its open end at
+/// `end` (ticks), each made by `piece` from its number, time and duration.
+fn timeline_pieces(
+    timeline: Node,
+    end: Option<u64>,
+    start_number: u64,
+    piece: &dyn Fn(u64, u64, Option<f64>) -> Piece,
+) -> Result<Vec<Piece>, Error> {
+    let mut segments = Vec::new();
+    let mut time = 0u64;
+    let mut number = start_number;
+    let entries: Vec<Node> = children(timeline, "S").collect();
+    for (i, s) in entries.iter().enumerate() {
+        if let Some(t) = s.attribute("t").and_then(|t| t.parse().ok()) {
+            time = t;
+        }
+        let d: u64 = s
+            .attribute("d")
+            .and_then(|d| d.parse().ok())
+            .filter(|d| *d > 0)
+            .ok_or_else(|| Error("SegmentTimeline entry without a duration".into()))?;
+        let r: i64 = s.attribute("r").and_then(|r| r.parse().ok()).unwrap_or(0);
+        // r = -1: repeat until the next entry's start, or the end of the period.
+        let until = if r < 0 {
+            entries
+                .get(i + 1)
+                .and_then(|n| n.attribute("t"))
+                .and_then(|t| t.parse().ok())
+                .or(end)
+                .ok_or_else(|| Error("an open-ended timeline needs a duration".into()))?
+        } else {
+            time.saturating_add(d.saturating_mul(r as u64 + 1))
+        };
+        if until.saturating_sub(time) / d >= (MAX_SEGMENTS - segments.len()) as u64 {
+            return Err(too_many());
+        }
+        while time < until {
+            segments.push(piece(number, time, Some(d as f64)));
+            time = time.saturating_add(d);
+            number = number.saturating_add(1);
+        }
+    }
+    Ok(segments)
 }
 
 #[cfg(test)]

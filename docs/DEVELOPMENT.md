@@ -109,7 +109,6 @@ So that no file or function grows into one nobody wants to touch, CI checks both
   current size and why. It may not grow, and when it shrinks the script asks for its new size
   (or for it to come off the list once it is within the limit), so the list only goes down.
 - **Functions:** clippy's `too_many_lines` (120 lines, `clippy.toml`) and
-  `cognitive_complexity`, errors under `-D warnings`. The functions that were longer when the
-  rule came in carry an `#[allow]` with a reason; split one when it next changes, and do not
-  add new ones.
+  `cognitive_complexity`, errors under `-D warnings`, with no exceptions: split a function
+  that grows past them rather than allowing it.
 

@@ -109,11 +109,6 @@ fn slug(s: &str) -> String {
         .collect()
 }
 
-#[allow(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "one long sequence kept together; to be split when it next changes"
-)]
 pub async fn run_once(
     base: &str,
     scenario: &Scenario,
@@ -126,51 +121,13 @@ pub async fn run_once(
     let size = scenario.size.0;
     let file = format!("{}-{}-{run}.bin", slug(&scenario.name), slug(&client.name));
     let path = out_dir.join(&file);
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
-    let mut url_path = format!("/file/{file}?size={size}&seed={}", scenario.seed);
-    if !scenario.query.is_empty() {
-        url_path.push('&');
-        url_path.push_str(&scenario.query);
-    }
-    url_path.push_str(&format!("&run={unique}"));
-    // A real URL gets a unique query too: no client is served from a cache warmed by the
-    // previous one, and IDM does not see a duplicate download.
-    let url = match &scenario.url {
-        Some(u) => format!("{u}{}run={unique}", if u.contains('?') { '&' } else { '?' }),
-        None => format!("{base}{url_path}"),
-    };
+    let (url, url_path) = address(base, scenario, &file);
     let local = scenario.url.is_none();
 
-    let mut result = RunResult {
-        scenario: scenario.name.clone(),
-        client: client.name.clone(),
-        run,
-        status: Status::ClientError,
-        detail: String::new(),
-        secs: 0.0,
-        mib_s: 0.0,
-        tail_secs: None,
-        after_secs: None,
-        gets: 0,
-        peak_conns: 0,
-        overhead_pct: 0.0,
-        cpu_avg_pct: None,
-        peak_rss_mib: None,
-    };
+    let mut result = RunResult::new(scenario, client, run);
 
     cleanup(&path);
-    let args: Vec<String> = client
-        .args
-        .iter()
-        .map(|a| {
-            a.replace("{url}", &url)
-                .replace("{path}", &path.to_string_lossy())
-                .replace("{dir}", &out_dir.to_string_lossy())
-                .replace("{file}", &file)
-        })
-        .collect();
+    let args = client_args(client, &url, &path, out_dir, &file);
 
     let started = Instant::now();
     let mut child = match tokio::process::Command::new(&client.program)
@@ -273,31 +230,88 @@ pub async fn run_once(
             result.detail = format!("{code}: {}", stderr.lines().last().unwrap_or_default());
         }
         Some(Ok(_)) if !local => verify_remote(&path, size, reference, &mut result).await,
-        Some(Ok(_)) => {
-            let p = path.clone();
-            let seed = scenario.seed;
-            match tokio::task::spawn_blocking(move || {
-                shardload_testserver::verify_file(&p, seed, size)
-            })
-            .await
-            {
-                Ok(Ok(Verdict::Ok)) => result.status = Status::Ok,
-                Ok(Ok(Verdict::WrongLength { expected, actual })) => {
-                    result.status = Status::WrongLength;
-                    result.detail = format!("{actual} bytes, expected {expected}");
-                }
-                Ok(Ok(Verdict::Mismatch { offset })) => {
-                    result.status = Status::Corrupt;
-                    result.detail = format!("first wrong byte at {offset}");
-                }
-                Ok(Err(e)) => result.detail = format!("output: {e}"),
-                Err(e) => result.detail = e.to_string(),
-            }
-        }
+        Some(Ok(_)) => verify_local(&path, scenario.seed, size, &mut result).await,
     }
 
     cleanup(&path);
     result
+}
+
+/// The address the client downloads, and its path on the test server (for its counts).
+fn address(base: &str, scenario: &Scenario, file: &str) -> (String, String) {
+    let size = scenario.size.0;
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let mut url_path = format!("/file/{file}?size={size}&seed={}", scenario.seed);
+    if !scenario.query.is_empty() {
+        url_path.push('&');
+        url_path.push_str(&scenario.query);
+    }
+    url_path.push_str(&format!("&run={unique}"));
+    // A real URL gets a unique query too: no client is served from a cache warmed by the
+    // previous one, and IDM does not see a duplicate download.
+    let url = match &scenario.url {
+        Some(u) => format!("{u}{}run={unique}", if u.contains('?') { '&' } else { '?' }),
+        None => format!("{base}{url_path}"),
+    };
+    (url, url_path)
+}
+
+impl RunResult {
+    /// A run not done yet: a client error until it is.
+    fn new(scenario: &Scenario, client: &Client, run: u32) -> Self {
+        RunResult {
+            scenario: scenario.name.clone(),
+            client: client.name.clone(),
+            run,
+            status: Status::ClientError,
+            detail: String::new(),
+            secs: 0.0,
+            mib_s: 0.0,
+            tail_secs: None,
+            after_secs: None,
+            gets: 0,
+            peak_conns: 0,
+            overhead_pct: 0.0,
+            cpu_avg_pct: None,
+            peak_rss_mib: None,
+        }
+    }
+}
+
+/// The client's arguments, its placeholders filled in.
+fn client_args(client: &Client, url: &str, path: &Path, out_dir: &Path, file: &str) -> Vec<String> {
+    client
+        .args
+        .iter()
+        .map(|a| {
+            a.replace("{url}", url)
+                .replace("{path}", &path.to_string_lossy())
+                .replace("{dir}", &out_dir.to_string_lossy())
+                .replace("{file}", file)
+        })
+        .collect()
+}
+
+/// Checks a file the test server served, byte by byte.
+async fn verify_local(path: &Path, seed: u64, size: u64, result: &mut RunResult) {
+    let p = path.to_owned();
+    match tokio::task::spawn_blocking(move || shardload_testserver::verify_file(&p, seed, size))
+        .await
+    {
+        Ok(Ok(Verdict::Ok)) => result.status = Status::Ok,
+        Ok(Ok(Verdict::WrongLength { expected, actual })) => {
+            result.status = Status::WrongLength;
+            result.detail = format!("{actual} bytes, expected {expected}");
+        }
+        Ok(Ok(Verdict::Mismatch { offset })) => {
+            result.status = Status::Corrupt;
+            result.detail = format!("first wrong byte at {offset}");
+        }
+        Ok(Err(e)) => result.detail = format!("output: {e}"),
+        Err(e) => result.detail = e.to_string(),
+    }
 }
 
 /// Removes the output file and the control files some clients leave next to it.

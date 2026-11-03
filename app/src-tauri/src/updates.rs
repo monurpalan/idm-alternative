@@ -28,11 +28,6 @@ pub(crate) fn touch(stamp: &Path) {
 /// download runs through them (Windows cannot replace a running program), and offers a new
 /// version of the app while `check_updates` is on. The times of the last checks are kept in
 /// files, so restarting the app does not check again.
-#[allow(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "one long sequence kept together; to be split when it next changes"
-)]
 pub(crate) async fn daily_checks(handle: AppHandle) {
     tokio::time::sleep(CHECK_DELAY).await;
     loop {
@@ -43,65 +38,81 @@ pub(crate) async fn daily_checks(handle: AppHandle) {
         };
 
         let stamp = tools::dir(&app.data).join("last-check");
-        let busy = app.manager.list().await.is_ok_and(|tasks| {
-            tasks.iter().any(|t| {
-                // yt-dlp for pages; ffmpeg for pages and streams.
-                t.status == shardload_manager::Status::Downloading
-                    && t.stream
-                        .as_ref()
-                        .is_some_and(|s| s.torrent.is_none() && s.archive.is_none())
-            })
-        });
-        if update_tools && due(&stamp) && !busy {
-            let opts = app.manager.config().engine;
-            let mut changed = false;
-            let mut failed = false;
-            // ffmpeg only when it is the one set up (`update` skips tools not set up).
-            for tool in [tools::Tool::Ytdlp, tools::Tool::Deno, tools::Tool::Ffmpeg] {
-                match tools::update(&app.data, tool, &opts).await {
-                    Ok(Some(v)) => {
-                        tracing::info!("updated {tool:?} to {v}");
-                        changed = true;
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        tracing::warn!("could not update {tool:?}: {e}");
-                        failed = true;
-                    }
-                }
-            }
-            if changed {
-                let settings = lock(&app.settings).clone();
-                app.manager
-                    .set_config(manager_config(
-                        &settings,
-                        app.path_ffmpeg.clone(),
-                        &app.data,
-                    ))
-                    .await
-                    .ok();
-                handle.emit("tools", ()).ok();
-            }
-            // A failed check (offline, GitHub busy) is tried again at the next wake-up.
-            if !failed {
-                touch(&stamp);
-            }
+        if update_tools && due(&stamp) && !tools_busy(&app).await {
+            update_tools_now(&handle, &app, &stamp).await;
         }
 
         let stamp = app.data.join("update-check");
         if check_updates && due(&stamp) {
-            match find_update(&handle).await {
-                Ok(found) => {
-                    if let Some(update) = found {
-                        to_page(&handle, "update", update, false);
-                    }
-                    touch(&stamp);
-                }
-                Err(e) => tracing::warn!("could not check for a new version: {e}"),
-            }
+            offer_update(&handle, &stamp).await;
         }
         // Wake up hourly: the app may run for days, and a busy or offline check retries soon.
         tokio::time::sleep(std::time::Duration::from_secs(60 * 60)).await;
+    }
+}
+
+/// Whether a download runs through yt-dlp or ffmpeg (pages, streams), which Windows cannot
+/// replace while they run.
+async fn tools_busy(app: &App) -> bool {
+    app.manager.list().await.is_ok_and(|tasks| {
+        tasks.iter().any(|t| {
+            // yt-dlp for pages; ffmpeg for pages and streams.
+            t.status == shardload_manager::Status::Downloading
+                && t.stream
+                    .as_ref()
+                    .is_some_and(|s| s.torrent.is_none() && s.archive.is_none())
+        })
+    })
+}
+
+/// Updates yt-dlp, deno and ffmpeg (only when it is the one set up), and notes the check in
+/// `stamp` unless one failed.
+async fn update_tools_now(handle: &AppHandle, app: &App, stamp: &Path) {
+    let opts = app.manager.config().engine;
+    let mut changed = false;
+    let mut failed = false;
+    // ffmpeg only when it is the one set up (`update` skips tools not set up).
+    for tool in [tools::Tool::Ytdlp, tools::Tool::Deno, tools::Tool::Ffmpeg] {
+        match tools::update(&app.data, tool, &opts).await {
+            Ok(Some(v)) => {
+                tracing::info!("updated {tool:?} to {v}");
+                changed = true;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!("could not update {tool:?}: {e}");
+                failed = true;
+            }
+        }
+    }
+    if changed {
+        let settings = lock(&app.settings).clone();
+        app.manager
+            .set_config(manager_config(
+                &settings,
+                app.path_ffmpeg.clone(),
+                &app.data,
+            ))
+            .await
+            .ok();
+        handle.emit("tools", ()).ok();
+    }
+    // A failed check (offline, GitHub busy) is tried again at the next wake-up.
+    if !failed {
+        touch(stamp);
+    }
+}
+
+/// Offers a newer version of the app, if there is one; notes the check in `stamp`.
+async fn offer_update(handle: &AppHandle, stamp: &Path) {
+    match find_update(handle).await {
+        Ok(found) => {
+            if let Some(update) = found {
+                to_page(handle, "update", update, false);
+            }
+            touch(stamp);
+        }
+        Err(e) => tracing::warn!("could not check for a new version: {e}"),
     }
 }
 

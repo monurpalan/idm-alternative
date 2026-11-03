@@ -133,11 +133,6 @@ pub async fn record_hls(
 }
 
 /// Records the live tracks (video, then audio) of `req` (see [`record_hls`]).
-#[allow(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "one long sequence kept together; to be split when it next changes"
-)]
 pub(crate) async fn record(
     req: &RecordRequest,
     sources: Vec<LiveSource>,
@@ -176,8 +171,10 @@ pub(crate) async fn record(
 
     let mut failures = 0u32;
     let mut missed = 0u64;
-    let mut last = (Instant::now(), 0u64);
-    let mut speed = 0.0;
+    let mut meter = Meter {
+        last: (Instant::now(), 0),
+        speed: 0.0,
+    };
     let mut stopped = false;
     'record: loop {
         let mut wait = LIVE_REFRESH;
@@ -189,11 +186,7 @@ pub(crate) async fn record(
                 }
                 Err(e) => {
                     failures += 1;
-                    tracing::warn!(
-                        track = t.name,
-                        failures,
-                        "could not read the live playlist: {e}"
-                    );
+                    read_failed(t.name, failures, &e);
                     if failures >= LIVE_READ_FAILURES {
                         if tracks.iter().all(|t| t.recorded == 0.0) {
                             return Err(e);
@@ -203,87 +196,68 @@ pub(crate) async fn record(
                     continue;
                 }
             };
-            if let Some(target) = media.refresh.filter(|r| *r > 0.0) {
-                wait = wait.min(Duration::from_secs_f64(target));
-            }
-            // The initialisation segment goes first, once there are media segments after it
-            // (a live DASH stream may have none out yet).
-            if t.next.is_none()
-                && !media.segments.is_empty()
-                && let Some(init) = &media.init
-                && append(&run, init, &t.file, t.name).await.is_err()
-            {
+            wait = sooner(wait, media.refresh);
+            if !t.take(&run, &media, &mut missed).await {
                 stopped = true;
                 break 'record;
-            }
-            for (i, seg) in media.segments.iter().enumerate() {
-                let seq = media.first + i as u64;
-                if t.next.is_some_and(|n| seq < n) {
-                    continue;
-                }
-                if let Some(n) = t.next.filter(|n| seq > *n) {
-                    missed += seq - n;
-                    tracing::warn!(
-                        track = t.name,
-                        lost = seq - n,
-                        "segments left the live playlist before they were read"
-                    );
-                }
-                match append(&run, seg, &t.file, t.name).await {
-                    Ok(()) => {}
-                    Err(Error::Cancelled) => {
-                        stopped = true;
-                        break 'record;
-                    }
-                    Err(e) => {
-                        tracing::warn!(track = t.name, "a live segment failed: {e}");
-                        missed += 1;
-                    }
-                }
-                t.next = Some(seq + 1);
-                t.recorded += seg.duration.unwrap_or(0.0);
             }
             t.ended = media.ended;
         }
         let recorded = tracks[0].recorded;
         if let Some(p) = progress {
-            let received = run.received.load(Ordering::Relaxed);
-            let dt = last.0.elapsed().as_secs_f64().max(1e-3);
-            let now = received.saturating_sub(last.1) as f64 / dt;
-            speed = if speed == 0.0 {
-                now
-            } else {
-                speed * 0.7 + now * 0.3
-            };
-            last = (Instant::now(), received);
-            p.send_modify(|p| {
-                p.phase = Phase::Recording;
-                p.size = None;
-                p.received = received;
-                p.speed = speed;
-                p.connections = 1;
-                p.recorded = recorded;
-                p.missed = missed;
-                p.segments.clear();
-            });
+            meter.report(p, run.received.load(Ordering::Relaxed), recorded, missed);
         }
-        if tracks.iter().all(|t| t.ended) || req.limit.is_some_and(|l| recorded >= l.as_secs_f64())
-        {
+        if over(&tracks, req, recorded) {
             break;
         }
-        tokio::select! {
-            () = tokio::time::sleep(wait) => {}
-            () = cancel.cancelled() => {
-                stopped = true;
-                break;
-            }
+        if cancelled_within(wait, cancel).await {
+            stopped = true;
+            break;
         }
     }
     if stopped {
         tracing::info!("recording stopped");
     }
+    finish(req, &tracks, &dir, opts, progress, started).await
+}
+
+/// Logs that a track's live playlist could not be read, for the `failures`th time running.
+fn read_failed(track: &str, failures: u32, e: &Error) {
+    tracing::warn!(track, failures, "could not read the live playlist: {e}");
+}
+
+/// `wait`, or the playlist's own `refresh` time (seconds) when that is sooner.
+fn sooner(wait: Duration, refresh: Option<f64>) -> Duration {
+    match refresh.filter(|r| *r > 0.0) {
+        Some(target) => wait.min(Duration::from_secs_f64(target)),
+        None => wait,
+    }
+}
+
+/// Whether the recording is over: every track ended, or `recorded` seconds reach its limit.
+fn over(tracks: &[LiveTrack], req: &RecordRequest, recorded: f64) -> bool {
+    tracks.iter().all(|t| t.ended) || req.limit.is_some_and(|l| recorded >= l.as_secs_f64())
+}
+
+/// Waits `wait`; true when cancelled meanwhile.
+async fn cancelled_within(wait: Duration, cancel: &CancellationToken) -> bool {
+    tokio::select! {
+        () = tokio::time::sleep(wait) => false,
+        () = cancel.cancelled() => true,
+    }
+}
+
+/// Puts the recorded tracks together into the recording's file.
+async fn finish(
+    req: &RecordRequest,
+    tracks: &[LiveTrack],
+    dir: &Path,
+    opts: &Options,
+    progress: Option<&watch::Sender<Progress>>,
+    started: Instant,
+) -> Result<Outcome> {
     if !tracks[0].file.exists() {
-        tokio::fs::remove_dir_all(&dir).await.ok();
+        tokio::fs::remove_dir_all(dir).await.ok();
         return Err(Error::State("nothing was recorded".into()));
     }
     if let Some(p) = progress {
@@ -300,7 +274,7 @@ pub(crate) async fn record(
                 // A recording cannot be made again: keep the video as it came.
                 let kept = req.output.with_extension("ts");
                 tokio::fs::rename(&joined[0].0, &kept).await?;
-                tokio::fs::remove_dir_all(&dir).await.ok();
+                tokio::fs::remove_dir_all(dir).await.ok();
                 return Err(Error::State(format!(
                     "{e}; the recording is kept as it came, in {}",
                     kept.display()
@@ -309,7 +283,7 @@ pub(crate) async fn record(
         }
         None => tokio::fs::rename(&joined[0].0, &req.output).await?,
     }
-    tokio::fs::remove_dir_all(&dir).await.ok();
+    tokio::fs::remove_dir_all(dir).await.ok();
     let size = tokio::fs::metadata(&req.output).await?.len();
     if let Some(p) = progress {
         p.send_modify(|p| {
@@ -329,6 +303,78 @@ pub(crate) async fn record(
         checksum_from: None,
         structure: None,
     })
+}
+
+/// How fast a recording receives, for its progress.
+struct Meter {
+    last: (Instant, u64),
+    speed: f64,
+}
+
+impl Meter {
+    fn report(&mut self, p: &watch::Sender<Progress>, received: u64, recorded: f64, missed: u64) {
+        let dt = self.last.0.elapsed().as_secs_f64().max(1e-3);
+        let now = received.saturating_sub(self.last.1) as f64 / dt;
+        self.speed = if self.speed == 0.0 {
+            now
+        } else {
+            self.speed * 0.7 + now * 0.3
+        };
+        self.last = (Instant::now(), received);
+        let speed = self.speed;
+        p.send_modify(|p| {
+            p.phase = Phase::Recording;
+            p.size = None;
+            p.received = received;
+            p.speed = speed;
+            p.connections = 1;
+            p.recorded = recorded;
+            p.missed = missed;
+            p.segments.clear();
+        });
+    }
+}
+
+impl LiveTrack {
+    /// Appends the segments of `media` this track has not recorded yet, its initialisation
+    /// segment first; false when the recording is to stop (cancelled, or the initialisation
+    /// segment failed).
+    async fn take(&mut self, run: &Run, media: &LiveView, missed: &mut u64) -> bool {
+        // The initialisation segment goes first, once there are media segments after it
+        // (a live DASH stream may have none out yet).
+        if self.next.is_none()
+            && !media.segments.is_empty()
+            && let Some(init) = &media.init
+            && append(run, init, &self.file, self.name).await.is_err()
+        {
+            return false;
+        }
+        for (i, seg) in media.segments.iter().enumerate() {
+            let seq = media.first + i as u64;
+            if self.next.is_some_and(|n| seq < n) {
+                continue;
+            }
+            if let Some(n) = self.next.filter(|n| seq > *n) {
+                *missed += seq - n;
+                tracing::warn!(
+                    track = self.name,
+                    lost = seq - n,
+                    "segments left the live playlist before they were read"
+                );
+            }
+            match append(run, seg, &self.file, self.name).await {
+                Ok(()) => {}
+                Err(Error::Cancelled) => return false,
+                Err(e) => {
+                    tracing::warn!(track = self.name, "a live segment failed: {e}");
+                    *missed += 1;
+                }
+            }
+            self.next = Some(seq + 1);
+            self.recorded += seg.duration.unwrap_or(0.0);
+        }
+        true
+    }
 }
 
 /// Downloads one segment of a live track and appends it to the track's file.

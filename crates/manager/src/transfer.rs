@@ -152,11 +152,6 @@ impl Inner {
         Ok(())
     }
 
-    #[allow(
-        clippy::too_many_lines,
-        clippy::cognitive_complexity,
-        reason = "one long sequence kept together; to be split when it next changes"
-    )]
     pub(crate) async fn download(
         &self,
         mut task: Task,
@@ -210,54 +205,16 @@ impl Inner {
             other => other,
         };
 
-        if let Some(mut format) = page_format {
-            let ytdlp = ytdlp.expect("checked above");
-            let fallback = no_ffmpeg.clone().filter(|_| ytdlp::merges(&format));
-            if let (Some(why), Some(_)) = (&no_ffmpeg, task.stream.as_ref().and_then(|s| s.clip)) {
-                return Err(shardload_engine::Error::State(format!(
-                    "cutting a clip needs ffmpeg, which could not be set up: {why}"
-                ))
-                .into());
-            }
-            if let Some(why) = &fallback {
-                // Never two files (a silent video and its sound): one format with both.
-                format = ytdlp::single_file(&format);
-                let note = format!(
-                    "Saved as one file with its own sound, which may be lower quality than \
-                     chosen: ffmpeg, which joins separate video and audio, is not set up \
-                     ({why}). Download it again once it is (Settings, Video tools)."
-                );
-                self.note(&mut task, note).await?;
-            }
+        if let Some(format) = page_format {
             let tools = ytdlp::Tools {
-                ytdlp,
+                ytdlp: ytdlp.expect("checked above"),
                 deno,
                 ffmpeg,
             };
-            let result = self
-                .download_page(
-                    task,
-                    &format,
-                    &tools,
-                    conflict,
-                    opts.mark_of_the_web,
-                    cancel,
-                )
+            let mark = opts.mark_of_the_web;
+            return self
+                .download_from_page(task, format, tools, no_ffmpeg, conflict, mark, cancel)
                 .await;
-            return match (result, fallback) {
-                // No format with both (YouTube has none any more): nothing was downloaded.
-                (Err(Error::Engine(shardload_engine::Error::State(e))), Some(why))
-                    if e.contains("Requested format is not available") =>
-                {
-                    Err(shardload_engine::Error::State(format!(
-                        "this video only comes as separate video and audio, and ffmpeg, which \
-                         joins them, could not be set up ({why}); start the download again to \
-                         try once more"
-                    ))
-                    .into())
-                }
-                (result, _) => result,
-            };
         }
         if torrent::is_torrent(&task.url) {
             let limit = task.speed_limit;
@@ -308,6 +265,66 @@ impl Inner {
             }
         }
 
+        self.download_file(task, opts, conflict, cancel).await
+    }
+
+    /// A video page's format, downloaded with yt-dlp. Without ffmpeg (`no_ffmpeg` says why)
+    /// a format of separate video and audio becomes one with both.
+    #[allow(clippy::too_many_arguments, reason = "a download's parts, passed down")]
+    async fn download_from_page(
+        &self,
+        mut task: Task,
+        mut format: String,
+        tools: ytdlp::Tools,
+        no_ffmpeg: Option<String>,
+        conflict: Conflict,
+        mark: bool,
+        cancel: &CancellationToken,
+    ) -> Result<Outcome> {
+        let fallback = no_ffmpeg.clone().filter(|_| ytdlp::merges(&format));
+        if let (Some(why), Some(_)) = (&no_ffmpeg, task.stream.as_ref().and_then(|s| s.clip)) {
+            return Err(shardload_engine::Error::State(format!(
+                "cutting a clip needs ffmpeg, which could not be set up: {why}"
+            ))
+            .into());
+        }
+        if let Some(why) = &fallback {
+            // Never two files (a silent video and its sound): one format with both.
+            format = ytdlp::single_file(&format);
+            let note = format!(
+                "Saved as one file with its own sound, which may be lower quality than \
+                 chosen: ffmpeg, which joins separate video and audio, is not set up \
+                 ({why}). Download it again once it is (Settings, Video tools)."
+            );
+            self.note(&mut task, note).await?;
+        }
+        let result = self
+            .download_page(task, &format, &tools, conflict, mark, cancel)
+            .await;
+        match (result, fallback) {
+            // No format with both (YouTube has none any more): nothing was downloaded.
+            (Err(Error::Engine(shardload_engine::Error::State(e))), Some(why))
+                if e.contains("Requested format is not available") =>
+            {
+                Err(shardload_engine::Error::State(format!(
+                    "this video only comes as separate video and audio, and ffmpeg, which \
+                     joins them, could not be set up ({why}); start the download again to \
+                     try once more"
+                ))
+                .into())
+            }
+            (result, _) => result,
+        }
+    }
+
+    /// A file from its address, with what earlier downloads learned about its site.
+    async fn download_file(
+        &self,
+        mut task: Task,
+        mut opts: Options,
+        conflict: Conflict,
+        cancel: &CancellationToken,
+    ) -> Result<Outcome> {
         // What earlier downloads learned about the site: connections, ranges, identity.
         let site = site_of(&task.url);
         let mut memory = match &site {
@@ -324,48 +341,15 @@ impl Inner {
         let path = match &task.path {
             Some(p) => p.clone(),
             None => {
-                // First start: ask the server for the name and size, then pick a free path.
-                let probe = tokio::select! {
-                    p = self.probe_as_allowed(&task, &mut opts, site.as_deref(), &mut memory) => p?,
-                    () = cancel.cancelled() => return Err(shardload_engine::Error::Cancelled.into()),
-                };
-                std::fs::create_dir_all(&task.dir).map_err(shardload_engine::Error::from)?;
-                let mut probe = probe;
-                // A `.zsync` link: the file it describes, by its name and size.
-                if delta::is_zsync(&task.url) {
-                    let control =
-                        shardload_engine::zsync::fetch_control(&task.url, &task.headers, &opts)
-                            .await?;
-                    probe.name = control
-                        .filename
-                        .map_or(probe.name, |n| shardload_engine::name::sanitize(&n));
-                    probe.size = Some(control.length);
-                }
-                let name = task.name.clone().unwrap_or(probe.name);
-                let _one_at_a_time = self.naming.lock().await;
-                let taken: std::collections::HashSet<PathBuf> =
-                    self.db.paths_except(task.id).await?.into_iter().collect();
-                let path =
-                    shardload_engine::target_avoiding(&task.dir, &name, &task.url, conflict, |p| {
-                        taken.contains(p)
-                    });
-                let file_name = path
-                    .file_name()
-                    .map_or_else(|| name.clone(), |n| n.to_string_lossy().into_owned());
-                let category = Category::for_name(&file_name);
-                self.db
-                    .set_target(task.id, &file_name, &path, probe.size, category)
-                    .await?;
-                if probe.url != task.url {
-                    self.db.set_final_url(task.id, &probe.url).await?;
-                    task.final_url = Some(probe.url);
-                }
-                task.name = Some(file_name);
-                task.path = Some(path.clone());
-                task.size = probe.size;
-                task.category = category;
-                self.emit(Event::Updated(task.clone()));
-                path
+                self.name_file(
+                    &mut task,
+                    &mut opts,
+                    site.as_deref(),
+                    &mut memory,
+                    conflict,
+                    cancel,
+                )
+                .await?
             }
         };
 
@@ -416,9 +400,18 @@ impl Inner {
                 sites::keep(&self.db, m, now_ms()).await?;
             }
         }
-        // A checksum found for the file stays with the download, so the list shows it and
-        // the next attempt checks against the same one.
-        let found = match &result {
+        self.keep_found_checksum(&task, &result).await?;
+        Ok(result?)
+    }
+
+    /// A checksum found for the file stays with the download, so the list shows it and
+    /// the next attempt checks against the same one.
+    async fn keep_found_checksum(
+        &self,
+        task: &Task,
+        result: &shardload_engine::Result<Outcome>,
+    ) -> Result<()> {
+        let found = match result {
             Ok(Outcome {
                 checksum: Some(c),
                 checksum_from: Some(from),
@@ -436,7 +429,60 @@ impl Inner {
         {
             self.db.set_found_checksum(task.id, &checksum, from).await?;
         }
-        Ok(result?)
+        Ok(())
+    }
+
+    /// At a download's first start, asks the server for the file's name and size, and picks
+    /// a free path for it.
+    async fn name_file(
+        &self,
+        task: &mut Task,
+        opts: &mut Options,
+        site: Option<&str>,
+        memory: &mut Option<SiteMemory>,
+        conflict: Conflict,
+        cancel: &CancellationToken,
+    ) -> Result<PathBuf> {
+        // First start: ask the server for the name and size, then pick a free path.
+        let probe = tokio::select! {
+            p = self.probe_as_allowed(task, opts, site, memory) => p?,
+            () = cancel.cancelled() => return Err(shardload_engine::Error::Cancelled.into()),
+        };
+        std::fs::create_dir_all(&task.dir).map_err(shardload_engine::Error::from)?;
+        let mut probe = probe;
+        // A `.zsync` link: the file it describes, by its name and size.
+        if delta::is_zsync(&task.url) {
+            let control =
+                shardload_engine::zsync::fetch_control(&task.url, &task.headers, opts).await?;
+            probe.name = control
+                .filename
+                .map_or(probe.name, |n| shardload_engine::name::sanitize(&n));
+            probe.size = Some(control.length);
+        }
+        let name = task.name.clone().unwrap_or(probe.name);
+        let _one_at_a_time = self.naming.lock().await;
+        let taken: std::collections::HashSet<PathBuf> =
+            self.db.paths_except(task.id).await?.into_iter().collect();
+        let path = shardload_engine::target_avoiding(&task.dir, &name, &task.url, conflict, |p| {
+            taken.contains(p)
+        });
+        let file_name = path
+            .file_name()
+            .map_or_else(|| name.clone(), |n| n.to_string_lossy().into_owned());
+        let category = Category::for_name(&file_name);
+        self.db
+            .set_target(task.id, &file_name, &path, probe.size, category)
+            .await?;
+        if probe.url != task.url {
+            self.db.set_final_url(task.id, &probe.url).await?;
+            task.final_url = Some(probe.url);
+        }
+        task.name = Some(file_name);
+        task.path = Some(path.clone());
+        task.size = probe.size;
+        task.category = category;
+        self.emit(Event::Updated(task.clone()));
+        Ok(path)
     }
 }
 
