@@ -1,10 +1,1 @@
-{
-	"app/src/routes/+page.svelte": {
-		"lines": 725,
-		"reason": "The main window's layout, keyboard and context menu; its menus and dialogs' wiring can move into components, not done yet."
-	},
-	"crates/cli/src/main.rs": {
-		"lines": 604,
-		"reason": "The command line's arguments and its few commands; just over the limit, to split by command when it next grows."
-	}
-}
+{}

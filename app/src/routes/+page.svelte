@@ -6,13 +6,11 @@
 		extensionStatus,
 		getSettings,
 		installExtension,
-		moveTask,
 		onExtensions,
 		type ExtensionStatus,
 		onCapture,
 		onUpdate,
 		onClipboard,
-		showProgress,
 		pageReady,
 		getWhenDone,
 		setWhenDone,
@@ -22,7 +20,6 @@
 		installUpdate,
 		isVideoPage,
 		droppedFileOrigin,
-		fileOrigin,
 		onOriginPick,
 		type Origin,
 		type AppUpdate,
@@ -34,8 +31,6 @@
 		pauseAll,
 		pauseTasks,
 		removeTasks,
-		restartTask,
-		showInFolder,
 		diskNeeds,
 		relocateTask,
 		startAll,
@@ -61,20 +56,22 @@
 	import PageDialog from '#lib/components/PageDialog.svelte';
 	import OriginDialog from '#lib/components/OriginDialog.svelte';
 	import SettingsDialog from '#lib/components/SettingsDialog.svelte';
+	import ListHeader from '#lib/components/ListHeader.svelte';
 	import Sidebar from '#lib/components/Sidebar.svelte';
 	import TaskList from '#lib/components/TaskList.svelte';
-	import { Button, Input, Text } from '#lib/components/ui/index.ts';
+	import { Button, Text } from '#lib/components/ui/index.ts';
 	import {
 		compare,
 		downloads,
 		inView,
-		moveToFolder,
 		row,
 		VIEWS,
 		type SortKey,
 		type View
 	} from '#lib/downloads.svelte.ts';
-	import { msg, t } from '#lib/i18n.svelte.ts';
+	import { t } from '#lib/i18n.svelte.ts';
+	import { canPause, canStart, taskMenu } from '#lib/taskMenu.ts';
+	import { inField, looksLikeUrl, sha256 } from '#lib/pasted.ts';
 
 	let view = $state<View>('all');
 	let search = $state('');
@@ -209,8 +206,6 @@
 		downloads.tasks.filter((t) => downloads.selected.has(t.id))
 	);
 	const detailed = $derived(selectedTasks.length === 1 ? selectedTasks[0] : null);
-	const canStart = (t: Task) => t.status === 'paused' || t.status === 'error';
-	const canPause = (t: Task) => t.status === 'downloading' || t.status === 'queued';
 	const title = $derived(VIEWS.find((v) => v.id === view)?.label ?? '');
 	const anyToStart = $derived(downloads.tasks.some(canStart));
 	const anyToPause = $derived(downloads.tasks.some(canPause));
@@ -258,86 +253,17 @@
 	}
 
 	function contextMenu(e: MouseEvent, task: Task) {
-		const sel = selectedTasks;
-		const one = sel.length === 1 ? sel[0] : null;
 		menu = {
 			x: e.clientX,
 			y: e.clientY,
-			items: [
-				{
-					label: msg('Open'),
-					action: () => run(openFile(task.id)),
-					disabled: !one || one.status !== 'done'
-				},
-				{
-					label: msg('Show in folder'),
-					action: () => run(showInFolder(task.id)),
-					disabled: !one || !one.path
-				},
-				{
-					label: msg('Show progress window'),
-					action: () => run(showProgress(task.id)),
-					disabled: !one
-				},
-				{
-					label: msg('Resume'),
-					action: () => startChecked(ids(canStart), () => startTasks(ids(canStart))),
-					disabled: !sel.some(canStart),
-					separated: true
-				},
-				{
-					label: msg('Pause'),
-					action: () => run(pauseTasks(ids(canPause))),
-					disabled: !sel.some(canPause)
-				},
-				{
-					label: msg('Move to top'),
-					action: () => run(moveTask(task.id, 'top')),
-					disabled: !one || one.status === 'done',
-					separated: true
-				},
-				{
-					label: msg('Move to bottom'),
-					action: () => run(moveTask(task.id, 'bottom')),
-					disabled: !one || one.status === 'done'
-				},
-				{
-					label: msg('Rename…'),
-					action: () => (renaming = task),
-					disabled: !one,
-					shortcut: 'F2',
-					separated: true
-				},
-				{
-					label: msg('Move…'),
-					action: () => run(moveToFolder(task)),
-					disabled: !one
-				},
-				{
-					label: msg('Copy link'),
-					action: () => run(navigator.clipboard.writeText(sel.map((t) => t.url).join('\n'))),
-					separated: true
-				},
-				{
-					label: msg('Where did it come from?'),
-					action: () =>
-						run(
-							fileOrigin(task.path ?? '').then((origin) => (tracing = { origin, dropped: null }))
-						),
-					disabled: !one || one.status !== 'done' || !one.path
-				},
-				{
-					label: msg('Download again'),
-					action: () => run(restartTask(task.id)),
-					disabled: !one
-				},
-				{
-					label: msg('Remove…'),
-					action: () => (removing = sel.map((t) => t.id)),
-					danger: true,
-					separated: true
-				}
-			]
+			items: taskMenu(task, selectedTasks, {
+				run,
+				resume: () => startChecked(ids(canStart), () => startTasks(ids(canStart))),
+				pause: () => run(pauseTasks(ids(canPause))),
+				rename: (t) => (renaming = t),
+				trace: (origin) => (tracing = { origin, dropped: null }),
+				remove: (ids) => (removing = ids)
+			})
 		};
 	}
 
@@ -369,15 +295,6 @@
 		} else {
 			adding = { url };
 		}
-	}
-
-	function looksLikeUrl(s: string): boolean {
-		return /^(https?|ftps?|ftpes|sftp):\/\/\S+$/i.test(s.trim());
-	}
-
-	function inField(e: Event): boolean {
-		const t = e.target as HTMLElement | null;
-		return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
 	}
 
 	function keydown(e: KeyboardEvent) {
@@ -412,19 +329,10 @@
 		}
 	}
 
-	/** Files above this are looked up by name and size: hashing them in the page would
-	 * take their whole size in memory. */
-	const HASH_UP_TO = 256 << 20;
-
 	/** A file dropped on the window: where it came from, by its size and content. */
 	async function traceDropped(file: File) {
 		try {
-			let sha256: string | null = null;
-			if (file.size <= HASH_UP_TO) {
-				const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
-				sha256 = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
-			}
-			const origin = await droppedFileOrigin(file.size, sha256, file.name);
+			const origin = await droppedFileOrigin(file.size, await sha256(file), file.name);
 			tracing = { origin, dropped: origin ? null : file.name };
 		} catch (err) {
 			notice = String(err);
@@ -460,47 +368,24 @@
 	/>
 
 	<div class="main">
-		<header>
-			{#if selectedTasks.length}
-				<Text variant="label">{t('{n} selected', { n: selectedTasks.length })}</Text>
-				<div class="actions">
-					<Button icon="play" onclick={() => startChecked(ids(canStart), () => startTasks(ids(canStart)))} disabled={!selectedTasks.some(canStart)}
-						>{t('Resume')}</Button
-					>
-					<Button icon="pause" onclick={() => run(pauseTasks(ids(canPause)))} disabled={!selectedTasks.some(canPause)}
-						>{t('Pause')}</Button
-					>
-					<Button icon="trash" onclick={() => (removing = selectedTasks.map((t) => t.id))} title="Delete"
-						>{t('Remove')}</Button
-					>
-					<Button
-						variant="ghost"
-						icon="close"
-						onclick={() => downloads.selected.clear()}
-						label={t('Clear the selection')}
-						title="Esc"
-					/>
-				</div>
-			{:else}
-				<h1>{t(title)}</h1>
-				<Text variant="caption" mono inline>{visible.length}</Text>
-				<div class="actions">
-					{#if anyToStart}
-						<Button variant="ghost" icon="play" onclick={() =>
-							startChecked(
-								downloads.tasks.filter((t) => t.status === 'paused' || t.status === 'error').map((t) => t.id),
-								startAll
-							)}>{t('Resume all')}</Button>
-					{/if}
-					{#if anyToPause}
-						<Button variant="ghost" icon="pause" onclick={() => run(pauseAll())}>{t('Pause all')}</Button>
-					{/if}
-				</div>
-			{/if}
-			<span class="search">
-				<Input variant="search" type="search" bind:value={search} placeholder={t('Search')} label={t('Search')} />
-			</span>
-		</header>
+		<ListHeader
+			{title}
+			count={visible.length}
+			selected={selectedTasks}
+			{anyToStart}
+			{anyToPause}
+			bind:search
+			onresume={() => startChecked(ids(canStart), () => startTasks(ids(canStart)))}
+			onpause={() => run(pauseTasks(ids(canPause)))}
+			onremove={() => (removing = selectedTasks.map((t) => t.id))}
+			onclear={() => downloads.selected.clear()}
+			onresumeall={() =>
+				startChecked(
+					downloads.tasks.filter((t) => t.status === 'paused' || t.status === 'error').map((t) => t.id),
+					startAll
+				)}
+			onpauseall={() => run(pauseAll())}
+		/>
 
 		<main class:split={detailed}>
 			<TaskList
@@ -671,30 +556,6 @@
 		grid-template-rows: auto 1fr auto;
 		min-width: 0;
 		min-height: 0;
-	}
-	header {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-		height: var(--space-14);
-		padding: 0 var(--space-4);
-		border-bottom: 1px solid var(--line-strong);
-		white-space: nowrap;
-	}
-	h1 {
-		font-size: var(--text-h1);
-		font-weight: 600;
-		letter-spacing: -0.01em;
-	}
-	.actions {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-	.search {
-		display: flex;
-		width: 224px;
-		margin-left: auto;
 	}
 	main {
 		display: grid;
