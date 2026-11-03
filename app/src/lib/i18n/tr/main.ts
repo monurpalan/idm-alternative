@@ -102,6 +102,8 @@ export default {
 	'A newer release is out: {latest} (this file is from {release}).':
 		'Daha yeni bir sürüm çıkmış: {latest} (bu dosya {release} sürümünden).',
 	'This is the newest release ({release}).': 'Bu en yeni sürüm ({release}).',
+	'Downloading it again takes what is unchanged from this copy (zsync): only the parts that changed come over the network.':
+		'Yeniden indirmek değişmeyen kısımları bu kopyadan alır (zsync): ağdan yalnız değişen kısımlar gelir.',
 	'The address serves a different file now ({size}).':
 		'Adres artık başka bir dosya veriyor ({size}).',
 	'The address serves the same file as when it was downloaded.':

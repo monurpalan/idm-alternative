@@ -330,6 +330,17 @@ impl Inner {
                     () = cancel.cancelled() => return Err(shardload_engine::Error::Cancelled.into()),
                 };
                 std::fs::create_dir_all(&task.dir).map_err(shardload_engine::Error::from)?;
+                let mut probe = probe;
+                // A `.zsync` link: the file it describes, by its name and size.
+                if delta::is_zsync(&task.url) {
+                    let control =
+                        shardload_engine::zsync::fetch_control(&task.url, &task.headers, &opts)
+                            .await?;
+                    probe.name = control
+                        .filename
+                        .map_or(probe.name, |n| shardload_engine::name::sanitize(&n));
+                    probe.size = Some(control.length);
+                }
                 let name = task.name.clone().unwrap_or(probe.name);
                 let _one_at_a_time = self.naming.lock().await;
                 let taken: std::collections::HashSet<PathBuf> =
@@ -379,7 +390,9 @@ impl Inner {
             prior,
             watch,
         ));
-        let result = shardload_engine::download(&req, &opts, Some(&tx), cancel).await;
+        let result = self
+            .download_maybe_delta(&mut task, &req, &opts, &tx, cancel)
+            .await;
         drop(tx);
         reporter.await.ok();
         if let Some(site) = site {

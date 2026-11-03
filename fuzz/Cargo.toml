@@ -97,3 +97,10 @@ path = "fuzz_targets/checksum.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "zsync"
+path = "fuzz_targets/zsync.rs"
+test = false
+doc = false
+bench = false

@@ -1,8 +1,4 @@
 {
-	"app/src/lib/api.ts": {
-		"lines": 638,
-		"reason": "Every command the UI calls and its types in one place; can be split into modules per area behind the same import, not done yet."
-	},
 	"app/src/routes/+page.svelte": {
 		"lines": 725,
 		"reason": "The main window's layout, keyboard and context menu; its menus and dialogs' wiring can move into components, not done yet."

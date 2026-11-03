@@ -4698,6 +4698,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "md4"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd76fb0fd6b2e4be62a73f8e0858ca97f81babcb1af322dcaca196f735f17f80"
+dependencies = [
+ "digest 0.11.3",
+]
+
+[[package]]
 name = "md5"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7719,6 +7728,7 @@ dependencies = [
  "futures-util",
  "lzma-rust2",
  "md-5 0.11.0",
+ "md4",
  "quick-xml 0.42.0",
  "reqwest 0.12.28",
  "russh",
@@ -7828,6 +7838,7 @@ dependencies = [
  "hyper-util",
  "libunftp",
  "lzma-rust2",
+ "md4",
  "rcgen",
  "reqwest 0.12.28",
  "russh",
@@ -7835,6 +7846,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "sha1 0.11.0",
  "tokio",
  "tokio-rustls",
  "tracing",

@@ -226,6 +226,9 @@ pub struct UpdateCheck {
     /// A GitHub release asset: its release, and the project's newest.
     pub release: Option<String>,
     pub latest_release: Option<String>,
+    /// The server has a `.zsync` for the file: downloading it again takes what is unchanged
+    /// from this copy (see the manager's delta downloads).
+    pub delta: bool,
 }
 
 /// Asks `url` about the file again: its size and validators now, and for a GitHub release
@@ -257,6 +260,12 @@ pub(crate) async fn check_update(
         .await
         .ok()
         .flatten();
+    let delta = match shardload_engine::zsync::control_url(url) {
+        Some(control) => shardload_engine::zsync::fetch_control(&control, &[], opts)
+            .await
+            .is_ok(),
+        None => false,
+    };
     Ok(UpdateCheck {
         size: probe.size,
         etag: probe.etag,
@@ -264,5 +273,6 @@ pub(crate) async fn check_update(
         changed,
         release: releases.as_ref().map(|(r, _)| r.clone()),
         latest_release: releases.map(|(_, l)| l),
+        delta,
     })
 }

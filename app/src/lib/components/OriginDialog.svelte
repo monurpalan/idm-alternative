@@ -141,6 +141,9 @@
 			{:else if !update.latest_release}
 				<Text variant="muted">{t('The server does not say whether it changed.')}</Text>
 			{/if}
+			{#if update.delta}
+				<Text variant="muted">{t('Downloading it again takes what is unchanged from this copy (zsync): only the parts that changed come over the network.')}</Text>
+			{/if}
 		{/if}
 		{#if added}<Text>{t('Added to the list.')}</Text>{/if}
 		<div>

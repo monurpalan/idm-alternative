@@ -103,6 +103,17 @@ async fn serve_file(
         extensions,
         ..
     } = parts;
+    // `<file>.zsync`: the `.zsync` of the file the same query serves.
+    if let Some(file) = uri.path().strip_suffix(".zsync") {
+        let mut data = vec![0u8; sc.size.0 as usize];
+        crate::content::fill(sc.seed, 0, &mut data);
+        let name = file.rsplit('/').next().unwrap_or_default();
+        let url = match uri.query() {
+            Some(q) => format!("{name}?{q}"),
+            None => name.to_owned(),
+        };
+        return crate::zsync::make(&data, name, &url, 2048, 3, 5).into_response();
+    }
     if sc.latency_ms > 0 {
         tokio::time::sleep(Duration::from_millis(sc.latency_ms)).await;
     }

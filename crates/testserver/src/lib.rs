@@ -26,6 +26,7 @@ pub mod sftp;
 mod stats;
 mod tls;
 pub mod zip;
+pub mod zsync;
 
 pub use server::router;
 pub use tls::{SelfSigned, serve_plain, serve_tls};

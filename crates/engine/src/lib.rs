@@ -41,6 +41,7 @@ pub mod structure;
 mod subtitles;
 mod zip;
 mod zone;
+pub mod zsync;
 
 pub use checksum::{Algorithm, Checksum, FROM_PAGE, file_checksum};
 pub use dash::{DashRequest, download_dash, record_dash};

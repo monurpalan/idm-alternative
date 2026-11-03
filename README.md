@@ -58,6 +58,8 @@ saves videos and torrents. No ads, no trial, no account.</p>
 - **Torrents.** Magnet links and `.torrent` files in the same list, with a choice of files;
   nothing keeps seeding afterwards.
 - **FTP, FTPS and SFTP** in the same list: in parts, resumable, with a saved login.
+- **Only what changed.** A newer version of a file you have, from a server that publishes a
+  `.zsync` next to it, is built from your copy: only the changed parts are downloaded.
 - **One file from several servers at once** (mirrors and Metalink), each checked to serve the
   same bytes.
 - **Just the files you need out of a ZIP**, without downloading the whole archive.
@@ -211,6 +213,12 @@ For those who want to know exactly what it does, how it was measured and how it 
   (`~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`); a server's host key is checked against
   `~/.ssh/known_hosts` and the app's own list, where a server seen for the first time is
   recorded, and a key that changed is refused.
+- **Delta updates (zsync):** a `.zsync` link downloads the file it describes; a link to a file
+  with an older copy in its folder (or downloaded from the same address before) is asked for
+  a `.zsync` next to it, and every block found in the older copy, also moved, is taken from
+  it; the rest is downloaded in ranges and the whole checked against the `.zsync`'s SHA-1
+  (on a mismatch the file is downloaded whole). "Where did this file come from?" says when
+  downloading a file again would work this way.
 - **Like IDM:** categories, a queue with automatic retries, a scheduler, "when done" sleep or
   shut down, batch downloads (`photo[001-100].jpg`), clipboard monitoring, saved logins per
   site, a virus scan when a download finishes, a small progress window per download, and a

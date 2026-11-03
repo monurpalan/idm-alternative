@@ -20,6 +20,7 @@ pub mod command;
 mod db;
 pub mod deadline;
 mod dedup;
+mod delta;
 pub mod disk;
 pub mod eta;
 pub mod folder;
