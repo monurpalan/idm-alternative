@@ -1,7 +1,7 @@
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
 
 PackageIdentifier: monurpalan.Shardload
-PackageVersion: 0.1.2
+PackageVersion: 0.1.6
 PackageLocale: en-US
 Publisher: Mahsum Onur Palan
 PublisherUrl: https://github.com/monurpalan
@@ -16,7 +16,7 @@ Description: |-
   Shardload is a download manager for Windows and Linux in the spirit of Internet Download Manager.
   It downloads each file over several connections at once and resumes after a crash, takes over the
   browser's downloads (Chrome, Edge, Firefox and others, through its extension), saves videos from
-  YouTube and many other sites, HLS/DASH streams, torrents and magnet links. Categories, a queue, a
+  YouTube and many other sites, HLS/DASH streams, torrents, magnet links, FTP and SFTP. Categories, a queue, a
   scheduler, speed limits and an MCP server for AI assistants. No ads, no trial, no account.
 Moniker: shardload
 Tags:
@@ -27,6 +27,6 @@ Tags:
   - torrent
   - video-downloader
   - youtube-downloader
-ReleaseNotesUrl: https://github.com/monurpalan/idm-alternative/releases/tag/v0.1.2
+ReleaseNotesUrl: https://github.com/monurpalan/idm-alternative/releases/tag/v0.1.6
 ManifestType: defaultLocale
-ManifestVersion: 1.10.0
+ManifestVersion: 1.12.0

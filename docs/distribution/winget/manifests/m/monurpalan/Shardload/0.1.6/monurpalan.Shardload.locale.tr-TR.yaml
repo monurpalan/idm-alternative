@@ -1,7 +1,7 @@
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.10.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.12.0.schema.json
 
 PackageIdentifier: monurpalan.Shardload
-PackageVersion: 0.1.2
+PackageVersion: 0.1.6
 PackageLocale: tr-TR
 Publisher: Mahsum Onur Palan
 PackageName: Shardload
@@ -11,8 +11,8 @@ Description: |-
   Shardload, Windows ve Linux için Internet Download Manager tarzında bir indirme yöneticisi. Her
   dosyayı aynı anda birkaç bağlantıyla indirir, çökmeden sonra kaldığı yerden sürer; eklentisiyle
   tarayıcının (Chrome, Edge, Firefox ve diğerleri) indirmelerini devralır; YouTube ve pek çok
-  siteden video, HLS/DASH yayınları, torrent ve magnet linkleri indirir. Kategoriler, kuyruk,
+  siteden video, HLS/DASH yayınları, torrent, magnet, FTP ve SFTP indirir. Kategoriler, kuyruk,
   zamanlayıcı, hız sınırı ve yapay zekâ asistanları için MCP sunucusu. Reklam, deneme süresi ya da
   hesap yok.
 ManifestType: locale
-ManifestVersion: 1.10.0
+ManifestVersion: 1.12.0
