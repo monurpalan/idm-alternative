@@ -250,7 +250,7 @@ command line or local API to start a download from.
 1. Local rows: measured time, including the ~1 s its command-line tool takes to start. Internet
    rows: its own record of the download (added → complete).
 2. Linode Frankfurt, from Turkey, ~470 Mbit/s line. On 2026-11-03 Linode's speed-test hosts no longer
-   answered anyone (checked from six countries), so these are the 2026-10-18 numbers.
+   answer, so these are the 2026-10-18 numbers.
 3. Mostly measures the disk (a DRAM-less SSD that slows down while it writes back): the same
    client can swing by a factor of two between sessions.
 

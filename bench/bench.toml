@@ -146,8 +146,6 @@ size = "256K"
 # Checked 2026-10-16 from Turkey: Hetzner's speed-test hosts reset the TLS connection,
 # Tele2 does not answer, Leaseweb's files are gone, and proof.ovh.net stopped accepting
 # connections from this IP minutes into the first run (16 + 8 connections per download).
-# 2026-11-03: Linode's speed-test hosts (every city) stopped answering anyone;
-# Hetzner's now answers 429 to plain requests and resets browser-like TLS.
 
 [[scenario]]
 name = "internet-linode-1g"
