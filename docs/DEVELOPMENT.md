@@ -69,6 +69,13 @@ When the update signing key is on the machine (`%USERPROFILE%\.tauri\idma.key`, 
 DPAPI-encrypted in `idma.key.password`), it also signs the installer and writes `latest.json`;
 uploading both to a GitHub release `v<version>` is what the app's daily update check looks for.
 The check needs the releases to be public.
+
+Releases are built by CI (`.github/workflows/release.yml`): pushing a tag `v<version>` (the
+version in `app/src-tauri/tauri.conf.json`) builds the installer, the Linux packages, the
+Flatpak and the extension zips from that commit, writes `SHA256SUMS`, and puts them all in a
+draft release; the notes are written and the draft published by hand. The update key comes
+from the repository secrets `TAURI_SIGNING_PRIVATE_KEY` and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 The installer is per user (no administrator rights) and silent with `/S`. Uninstalling removes
 the app's keys from the browsers and the "start with Windows" entry, and keeps the download
 list in `%APPDATA%\io.github.monurpalan.shardload`.

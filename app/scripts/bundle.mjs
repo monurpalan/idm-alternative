@@ -4,7 +4,9 @@
 // The key is `%USERPROFILE%\.tauri\idma.key`; its password is in `idma.key.password` beside
 // it, encrypted with Windows DPAPI (only this Windows user can read it). Without the key the
 // installer is built unsigned and offers no update. `IDMA_SIGNING_KEY` names another key;
-// further arguments go to `tauri build` (e.g. `-- --config test.json`).
+// in CI the key and its password come in `TAURI_SIGNING_PRIVATE_KEY` and
+// `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` instead. Further arguments go to `tauri build`
+// (e.g. `-- --config test.json`).
 import { execFileSync, execSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -30,9 +32,12 @@ for (const bin of ['shardload-host', 'shardload-mcp']) {
 const config = JSON.parse(readFileSync(join(app, 'src-tauri', 'tauri.bundle.json'), 'utf8'));
 const env = { ...process.env };
 const key = process.env.IDMA_SIGNING_KEY ?? join(homedir(), '.tauri', 'idma.key');
-const signing = existsSync(key);
+const fromEnv = Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY);
+const signing = fromEnv || existsSync(key);
 if (signing) {
 	config.bundle.createUpdaterArtifacts = true;
+}
+if (signing && !fromEnv) {
 	env.TAURI_SIGNING_PRIVATE_KEY = readFileSync(key, 'utf8');
 	const passwordFile = `${key}.password`;
 	if (existsSync(passwordFile)) {
@@ -47,7 +52,7 @@ if (signing) {
 			{ encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }
 		).trim();
 	}
-} else {
+} else if (!signing) {
 	console.log(`no signing key at ${key}: building without an update`);
 }
 const merged = join(tmpdir(), `shardload-bundle-${process.pid}.json`);

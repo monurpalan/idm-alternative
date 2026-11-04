@@ -1,0 +1,160 @@
+name: Release
+
+# A tag `v<version>` builds every file of the release from that commit and puts them in a
+# draft release; publishing it stays a person's decision. The tag must match the version in
+# app/src-tauri/tauri.conf.json. Started by hand, it only builds (no key, no release), to try
+# the workflow.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag matches the app's version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          version=$(node -p "require('./app/src-tauri/tauri.conf.json').version")
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME, app $version"; exit 1; }
+      # Without the key the installer would offer no update to the versions out there.
+      - name: The update signing key is set
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: test -n "$KEY" || { echo "secret TAURI_SIGNING_PRIVATE_KEY is missing"; exit 1; }
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Install NASM
+        run: |
+          choco install nasm -y --no-progress
+          echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            extension/package-lock.json
+      - name: Installer
+        working-directory: app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          npm ci
+          npm run bundle
+      - name: Browser extension
+        working-directory: extension
+        run: |
+          npm ci
+          npm run build
+          New-Item -ItemType Directory -Force ../out | Out-Null
+          Compress-Archive -Path dist/chromium/* -DestinationPath ../out/shardload-extension-chromium.zip
+          Compress-Archive -Path dist/firefox/* -DestinationPath ../out/shardload-extension-firefox.zip
+      - name: Collect
+        shell: bash
+        run: |
+          nsis=target/release/bundle/nsis
+          cp "$nsis"/Shardload_*_x64-setup.exe "$nsis"/shardload-setup.exe out/
+          if [ -f "$nsis/latest.json" ]; then cp "$nsis/latest.json" out/; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
+            libssl-dev cmake clang libclang-dev patchelf file
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Packages (.deb, .rpm, AppImage)
+        working-directory: app
+        run: |
+          npm ci
+          npm run bundle -- --bundles deb,rpm,appimage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/rpm/*.rpm
+            target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+  flatpak:
+    needs: linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux
+          path: packages
+      - name: Build the bundle
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+          version=$(node -p "require('./app/src-tauri/tauri.conf.json').version")
+          packaging/flatpak/build.sh packages/deb/*.deb "out/Shardload_${version}_x86_64.flatpak"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: out/*.flatpak
+          if-no-files-found: error
+
+  draft:
+    needs: [windows, linux, flatpak]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums
+        working-directory: artifacts
+        run: |
+          mkdir files
+          find . -type f -not -path './files/*' -exec mv {} files/ \;
+          cd files
+          sha256sum -b -- * > ../SHA256SUMS
+          mv ../SHA256SUMS .
+          cat SHA256SUMS
+      # A draft for the tag is made, or filled again if one is already there.
+      - name: Draft release
+        working-directory: artifacts/files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag=$GITHUB_REF_NAME
+          if ! gh release view "$tag" > /dev/null 2>&1; then
+            gh release create "$tag" --draft --verify-tag --title "Shardload ${tag#v}" --notes ""
+          fi
+          gh release upload "$tag" --clobber -- *
