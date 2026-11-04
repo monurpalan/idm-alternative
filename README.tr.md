@@ -9,7 +9,7 @@ torrent indirir. Reklam yok, deneme süresi yok, hesap yok.</p>
 <p align="center">
 <a href="https://github.com/monurpalan/idm-alternative/releases/latest/download/shardload-setup.exe"><b>⬇ Windows için indir</b></a>
 &nbsp;·&nbsp;
-<a href="https://github.com/monurpalan/idm-alternative/releases/latest">Linux (.deb, AppImage)</a>
+<a href="https://github.com/monurpalan/idm-alternative/releases/latest">Linux (.deb, .rpm, Flatpak, AppImage)</a>
 &nbsp;·&nbsp;
 <a href="README.md">English</a>
 </p>
@@ -19,7 +19,7 @@ torrent indirir. Reklam yok, deneme süresi yok, hesap yok.</p>
 ## Kurulum
 
 1. **`shardload-setup.exe` dosyasını çalıştırın.** Yalnızca sizin Windows kullanıcınıza kurulur,
-   yönetici izni gerekmez; yeni sürümü günde bir kez kendisi denetler.
+   yönetici izni gerekmez; yeni sürümü günde bir kez kendisi denetler (ayarlardan kapatılabilir).
    Kurulum dosyası henüz kod imzalı olmadığı için Windows *"Bilgisayarınız Windows tarafından
    korundu"* diyebilir: **Ek bilgi → Yine de çalıştır**'a tıklayın.
 2. **Tarayıcı eklentisini ekleyin.** Eklenti henüz mağazalarda değil; dosyaları
@@ -34,87 +34,69 @@ torrent indirir. Reklam yok, deneme süresi yok, hesap yok.</p>
 3. **Bu kadar.** Tarayıcıda başlattığınız indirmeler artık Shardload'da açılır. Bir bağlantıyı
    Ctrl+V ile yapıştırabilir ya da pencereye sürükleyip bırakabilirsiniz.
 
-**Linux (x64):** aynı sürümdeki `.deb` (`sudo apt install ./shardload_*_amd64.deb`) ya da
-AppImage (`chmod +x` ve çalıştırın).
+**Linux (x64):** aynı sürümdeki `.deb` (`sudo apt install ./Shardload_*_amd64.deb`), `.rpm`
+(`sudo dnf install ./Shardload-*.x86_64.rpm`), Flatpak
+(`flatpak install --user ./Shardload_*_x86_64.flatpak`) ya da AppImage (`chmod +x` ve çalıştırın).
 
 ## Neler yapar
 
-- **Daha hızlı indirme.** Dosya başına 16 bağlantıya kadar. Bir bağlantı yavaşlarsa boşta kalan
-  bir bağlantı onun kalan kısmını devralır; son yüzde sürünmez. Çökme ya da yeniden başlatmadan
-  sonra kaldığı yerden sürer, yayıncının sağlama toplamı varsa dosyayı onunla denetler.
-- **Tarayıcının indirmelerini devralır.** Chrome, Edge, Brave, Vivaldi, Opera ve Firefox'ta,
-  çerezleriyle birlikte; giriş gerektiren indirmeler de çalışır. Süresi dolan bir bağlantı,
-  indirme tarayıcıda yeniden başlatılarak yenilenir.
-- **Video.** Sayfadaki videoların üstünde bir İndir düğmesi. YouTube, X, Instagram, TikTok,
-  Twitch ve daha birçok site yt-dlp ile; uygulama onu kendisi kurar ve günceller (her sürümü,
-  sağlama dosyası yt-dlp'nin uygulamaya gömülü anahtarıyla doğrulanan imzasını taşıyorsa;
-  ffmpeg ve deno imza yayımlamadığı için onlarda yalnız sağlama toplamı denetlenir). HLS ve DASH
-  yayınlarında kalite, ses ve altyazı seçimi.
-- **Oynatma listeleri, kanallar, klipler ve canlı yayınlar.** Bir YouTube listesi ya da kanalı
-  videolarını seçmeniz için listeler; bir videonun yalnızca bir bölümü (ör. 1:05–2:30) istenirse
-  yalnız o bölüm iner; canlı yayın bitene kadar kaydedilir, isterseniz belli bir saatte başlar.
-- **Hatırlar.** Daha önce indirdiğiniz bir şeyi eklerken söyler; her sitenin neye izin
-  verdiğini (kaç bağlantı, hangi tarayıcı) öğrenir, sonraki indirme doğru başlar.
-- **Bu dosya nereden geldi?** Bir dosyayı pencereye bırakın: indirildiği sayfayı görün, yeniden
-  denetleyin ya da yeni sürümü var mı bakın.
-- **Torrent.** Magnet bağlantıları ve `.torrent` dosyaları aynı listede, dosya seçerek;
-  indirme bitince arkada paylaşmaya devam etmez.
-- **FTP, FTPS ve SFTP** aynı listede: parça parça, kaldığı yerden, kayıtlı girişle.
-- **Sunucudan kalkmış mı?** "Bulunamadı" ile biten indirme Wayback Machine'i önerir: adresin
-  arşivdeki kopyaları tarayıcıda, ya da en yakın kopya yeni bir indirme olarak. Siz tıklamadan
-  hiçbir şey sorulmaz.
-- **Yalnız değişen kısım.** Elinizdeki bir dosyanın yeni sürümü, sunucu yanında bir `.zsync`
-  yayınlıyorsa sizdeki kopyadan kurulur: yalnız değişen kısımlar iner.
-- **Bir dosyayı aynı anda birkaç sunucudan indirir** (aynalar ve Metalink); her sunucunun aynı
-  baytları verdiği denetlenir.
-- **ZIP arşivinden yalnızca istediğiniz dosyalar**, arşivin tamamını indirmeden.
-- **Site tarayıcı.** Bir sitenin bağlantı verdiği bütün dosyaları (arşiv, belge, video, resim)
-  listeler; hangilerinin indirileceğini siz seçersiniz.
-- **Sağlama toplamı olmadan da bozukluğu bulur:** biten ZIP, gzip, xz, PNG, PDF, MP4 ya da
-  MKV kendi yapısıyla (CRC'leri, sıkıştırılmış akışları, dizini) denetlenir; bozuk kısım tek
-  başına yeniden indirilir, dosyanın tamamı değil.
-- **Zaten var mı?** Biten dosyaların SHA-256'sı saklanır; yeni indirmenin beklenen sağlama
-  toplamı (sayfada gösterilen, yanında yayımlanan) aynıysa elinizdeki dosya önerilir: yeniden
-  indirmek yerine kopyalayın ya da aynı sürücüdeyse sabit bağlantı yapın.
-- **Tarayıcının yarıda bıraktığını kurtarır:** eklentinin penceresi tarayıcıda yarım kalan
-  indirmeleri listeler; "Shardload'da devam et", sunucu aynı dosyayı veriyorsa tarayıcının
-  indirdiği kısmı korur, yalnız kalanını çeker.
-- **Önce iskelet:** ZIP, MP4 ya da PDF inerken dosya listesi, süresi ve çözünürlüğü ya da sayfa
-  sayısı ilk saniyelerden görünür; yanlış dosya erkenden durdurulabilir.
-- **Teslim saati:** "18:00'e kadar insin" (ya da kendiliğinden, linkin geçerliliği bitmeden):
-  en erken teslim önce başlar, diğer indirmeler yer açar, yetişmeyecek olan erkenden söylenir.
-- **Ağ ve güç kuralları:** ölçülü bağlantıda videolar ve torrentler bekler, pildeyken hız sınırı
-  uygulanır, belli bir ağ kendi proxy'sini kullanabilir, aylık veri bütçesi uyarır ya da
-  indirmeleri gelecek aya kadar bekletir.
-- **İndirme bitince:** arşivi açar (ZIP, tar), kurallarınıza göre (tür, site, ad) taşır, kendi
-  programınızı çalıştırır ya da bir webhook'a bildirir. Program yalnızca Ayarlar'da sizin
-  yazdığınız kurallarla çalışır; bir web sayfası ya da yapay zekâ asistanı çalıştıramaz.
-- **"Neden yavaş?"** Süren bir indirme, kesin bilindiğinde onu neyin tuttuğunu tek satırda
-  söyler: hız sınırı (kaldırma düğmesiyle), yetişemeyen disk, sık kopan bağlantılar, az
-  bağlantıya izin veren sunucu.
-- **IDM'den bildiğiniz her şey:** kategoriler, otomatik yeniden denemeli kuyruk, zamanlayıcı,
-  hepsi bitince uyku ya da kapatma, toplu indirme (`foto[001-100].jpg`), pano izleme, site
-  başına kayıtlı girişler, biten dosyalarda virüs taraması, indirme başına küçük ilerleme
-  penceresi, sistem tepsisi simgesi ve hız sınırları.
-- **Yapay zekâ asistanları için:** uygulamayla birlikte kurulan bir
-  [MCP](https://modelcontextprotocol.io) sunucusu; bir asistan sizin için indirme ekleyip
-  bulabilir, izleyip yönetebilir.
+**İndirme**
 
-  ![Bir MCP istemcisi bir listeyi inceliyor, bir klip ve iki dosya ekliyor, bitmelerini bekliyor](docs/screenshots/mcp.gif)
-- **Komut satırı:** `shard`, aynı motor terminalde (şimdilik kaynaktan derleniyor, bkz.
+- **Daha hızlı.** Dosya başına 16 bağlantı (Ayarlar'dan 64'e kadar). Bir bağlantı yavaşlarsa
+  boşta kalan bir bağlantı onun kalan kısmını devralır; son yüzde sürünmez. Çökme ya da yeniden
+  başlatmadan sonra kaldığı yerden sürer.
+- **Tarayıcının indirmelerini devralır.** Chrome, Edge, Brave, Vivaldi, Opera ve Firefox'ta,
+  çerezleriyle birlikte; giriş gerektiren indirmeler de çalışır.
+- **Video.** Sayfadaki videoların üstünde bir İndir düğmesi. YouTube, X, Instagram, TikTok,
+  Twitch ve daha birçok site yt-dlp ile; uygulama onu kendisi kurar ve günceller. HLS ve DASH'te
+  kalite, ses ve altyazı seçimi. Bütün oynatma listeleri ve kanallar, bir videonun yalnızca bir
+  bölümü (ör. 1:05–2:30), bitene kadar kaydedilen canlı yayınlar.
+- **Torrent, FTP, FTPS ve SFTP** aynı listede ve kuyrukta.
+- **Daha az indirir.** ZIP arşivinden yalnızca istediğiniz dosyalar; bir dosya aynı anda birkaç
+  sunucudan; sunucu bir `.zsync` yayınlıyorsa elinizdeki dosyanın yeni sürümü sizdeki kopyadan
+  kurulur.
+- **Site tarayıcı.** Bir sitenin bağlantı verdiği bütün dosyaları seçmeniz için listeler.
+
+**Denetleme**
+
+- **İndirdiğini denetler:** kendi bulduğu yayıncı sağlama toplamıyla, o yoksa dosyanın kendi
+  yapısıyla (ZIP, gzip, xz, PNG, PDF, MP4, MKV). Yalnızca bozuk kısım yeniden iner.
+- **Zaten var mı?** Daha önce indirdiğiniz bir şeyi ya da elinizdekiyle aynı sağlama toplamına
+  sahip bir dosyayı eklediğinizde söyler, elinizdekini önerir.
+- **Önce iskelet:** ZIP'in dosyaları, videonun süresi ve çözünürlüğü, PDF'in sayfa sayısı ilk
+  saniyelerde görünür; yanlış dosya erkenden durdurulabilir.
+- **Kurtarır:** tarayıcının yarıda bıraktığı indirmeleri, indirilmiş kısmı koruyarak sürdürür;
+  sunucusundan kalkmış bir dosya için Wayback Machine'i önerir.
+- **Bu dosya nereden geldi?** Bir dosyayı pencereye bırakın: sayfasını görün, yeniden
+  denetleyin ya da yeni sürümü var mı bakın.
+
+**Kendi kendine**
+
+- **Teslim saati** ("18:00'e kadar insin"), **ağ ve güç kuralları** (ölçülü bağlantı, pil,
+  aylık veri bütçesi) ve **indirme bitince kurallar** (arşivi aç, taşı, program çalıştır,
+  webhook'a bildir).
+- **"Neden yavaş?"** Süren bir indirme, kesin bilindiğinde onu neyin tuttuğunu tek satırda
+  söyler.
+- **IDM'den bildiğiniz her şey:** kategoriler, yeniden denemeli kuyruk, zamanlayıcı, bitince
+  uyku ya da kapatma, toplu indirme (`foto[001-100].jpg`), pano izleme, kayıtlı girişler, virüs
+  taraması, indirme başına ilerleme penceresi, sistem tepsisi simgesi ve hız sınırları.
+- **Yapay zekâ asistanları için** bir [MCP](https://modelcontextprotocol.io) sunucusu, komut
+  satırı için `shard` (şimdilik kaynaktan derleniyor, bkz.
   [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)).
 - Türkçe ve İngilizce arayüz.
+
+![Bir MCP istemcisi bir listeyi inceliyor, bir klip ve iki dosya ekliyor, bitmelerini bekliyor](docs/screenshots/mcp.gif)
 
 ## Karşılaştırma
 
 **Hız.** Saniye, düşük olan daha iyi; tek makine ve tek hatta birkaç ölçümün ortancası
 ([nasıl ölçüldü](README.md#speed-tests)):
 
-| | Shardload | IDM 6.43 | aria2 | AB Download Manager | Gopeed |
+| | Shardload x16 | IDM 6.43 | aria2 | AB Download Manager | Gopeed |
 |---|---:|---:|---:|---:|---:|
 | İnternet, 1000 MiB | **12.94** | 20.04 | 15.46 | 23.91 | 48.25 |
-| Bir bağlantı 64 KiB/sn'ye düşüyor | **2.40** | 8.61 | 10.28 | 31.58 | 10.10 |
-| Bağlantılar her 4 MiB'da kopuyor | **1.50** | 4.82 | 3.14 | 9.87 | 7.51 |
+| Bir bağlantı 64 KiB/sn'ye düşüyor | **2.39** | 8.72 | 10.25 | 32.53 | 10.64 |
+| Bağlantılar her 4 MiB'da kopuyor | **1.50** | 4.86 | 1.57 | 10.82 | 7.50 |
 
 **Özellikler**, her projenin kendi sitesinde ya da README'sinde yazdığı kadarıyla (18 Ekim 2026'da
 bakıldı; yazmıyorsa "?"):
@@ -159,7 +141,8 @@ ya da Tonec Inc. ile bağlantısı yoktur. Ad yalnızca neyin alternatifi olduğ
 bundandır.
 
 **İndirmelerim ve ayarlarım nerede?** Dosyalar, başka bir klasör seçmediyseniz İndirilenler
-klasörüne iner. Liste ve ayarlar `%APPDATA%\io.github.monurpalan.shardload` klasöründe durur.
+klasörüne iner. Liste ve ayarlar `%APPDATA%\io.github.monurpalan.shardload` klasöründe durur
+(Linux'ta `~/.local/share/io.github.monurpalan.shardload`).
 
 **Nasıl kaldırılır?** Windows Ayarlar → Uygulamalar → *Shardload* → Kaldır. Kaldırma,
 tarayıcı kaydını da siler; geri dönerseniz diye indirme listesi kalır.

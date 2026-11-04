@@ -8,7 +8,7 @@ Result files from before the command-line tool was renamed call `shard` by its o
 ```bash
 cargo run --release -p shardload-bench                         # all scenarios, enabled clients
 cargo run --release -p shardload-bench -- --scenario slow-tail # one scenario
-cargo run --release -p shardload-bench -- --client "shard,shard x8,IDM" # these clients only (enables disabled ones)
+cargo run --release -p shardload-bench -- --client "shard x16,shard x8,IDM" # these clients only (enables disabled ones)
 cargo run --release -p shardload-bench -- --scenario internet-linode-1g # real internet (off by default)
 cargo run --release -p shardload-bench -- --out-dir E:/scratch # where downloads are written
 ```

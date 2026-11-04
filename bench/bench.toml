@@ -29,7 +29,7 @@ args = [
 ]
 
 [[client]]
-name = "shard"
+name = "shard x16"
 program = "${CARGO_TARGET_DIR}/release/shard.exe"
 args = ["get", "{url}", "-o", "{path}"]
 
@@ -38,7 +38,6 @@ args = ["get", "{url}", "-o", "{path}"]
 name = "shard x8"
 program = "${CARGO_TARGET_DIR}/release/shard.exe"
 args = ["get", "{url}", "-o", "{path}", "-c", "8"]
-enabled = false
 
 # IDM 6.43 (default settings: 8 connections). /n = silent, /q = exit when done -- but /q only
 # works for the first instance: close IDM (tray icon included) before benchmarking, or the
@@ -147,6 +146,8 @@ size = "256K"
 # Checked 2026-10-16 from Turkey: Hetzner's speed-test hosts reset the TLS connection,
 # Tele2 does not answer, Leaseweb's files are gone, and proof.ovh.net stopped accepting
 # connections from this IP minutes into the first run (16 + 8 connections per download).
+# 2026-11-03: Linode's speed-test hosts (every city) stopped answering anyone;
+# Hetzner's now answers 429 to plain requests and resets browser-like TLS.
 
 [[scenario]]
 name = "internet-linode-1g"
