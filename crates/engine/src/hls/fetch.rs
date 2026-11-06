@@ -350,7 +350,11 @@ pub(crate) async fn segmented(
             if let Some(p) = progress {
                 p.send_modify(|p| p.phase = Phase::Verifying);
             }
-            mux(ffmpeg, &joined[0], joined.get(1), output, clip).await?;
+            if let Err(e) = mux(ffmpeg, &joined[0], joined.get(1), output, clip).await {
+                let e = keep_tracks(e, &joined, output, None).await;
+                tokio::fs::remove_dir_all(&run.dir).await.ok();
+                return Err(e);
+            }
         }
         None => tokio::fs::rename(&joined[0].0, output).await?,
     }
@@ -467,6 +471,54 @@ pub(crate) async fn mux(
             "ffmpeg could not join the stream: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         )))
+    }
+}
+
+/// When ffmpeg could not join `joined`, they are kept as they came, next to `out`: one
+/// track under `out`'s name (`film.ts`), video and audio as `film.video.ts` and
+/// `film.audio.aac`. The error `e` then says where. (With a clip, they hold somewhat more.)
+/// `known` is the container when it is known (a recording is MPEG-TS); otherwise it is
+/// told from each track's first bytes.
+pub(crate) async fn keep_tracks(
+    e: Error,
+    joined: &[(PathBuf, f64)],
+    out: &Path,
+    known: Option<&'static str>,
+) -> Error {
+    let mut kept = Vec::new();
+    for (i, (path, _)) in joined.iter().enumerate() {
+        let ext = match known {
+            Some(ext) => ext,
+            None => container(path).await,
+        };
+        let to = match (joined.len(), i) {
+            // Not under the name of the file that was to come out: that one would look done.
+            (1, _) if out.extension().is_none_or(|e| e != ext) => out.with_extension(ext),
+            (_, 0) | (1, _) => out.with_extension(format!("video.{ext}")),
+            _ => out.with_extension(format!("audio.{ext}")),
+        };
+        if let Err(io) = tokio::fs::rename(path, &to).await {
+            return Error::State(format!("{e}; could not keep {}: {io}", to.display()));
+        }
+        kept.push(to.display().to_string());
+    }
+    Error::State(format!("{e}; kept as it came: {}", kept.join(", ")))
+}
+
+/// The extension for a joined track, from its first bytes: MPEG-TS, ADTS AAC, or (fragmented)
+/// MP4.
+async fn container(path: &Path) -> &'static str {
+    use tokio::io::AsyncReadExt;
+    let mut head = [0u8; 2];
+    let read = match tokio::fs::File::open(path).await {
+        Ok(mut f) => f.read_exact(&mut head).await.is_ok(),
+        Err(_) => false,
+    };
+    match head {
+        _ if !read => "ts",
+        [0x47, _] => "ts",
+        [0xFF, b] if b & 0xF0 == 0xF0 => "aac",
+        _ => "mp4",
     }
 }
 

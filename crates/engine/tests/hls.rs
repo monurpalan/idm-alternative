@@ -42,6 +42,42 @@ async fn get(
     .expect("download hung")
 }
 
+/// ffmpeg cannot join the video and the audio (here: it is not there): both are kept, next
+/// to where the file would have gone, and the error says where.
+#[tokio::test(flavor = "multi_thread")]
+async fn video_and_audio_ffmpeg_cannot_join_are_kept() {
+    let base = start().await;
+    let dir = workdir("hls-no-mux");
+    let out = dir.join("film.mp4");
+    let url = format!("{base}/hls/master.m3u8?segments=3&audio=1&seed=35");
+    let req = StreamRequest {
+        ffmpeg: Some(dir.join("no-such-ffmpeg.exe")),
+        ..request(url, &out)
+    };
+    let Err(Error::State(why)) = get(&req, &opts(2)).await else {
+        panic!("expected ffmpeg to fail");
+    };
+    assert!(!out.exists());
+    let kept: Vec<std::path::PathBuf> = std::fs::read_dir(out.parent().expect("dir"))
+        .expect("dir")
+        .map(|e| e.expect("entry").path())
+        .filter(|p| p.is_file())
+        .collect();
+    assert_eq!(kept.len(), 2, "{kept:?}");
+    for (what, track) in [("video", "v720"), ("audio", "a")] {
+        let path = kept
+            .iter()
+            .find(|p| p.to_string_lossy().contains(&format!("film.{what}.")))
+            .unwrap_or_else(|| panic!("no {what} in {kept:?}"));
+        assert!(why.contains(&path.display().to_string()), "{why}");
+        assert_eq!(
+            verify_file(path, track_seed(35, track), 3 * SEG).expect("verify"),
+            Verdict::Ok,
+            "{what}"
+        );
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn takes_the_best_variant_and_joins_its_segments() {
     let base = start().await;

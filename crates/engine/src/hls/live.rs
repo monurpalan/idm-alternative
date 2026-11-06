@@ -271,14 +271,10 @@ async fn finish(
     match &req.ffmpeg {
         Some(ffmpeg) => {
             if let Err(e) = mux(ffmpeg, &joined[0], joined.get(1), &req.output, None).await {
-                // A recording cannot be made again: keep the video as it came.
-                let kept = req.output.with_extension("ts");
-                tokio::fs::rename(&joined[0].0, &kept).await?;
+                // A recording cannot be made again: keep it as it came.
+                let e = super::fetch::keep_tracks(e, &joined, &req.output, Some("ts")).await;
                 tokio::fs::remove_dir_all(dir).await.ok();
-                return Err(Error::State(format!(
-                    "{e}; the recording is kept as it came, in {}",
-                    kept.display()
-                )));
+                return Err(e);
             }
         }
         None => tokio::fs::rename(&joined[0].0, &req.output).await?,
