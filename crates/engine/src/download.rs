@@ -468,7 +468,7 @@ fn another_address_may_help(e: &Error) -> bool {
         Error::Http(_)
             | Error::Status(_)
             | Error::LinkExpired(_)
-            | Error::Busy(_)
+            | Error::Busy(..)
             | Error::HtmlResponse
             | Error::BadRange(_)
             | Error::Truncated

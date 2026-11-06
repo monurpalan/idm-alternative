@@ -171,6 +171,49 @@ async fn the_identity_a_site_serves_is_found_and_kept() {
     m.close().await;
 }
 
+/// A server that answers Firefox and closes the connection without a word on anyone else,
+/// as some hosts do at a TLS fingerprint they do not like. No ranges: one connection.
+async fn start_cutting_server(body: &'static [u8]) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move {
+        while let Ok((mut sock, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut head = Vec::new();
+                let mut buf = [0u8; 1024];
+                while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match sock.read(&mut buf).await {
+                        Ok(0) | Err(_) => return,
+                        Ok(n) => head.extend_from_slice(buf.get(..n).unwrap_or_default()),
+                    }
+                }
+                if !String::from_utf8_lossy(&head).contains("Firefox") {
+                    return;
+                }
+                let reply = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+                sock.write_all(reply.as_bytes()).await.ok();
+                sock.write_all(body).await.ok();
+            });
+        }
+    });
+    format!("http://{addr}")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn identity_is_changed_when_the_connection_is_cut() {
+    let base = start_cutting_server(b"served to Firefox only").await;
+    let w = WorkDir::new("cut");
+    let m = w.manager().await;
+    let t = download(&m, format!("{base}/a.bin")).await;
+    assert_eq!(t.size, Some(22));
+    let memory = m.site_memory(&base).await.expect("memory").expect("kept");
+    assert_eq!(memory.browser.as_deref(), Some("firefox"));
+    m.close().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn how_long_links_last_is_estimated() {
     let base = start_server().await;

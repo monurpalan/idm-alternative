@@ -7,6 +7,8 @@ use wreq::{Response, StatusCode};
 
 use crate::error::{Error, Result};
 
+mod lang;
+
 /// What identifies one version of the remote file.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Validators {
@@ -162,6 +164,12 @@ impl Http {
             header::ACCEPT_ENCODING,
             HeaderValue::from_static("identity"),
         );
+        // A browser sends the system's language, not the emulation's `en-US`.
+        if cfg.browser.is_some()
+            && let Some(lang) = lang::system_accept_language()
+        {
+            headers.insert(header::ACCEPT_LANGUAGE, lang);
+        }
         for (k, v) in &cfg.headers {
             let name = HeaderName::try_from(k.as_str())
                 .map_err(|e| Error::State(format!("bad header name `{k}`: {e}")))?;
@@ -494,9 +502,23 @@ fn status_error(resp: &Response) -> Error {
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::GONE => {
             Error::LinkExpired(s.as_u16())
         }
-        StatusCode::TOO_MANY_REQUESTS | StatusCode::SERVICE_UNAVAILABLE => Error::Busy(s.as_u16()),
+        StatusCode::TOO_MANY_REQUESTS | StatusCode::SERVICE_UNAVAILABLE => {
+            Error::Busy(s.as_u16(), retry_after(resp.headers()))
+        }
         s => Error::Status(s.as_u16()),
     }
+}
+
+/// `Retry-After` in seconds. The other form, a date, is left to the usual backoff.
+fn retry_after(headers: &HeaderMap) -> Option<std::time::Duration> {
+    let secs = headers
+        .get(header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    Some(std::time::Duration::from_secs(secs))
 }
 
 fn range_value(start: u64, end: Option<u64>) -> HeaderValue {
@@ -575,6 +597,23 @@ mod tests {
         assert_eq!(parse_content_range("bytes 5-9/*"), Some((5, 9, None)));
         assert_eq!(parse_content_range("bytes 9-5/10"), None);
         assert_eq!(parse_content_range("items 0-1/2"), None);
+    }
+
+    #[test]
+    fn retry_after_in_seconds() {
+        let with = |v: &str| {
+            let mut h = HeaderMap::new();
+            h.insert(
+                header::RETRY_AFTER,
+                HeaderValue::from_str(v).expect("value"),
+            );
+            retry_after(&h)
+        };
+        assert_eq!(with("2"), Some(std::time::Duration::from_secs(2)));
+        assert_eq!(with(" 30 "), Some(std::time::Duration::from_secs(30)));
+        // A date is left to the usual backoff.
+        assert_eq!(with("Wed, 21 Oct 2026 07:28:00 GMT"), None);
+        assert_eq!(retry_after(&HeaderMap::new()), None);
     }
 
     #[test]

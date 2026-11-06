@@ -94,9 +94,10 @@ impl Inner {
         }
     }
 
-    /// Asks about the task's file; when the site refuses (403) the identity the settings
-    /// give and has not said which it serves, the others are tried, and the one it serves is
-    /// remembered and used for the download.
+    /// Asks about the task's file; when the site refuses the identity the settings give (403,
+    /// or a connection cut before any answer twice in a row, as some servers do at one TLS
+    /// fingerprint) and has not said which it serves, the others are tried, and the one it
+    /// serves is remembered and used for the download.
     pub(crate) async fn probe_as_allowed(
         &self,
         task: &Task,
@@ -104,14 +105,24 @@ impl Inner {
         site: Option<&str>,
         memory: &mut Option<SiteMemory>,
     ) -> Result<shardload_engine::Probe> {
-        let first = match probe_any(task, opts).await {
+        let mut first = match probe_any(task, opts).await {
             Ok(p) => return Ok(p),
             Err(e) => e,
         };
-        let refused = matches!(
-            first,
-            shardload_engine::Error::LinkExpired(403) | shardload_engine::Error::Status(403)
-        );
+        let refused = match &first {
+            shardload_engine::Error::LinkExpired(403) | shardload_engine::Error::Status(403) => {
+                true
+            }
+            e if e.cut_off() => {
+                // Once may be bad luck, not the identity.
+                match probe_any(task, opts).await {
+                    Ok(p) => return Ok(p),
+                    Err(e) => first = e,
+                }
+                first.cut_off()
+            }
+            _ => false,
+        };
         let Some(site) = site.filter(|_| refused) else {
             return Err(first.into());
         };

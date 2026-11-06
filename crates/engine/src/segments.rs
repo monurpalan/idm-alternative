@@ -321,6 +321,12 @@ impl Table {
         }
     }
 
+    /// Segment `idx` is not tried again before `until` (a busy server's `Retry-After`).
+    pub fn hold(&mut self, idx: usize, until: Instant) {
+        let s = &mut self.segs[idx];
+        s.retry_at = Some(s.retry_at.map_or(until, |r| r.max(until)));
+    }
+
     /// A connection that has crawled for a while at a small fraction of the typical speed,
     /// and would take noticeably longer to finish its segment than a fresh connection. The
     /// controller drops it so a fresh connection can take the range.
@@ -443,6 +449,28 @@ mod tests {
             s.speed = 64.0 * 1024.0; // a server capped per connection
         }
         assert_eq!(t.laggard(now), None);
+    }
+
+    #[test]
+    fn a_busy_servers_wait_is_kept_when_longer_than_the_backoff() {
+        let now = Instant::now();
+        let policy = SplitPolicy::default();
+        let mut t = Table::new(10 * MB);
+        t.assign(1, now, &policy, true);
+        t.release(0, true, now);
+        t.hold(0, now + Duration::from_secs(5));
+        assert_eq!(
+            t.assign(2, now + Duration::from_secs(4), &policy, true),
+            None
+        );
+        assert_eq!(
+            t.assign(2, now + Duration::from_secs(5), &policy, true),
+            Some(0)
+        );
+        // A shorter wait does not cut the backoff short.
+        t.release(0, true, now);
+        t.hold(0, now);
+        assert!(t.segs[0].retry_at > Some(now));
     }
 
     #[test]

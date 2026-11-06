@@ -36,8 +36,10 @@ pub enum Error {
         if *.wrong { "the password given is not it" } else { "give it as the password" }
     )]
     KeyLocked { key: String, wrong: bool },
+    /// The server is busy (HTTP 429 or 503), and may say for how long (`Retry-After`, given
+    /// in seconds); that connection waits at least that long before trying again.
     #[error("server is busy (HTTP {0})")]
-    Busy(u16),
+    Busy(u16, Option<Duration>),
     #[error("the file on the server changed since the download started")]
     FileChanged,
     #[error("server sent an HTML page instead of the file")]
@@ -105,6 +107,36 @@ fn mismatch(expected: &str, actual: &str, origin: Option<&str>) -> String {
 }
 
 impl Error {
+    /// The server took the connection and cut it before answering, which some do at a TLS
+    /// fingerprint they do not like. Not when it was never reached (refused, unreachable, no
+    /// such host, too slow, the proxy): those fail the same way whatever identity is shown.
+    pub fn cut_off(&self) -> bool {
+        use std::io::ErrorKind as K;
+        let Error::Http(e) = self else {
+            return false;
+        };
+        if e.is_timeout() || e.is_dns() || e.is_proxy_connect() {
+            return false;
+        }
+        let mut source = std::error::Error::source(e);
+        while let Some(err) = source {
+            if let Some(io) = err.downcast_ref::<std::io::Error>()
+                && matches!(
+                    io.kind(),
+                    K::ConnectionRefused
+                        | K::HostUnreachable
+                        | K::NetworkUnreachable
+                        | K::AddrNotAvailable
+                        | K::TimedOut
+                )
+            {
+                return false;
+            }
+            source = err.source();
+        }
+        true
+    }
+
     /// Errors after which retrying the same request cannot help.
     pub(crate) fn is_fatal(&self) -> bool {
         matches!(

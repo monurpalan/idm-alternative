@@ -3,6 +3,9 @@
 
 use super::*;
 
+/// The longest a busy server's `Retry-After` holds a connection back.
+const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
+
 /// The state of a download's main loop.
 pub(crate) struct Steer<'a> {
     pub(crate) job: &'a Job<'a>,
@@ -134,16 +137,21 @@ impl Steer<'_> {
     /// unless it has failed too often.
     fn failed(&mut self, t: &mut Table, idx: usize, e: Error, now: Instant) {
         tracing::debug!(segment = idx, "connection failed: {e}");
-        if let Error::Busy(code) = e {
+        let mut wait = None;
+        if let Error::Busy(code, retry_after) = e {
             let limit = t.active().saturating_sub(1).max(1);
             if limit < self.conn_limit {
                 tracing::info!("server busy (HTTP {code}); limiting to {limit} connections");
                 self.limit_to(limit);
             }
+            wait = retry_after;
         } else {
             self.health.reconnects += 1;
         }
         t.release(idx, true, now);
+        if let Some(wait) = wait {
+            t.hold(idx, now + wait.min(MAX_RETRY_AFTER));
+        }
         if self.single {
             t.rewind(idx);
         }
