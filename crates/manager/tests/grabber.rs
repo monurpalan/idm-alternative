@@ -267,3 +267,39 @@ async fn the_login_saved_for_a_site_is_used() {
     m.close().await;
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// A download page that sends the browser on with a refresh, and one whose button is a
+/// script: the files are found; the page's own script and picture are not.
+#[tokio::test(flavor = "multi_thread")]
+async fn refreshes_and_scripts_lead_to_files() {
+    let page = Router::new().fallback(|| async {
+        Html(
+            r#"<html><head>
+               <meta http-equiv="Refresh" content="5; URL='/files/setup.exe'">
+               <script src="https://cdn.invalid/app.js"></script>
+               <script>
+                 var player = "https://cdn.invalid/player.js";
+                 var logo = 'https://cdn.invalid/logo.png';
+                 document.getElementById("go").onclick = function () {
+                   location.href = 'https://dl.invalid/Tool-2.1.msi';
+                 };
+                 var data = {"file":"https:\/\/dl.invalid\/pack.zip"};
+               </script></head><body><button id="go">Download</button></body></html>"#,
+        )
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("addr"));
+    tokio::spawn(async move { axum::serve(listener, page).await });
+    let mut found = names(&base, GrabOptions::default()).await;
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            "/files/setup.exe",
+            "https://dl.invalid/Tool-2.1.msi",
+            "https://dl.invalid/pack.zip"
+        ]
+    );
+}

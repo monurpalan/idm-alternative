@@ -185,7 +185,23 @@ fn links(html: &str, page: &Url) -> Vec<Link> {
         match name.as_str() {
             "script" | "style" => {
                 let close = format!("</{name}");
-                rest = find_ascii_ci(rest, &close).map_or("", |i| &rest[i..]);
+                let end = find_ascii_ci(rest, &close).unwrap_or(rest.len());
+                if name == "script" {
+                    out.extend(script_files(&rest[..end]));
+                }
+                rest = &rest[end..];
+            }
+            // `<meta http-equiv="refresh" content="5; url=…">`: a download page's way to the file.
+            "meta" if attr("http-equiv").is_some_and(|v| v.eq_ignore_ascii_case("refresh")) => {
+                if let Some(u) = attr("content")
+                    .and_then(refresh_target)
+                    .and_then(|h| resolve(&base, h))
+                {
+                    out.push(Link {
+                        url: u,
+                        text: String::new(),
+                    });
+                }
             }
             "base" => {
                 if let Some(u) = attr("href").and_then(|h| page.join(h).ok()) {
@@ -216,6 +232,44 @@ fn links(html: &str, page: &Url) -> Vec<Link> {
                 }
             }
             _ => {}
+        }
+    }
+    out
+}
+
+/// The address in a refresh's `content` (`5; url=https://…`), if it has one.
+fn refresh_target(content: &str) -> Option<&str> {
+    let (_, after) = content.split_once(';')?;
+    let after = after.trim_start();
+    let eq = after.find('=')?;
+    after[..eq]
+        .trim()
+        .eq_ignore_ascii_case("url")
+        .then(|| after[eq + 1..].trim().trim_matches(['\'', '"']))
+        .filter(|u| !u.is_empty())
+}
+
+/// Full addresses in quotes in a script that name a file worth downloading (an archive, a
+/// program, video, music or a document): not the page's own scripts, styles or pictures.
+fn script_files(script: &str) -> Vec<Link> {
+    let mut out = Vec::new();
+    for quote in ['"', '\''] {
+        for piece in script.split(quote).skip(1).step_by(2) {
+            // JSON in a script writes `/` as `\/`.
+            let piece = piece.replace("\\/", "/");
+            if !(piece.starts_with("https://") || piece.starts_with("http://")) {
+                continue;
+            }
+            let Ok(u) = Url::parse(&piece) else {
+                continue;
+            };
+            let name = u.path().rsplit('/').next().unwrap_or_default();
+            if crate::task::Category::for_name(name) != crate::task::Category::General {
+                out.push(Link {
+                    url: u,
+                    text: String::new(),
+                });
+            }
         }
     }
     out
