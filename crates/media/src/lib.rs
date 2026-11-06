@@ -29,8 +29,9 @@ pub struct Streams {
     pub duration: Option<f64>,
     /// Still being broadcast: no end yet.
     pub live: bool,
-    /// How the media is encrypted, if it is: `AES-128` and `SAMPLE-AES` (HLS) can be
-    /// decrypted with keys the playlist names; `DRM` cannot be downloaded usefully.
+    /// How the media is encrypted, if it is: `AES-128` (HLS) is decrypted with the key the
+    /// playlist names; `SAMPLE-AES` is not (the download refuses it), and `DRM` cannot be
+    /// downloaded usefully.
     pub encryption: Option<String>,
 }
 

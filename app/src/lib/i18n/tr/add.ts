@@ -96,6 +96,8 @@ export default {
 	live: 'canlı',
 	'This stream is protected (DRM). It cannot be saved in a playable form.':
 		'Bu yayın korumalı (DRM). Oynatılabilir biçimde kaydedilemez.',
+	'This stream is encrypted with {method}, which Shardload cannot decrypt.':
+		'Bu yayın {method} ile şifrelenmiş; Shardload bu şifreyi çözemiyor.',
 	Audio: 'Ses',
 	'Subtitles (saved next to the video)': 'Altyazılar (videonun yanına kaydedilir)',
 	'Name from the address': 'Adresteki ad',

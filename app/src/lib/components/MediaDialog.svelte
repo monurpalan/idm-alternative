@@ -46,7 +46,9 @@
 	/** Why the stream cannot be downloaded, if it cannot. */
 	const blocked = $derived.by(() => {
 		if (!info) return msg('Read the playlist first');
-		if (info.encryption === 'DRM') return msg('Protected streams cannot be downloaded');
+		// Only AES-128 is decrypted: SAMPLE-AES and DRM are refused when downloading.
+		if (info.encryption && info.encryption !== 'AES-128')
+			return msg('Protected streams cannot be downloaded');
 		return null;
 	});
 
@@ -142,6 +144,8 @@
 		</Text>
 		{#if info.encryption === 'DRM'}
 			<Text variant="error">{t('This stream is protected (DRM). It cannot be saved in a playable form.')}</Text>
+		{:else if info.encryption && info.encryption !== 'AES-128'}
+			<Text variant="error">{t('This stream is encrypted with {method}, which Shardload cannot decrypt.', { method: info.encryption })}</Text>
 		{/if}
 
 		<Section title={t('Quality')}>
