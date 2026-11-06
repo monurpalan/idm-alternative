@@ -30,7 +30,7 @@ Sizes and rates accept `K`, `M`, `G` suffixes (binary units). Flags accept `1/0`
 | `ranges` | `on` | Honour `Range` and send `Accept-Ranges: bytes` |
 | `range_as_200` | `off` | Advertise ranges but answer ranged requests with `200` + whole file |
 | `rate` | — | Per-connection limit in bytes/s |
-| `slow_conn` | — | `n:rate` — the n-th GET to this URL is served at `rate` |
+| `slow_conn` | — | `n:rate` — the n-th GET to this URL is served at `rate` (`0`: headers, then nothing) |
 | `stall_after` | — | Stop sending after this many bytes, keep the connection open |
 | `drop_after` | — | Reset the connection after this many bytes |
 | `max_conns` | — | `503` + `Retry-After: 1` beyond this many concurrent responses |

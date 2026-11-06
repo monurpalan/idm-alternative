@@ -200,6 +200,7 @@ pub(crate) async fn receive(
     w: &mut Writer,
     stop: &CancellationToken,
 ) -> Result<()> {
+    ctx.table().answered(idx, Instant::now());
     let mut body = Box::pin(resp.bytes_stream());
     loop {
         let chunk = tokio::select! {

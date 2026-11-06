@@ -212,7 +212,12 @@ async fn serve_file(
         rate: rate.filter(|r| *r > 0),
         total_rate: sc.total_rate.map(|r| r.0).filter(|r| *r > 0),
         wave: sc.wave.filter(|w| w.low.0 > 0 && w.high.0 > 0),
-        stall_after: sc.stall_after.map(|s| s.0),
+        // A slow connection at rate 0 sends its headers and then nothing.
+        stall_after: if rate == Some(0) {
+            Some(0)
+        } else {
+            sc.stall_after.map(|s| s.0)
+        },
         drop_after: sc.drop_after.map(|s| s.0),
     };
 

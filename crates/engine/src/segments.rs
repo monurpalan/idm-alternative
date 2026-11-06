@@ -34,6 +34,8 @@ pub struct Segment {
     written_at_claim: u64,
     /// Times a crawling owner of this segment was dropped.
     pub evictions: u32,
+    /// When the owner's latest response arrived, and `received` then.
+    answered: Option<(Instant, u64)>,
 }
 
 impl Segment {
@@ -51,6 +53,7 @@ impl Segment {
             sampled: start,
             written_at_claim: start,
             evictions: 0,
+            answered: None,
         }
     }
 
@@ -206,6 +209,7 @@ impl Table {
         let s = &mut self.segs[idx];
         s.owner = Some(id);
         s.owned_since = Some(now);
+        s.answered = None;
         s.retry_at = None;
         s.speed = 0.0;
         s.sampled = s.received;
@@ -304,6 +308,7 @@ impl Table {
         let s = &mut self.segs[idx];
         s.owner = None;
         s.owned_since = None;
+        s.answered = None;
         s.speed = 0.0;
         // Anything received but not written died with the worker's buffer.
         s.received = s.written;
@@ -321,6 +326,12 @@ impl Table {
         }
     }
 
+    /// The owner of segment `idx` got a response: from now on, silence counts.
+    pub fn answered(&mut self, idx: usize, now: Instant) {
+        let s = &mut self.segs[idx];
+        s.answered = Some((now, s.received));
+    }
+
     /// Segment `idx` is not tried again before `until` (a busy server's `Retry-After`).
     pub fn hold(&mut self, idx: usize, until: Instant) {
         let s = &mut self.segs[idx];
@@ -333,10 +344,31 @@ impl Table {
     ///
     /// "Typical" is the median of the other active connections, or the best speed seen when
     /// the crawler is the last one left — exactly when it holds up the whole download.
+    ///
+    /// A connection whose response arrived and then nothing for five seconds, in a download
+    /// where others have received data, goes first: it has no speed to compare, and would
+    /// otherwise wait for the read timeout. That includes the last one left, holding a sliver
+    /// after the others took the rest of its range. One still waiting for its response is
+    /// left alone: some servers take that long to answer every request.
     pub fn laggard(&self, now: Instant) -> Option<usize> {
         /// What dropping a connection and opening a new one is assumed to cost.
         const RECONNECT: f64 = 0.25;
+        /// How long an answered connection may get no data at all while others download.
+        const SILENT: Duration = Duration::from_secs(5);
         let age = |s: &Segment| s.owned_since.map_or(Duration::ZERO, |t| now - t);
+        // Some connection of this download has received data, so the network works.
+        if self.best_speed > 0.0 {
+            let silent = self.segs.iter().position(|s| {
+                s.owner.is_some()
+                    && s.evictions < 3
+                    && s.remaining() > 0
+                    && s.answered
+                        .is_some_and(|(at, then)| s.received == then && now - at >= SILENT)
+            });
+            if silent.is_some() {
+                return silent;
+            }
+        }
         let mut speeds: Vec<f64> = self
             .segs
             .iter()
@@ -433,6 +465,31 @@ mod tests {
         // At a healthy speed it is left alone.
         t.segs[0].speed = 4.0 * MB as f64;
         assert_eq!(t.laggard(now), None);
+    }
+
+    #[test]
+    fn silent_connection_is_dropped_while_others_download() {
+        let start = Instant::now();
+        let policy = SplitPolicy::default();
+        let mut t = Table::new(100 * MB);
+        t.assign(1, start, &policy, true);
+        t.assign(2, start, &policy, true);
+        t.best_speed = 8.0 * MB as f64;
+        // Segment 1 has received nothing; segment 0 downloads.
+        t.segs[0].received += 4 * MB;
+        t.segs[0].speed = 8.0 * MB as f64;
+        // Still waiting for its response: some servers are that slow to answer.
+        assert_eq!(t.laggard(start + Duration::from_secs(9)), None);
+        // Answered, then nothing.
+        t.answered(1, start);
+        assert_eq!(t.laggard(start + Duration::from_secs(4)), None);
+        assert_eq!(t.laggard(start + Duration::from_secs(5)), Some(1));
+        // Also when it is the last one left.
+        t.release(0, false, start);
+        assert_eq!(t.laggard(start + Duration::from_secs(5)), Some(1));
+        // When no connection has received anything yet, it is the network, not the connection.
+        t.best_speed = 0.0;
+        assert_eq!(t.laggard(start + Duration::from_secs(9)), None);
     }
 
     #[test]

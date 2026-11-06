@@ -87,6 +87,31 @@ async fn stalled_connection_is_replaced() {
     assert_verified(&out, 7, 8 * MB);
 }
 
+/// One connection gets its headers and then nothing, while the others download: it is
+/// replaced after a few seconds, long before the read timeout.
+#[tokio::test(flavor = "multi_thread")]
+async fn silent_connection_is_replaced_before_the_read_timeout() {
+    let base = start().await;
+    let dir = workdir("silent");
+    let out = dir.join("f.bin");
+    let url = format!(
+        "{base}/file/f.bin?size={}&seed=7&rate=2M&slow_conn=2:0",
+        16 * MB
+    );
+    let o = Options {
+        read_timeout: Duration::from_secs(60),
+        ..opts(4)
+    };
+    let started = std::time::Instant::now();
+    get(&request(url, &out), &o).await.expect("download");
+    assert!(
+        started.elapsed() < Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_verified(&out, 7, 16 * MB);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn no_range_support_uses_one_connection() {
     ok("no-ranges", 8 * MB, "&ranges=off", 16).await;
