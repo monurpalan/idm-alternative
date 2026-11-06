@@ -65,6 +65,55 @@ impl libunftp::options::Binder for FreePort {
     }
 }
 
+/// Passes a control connection between `client` and libunftp at `server`, holding what the
+/// client sends for a moment after libunftp says `234` to `AUTH TLS`. libunftp answers at
+/// once but switches to TLS only once a task it spawned has told its loop to; a quick
+/// client's TLS hello read before that is taken for a command, answered in plain text, and
+/// the client's TLS fails ("received corrupt message of type InvalidContentType").
+async fn hold_after_auth(client: tokio::net::TcpStream, server: std::net::SocketAddr) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let Ok(upstream) = tokio::net::TcpStream::connect(server).await else {
+        return;
+    };
+    let (mut client_read, mut client_write) = client.into_split();
+    let (mut server_read, mut server_write) = upstream.into_split();
+    let hold: Arc<std::sync::Mutex<Option<tokio::time::Instant>>> = Arc::default();
+    let set = Arc::clone(&hold);
+    let down = async move {
+        let mut buf = vec![0u8; 16 << 10];
+        while let Ok(n) = server_read.read(&mut buf).await {
+            let Some(chunk) = buf.get(..n).filter(|c| !c.is_empty()) else {
+                break;
+            };
+            if chunk.starts_with(b"234 ") || chunk.windows(5).any(|w| w == b"\n234 ") {
+                let until = tokio::time::Instant::now() + std::time::Duration::from_millis(200);
+                *set.lock().expect("hold") = Some(until);
+            }
+            if client_write.write_all(chunk).await.is_err() {
+                break;
+            }
+        }
+        client_write.shutdown().await.ok();
+    };
+    let up = async move {
+        let mut buf = vec![0u8; 16 << 10];
+        while let Ok(n) = client_read.read(&mut buf).await {
+            let Some(chunk) = buf.get(..n).filter(|c| !c.is_empty()) else {
+                break;
+            };
+            let until = hold.lock().expect("hold").take();
+            if let Some(until) = until {
+                tokio::time::sleep_until(until).await;
+            }
+            if server_write.write_all(chunk).await.is_err() {
+                break;
+            }
+        }
+        server_write.shutdown().await.ok();
+    };
+    tokio::join!(down, up);
+}
+
 /// Serves `root` until the runtime ends; returns the port. With `tls`, the certificate and key
 /// are written next to `root` (`root.pem`, `root.key`).
 pub async fn serve(root: PathBuf, tls: bool) -> anyhow::Result<u16> {
@@ -82,6 +131,15 @@ pub async fn serve(root: PathBuf, tls: bool) -> anyhow::Result<u16> {
     } else {
         None
     };
+    // libunftp listens on its own port; clients come through `hold_after_auth`.
+    let inner = TcpListener::bind("127.0.0.1:0").await?;
+    let inner_addr = inner.local_addr()?;
+    tokio::spawn(async move {
+        while let Ok((client, _)) = listener.accept().await {
+            tokio::spawn(hold_after_auth(client, inner_addr));
+        }
+    });
+    let listener = inner;
     tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
             let root = root.clone();
