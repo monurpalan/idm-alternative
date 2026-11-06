@@ -38,7 +38,13 @@ const targets = {
 		...common,
 		background: { scripts: ['background.js'] },
 		browser_specific_settings: {
-			gecko: { id: 'shardload@monurpalan.github.io', strict_min_version: '128.0' }
+			gecko: {
+				id: 'shardload@monurpalan.github.io',
+				strict_min_version: '128.0',
+				// AMO asks every new add-on to declare what it sends off the device. Links and
+				// cookies go only to the Shardload app on the same computer, so nothing.
+				data_collection_permissions: { required: ['none'] }
+			}
 		}
 	}
 };
