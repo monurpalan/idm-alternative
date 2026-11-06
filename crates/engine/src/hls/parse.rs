@@ -23,6 +23,9 @@ pub(crate) struct Key {
 pub(crate) struct MediaPlaylist {
     /// fMP4 initialisation segment (`EXT-X-MAP`), joined first.
     pub init: Option<Segment>,
+    /// Initialisation segments that take over later in the list (an ad break in another
+    /// encoding): each with the index of the first segment it is for.
+    pub maps: Vec<(usize, Segment)>,
     pub segments: Vec<Segment>,
     /// The media sequence number of the first segment (`EXT-X-MEDIA-SEQUENCE`).
     pub sequence: u64,
@@ -105,7 +108,8 @@ pub(crate) fn parse_any(url: &str, text: &str) -> Result<Playlist> {
     }
 
     let mut segments = Vec::new();
-    let mut init = None;
+    let mut init: Option<Segment> = None;
+    let mut maps: Vec<(usize, Segment)> = Vec::new();
     let mut key: Option<(String, Option<[u8; 16]>)> = None;
     let mut sequence: u64 = 0;
     let mut range: Option<(u64, u64)> = None;
@@ -137,12 +141,18 @@ pub(crate) fn parse_any(url: &str, text: &str) -> Result<Playlist> {
         } else if let Some(a) = line.strip_prefix("#EXT-X-MAP:") {
             let uri = attr(a, "URI").ok_or_else(|| Error::State("EXT-X-MAP without URI".into()))?;
             let range = attr(a, "BYTERANGE").and_then(|r| byte_range(r, 0));
-            init = Some(Segment {
+            let map = Segment {
                 url: resolve(url, uri),
                 range,
                 key: None,
                 duration: None,
-            });
+            };
+            let current = maps.last().map(|(_, m)| m).or(init.as_ref());
+            if segments.is_empty() {
+                init = Some(map);
+            } else if current != Some(&map) {
+                maps.push((segments.len(), map));
+            }
         } else if let Some(r) = line.strip_prefix("#EXT-X-BYTERANGE:") {
             // (offset, length); an offset of MAX means "where the previous range of this
             // URI ended", resolved once the URI is known.
@@ -191,6 +201,7 @@ pub(crate) fn parse_any(url: &str, text: &str) -> Result<Playlist> {
     }
     Ok(Playlist::Media(MediaPlaylist {
         init,
+        maps,
         segments,
         sequence: first_sequence.unwrap_or(sequence),
         ended,

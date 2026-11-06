@@ -155,6 +155,12 @@ pub(crate) fn track_files(
         .map(|s| (s.clone(), dir.join(format!("{track}-init.seg"))))
         .chain(
             playlist
+                .maps
+                .iter()
+                .map(|(from, s)| (s.clone(), map_file(dir, track, *from))),
+        )
+        .chain(
+            playlist
                 .segments
                 .iter()
                 .enumerate()
@@ -338,7 +344,12 @@ pub(crate) async fn segmented(
         joined.push(match source {
             Source::Segments(p) => {
                 let path = dir.join(format!("{name}.joined"));
-                join(&track_files(&dir, name, p, clip), &path).await?;
+                match ffmpeg {
+                    Some(ffmpeg) if !p.maps.is_empty() => {
+                        join_runs(&dir, name, p, clip, ffmpeg, &path).await?;
+                    }
+                    _ => join(&track_files(&dir, name, p, clip), &path).await?,
+                }
                 let starts_at = clip.map_or(0.0, |c| window(p, c).1);
                 (path, starts_at)
             }

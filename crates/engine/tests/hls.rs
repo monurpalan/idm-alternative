@@ -534,3 +534,99 @@ async fn a_recording_ffmpeg_cannot_join_is_kept_as_it_came() {
         Verdict::Ok
     );
 }
+
+/// An ad break in another encoding: fMP4 segments whose initialisation section changes part
+/// way (`EXT-X-MAP` after a discontinuity). Joined as one, everything after the change came
+/// out broken; each part is now read with its own section. Skipped without ffmpeg (CI).
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ad_break_with_its_own_init_section_comes_out_whole() {
+    if !have_ffmpeg() {
+        eprintln!("ffmpeg not found: skipped");
+        return;
+    }
+    let dir = workdir("hls-ad-break");
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).expect("dir");
+    // A clip `p` as fMP4 media playlists `p{v,a}.m3u8`.
+    let clip = |p: &str, size: &str, freq: u32| {
+        for (kind, input, codec) in [
+            (
+                "v",
+                format!("testsrc=duration=6:size={size}:rate=25"),
+                "libx264",
+            ),
+            ("a", format!("sine=frequency={freq}:duration=6"), "aac"),
+        ] {
+            let mut cmd = std::process::Command::new("ffmpeg");
+            cmd.current_dir(&src)
+                .args([
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                ])
+                .arg(input)
+                .args(["-c", codec]);
+            if kind == "v" {
+                cmd.args(["-preset", "ultrafast", "-g", "50"]);
+            }
+            let made = cmd
+                .args(["-f", "hls", "-hls_time", "2", "-hls_playlist_type", "vod"])
+                .args(["-hls_segment_type", "fmp4", "-hls_fmp4_init_filename"])
+                .arg(format!("{p}{kind}_init.mp4"))
+                .arg("-hls_segment_filename")
+                .arg(format!("{p}{kind}_%02d.m4s"))
+                .arg(format!("{p}{kind}.m3u8"))
+                .status()
+                .expect("ffmpeg");
+            assert!(made.success());
+        }
+    };
+    clip("A", "320x180", 440);
+    clip("B", "640x360", 880);
+    for kind in ["v", "a"] {
+        let mut list = String::from("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:2\n");
+        for (i, p) in ["A", "B"].iter().enumerate() {
+            if i > 0 {
+                list.push_str("#EXT-X-DISCONTINUITY\n");
+            }
+            let part = std::fs::read_to_string(src.join(format!("{p}{kind}.m3u8"))).expect("list");
+            for l in part.lines().filter(|l| {
+                l.starts_with("#EXT-X-MAP") || l.starts_with("#EXTINF") || !l.starts_with('#')
+            }) {
+                list.push_str(l);
+                list.push('\n');
+            }
+        }
+        list.push_str("#EXT-X-ENDLIST\n");
+        std::fs::write(src.join(format!("{kind}.m3u8")), list).expect("write");
+    }
+    std::fs::write(
+        src.join("master.m3u8"),
+        "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aud\",NAME=\"a\",DEFAULT=YES,URI=\"a.m3u8\"\n#EXT-X-STREAM-INF:BANDWIDTH=500000,AUDIO=\"aud\"\nv.m3u8\n",
+    )
+    .expect("master");
+    let (addr, _) = serve_folder(src).await;
+    let out = dir.join("out.mp4");
+    let req = StreamRequest {
+        ffmpeg: Some("ffmpeg".into()),
+        ..request(format!("http://{addr}/master.m3u8"), &out)
+    };
+    get(&req, &opts(4)).await.expect("download");
+    let (_, seconds) = probe(&out);
+    assert!((11.5..12.5).contains(&seconds), "{seconds} s");
+    let decoded = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(&out)
+        .args(["-f", "null", "-"])
+        .output()
+        .expect("decode");
+    assert!(
+        decoded.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&decoded.stderr)
+    );
+}

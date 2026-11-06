@@ -7,10 +7,12 @@
 mod fetch;
 mod live;
 mod parse;
+mod runs;
 
 pub use fetch::*;
 pub use live::*;
 pub(crate) use parse::*;
+use runs::{join_runs, map_file};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -67,6 +69,7 @@ mod tests {
     fn timed(lengths: &[f64]) -> MediaPlaylist {
         MediaPlaylist {
             init: None,
+            maps: Vec::new(),
             segments: lengths
                 .iter()
                 .enumerate()
@@ -130,6 +133,33 @@ mod tests {
                 audio: Some("https://h/x/a2.m3u8".into()),
             }
         );
+    }
+
+    #[test]
+    fn an_init_section_that_changes_part_way_is_kept_with_its_first_segment() {
+        let text = "#EXTM3U
+#EXT-X-MAP:URI=\"a.mp4\"
+#EXTINF:2,
+a1.m4s
+#EXTINF:2,
+a2.m4s
+#EXT-X-DISCONTINUITY
+#EXT-X-MAP:URI=\"b.mp4\"
+#EXTINF:2,
+b1.m4s
+#EXT-X-MAP:URI=\"b.mp4\"
+#EXTINF:2,
+b2.m4s
+#EXT-X-ENDLIST
+";
+        let Playlist::Media(m) = parse_playlist("https://h/v/p.m3u8", text).expect("parse") else {
+            panic!("not media");
+        };
+        assert_eq!(m.init.map(|i| i.url).as_deref(), Some("https://h/v/a.mp4"));
+        // The same section said again is no change.
+        let maps: Vec<(usize, &str)> = m.maps.iter().map(|(i, s)| (*i, s.url.as_str())).collect();
+        assert_eq!(maps, [(2, "https://h/v/b.mp4")]);
+        assert_eq!(m.segments.len(), 4);
     }
 
     #[test]
