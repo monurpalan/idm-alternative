@@ -110,9 +110,27 @@
 		const parts = [];
 		if (v.height) parts.push(`${v.height}p`);
 		if (v.frame_rate && v.frame_rate > 30.5) parts.push(`${Math.round(v.frame_rate)} fps`);
+		if (v.hdr) parts.push(v.hdr === 'HLG' ? 'HDR (HLG)' : 'HDR');
 		if (v.bandwidth) parts.push(`${(v.bandwidth / 1e6).toFixed(1)} Mbps`);
-		if (v.codecs) parts.push(v.codecs.split(',')[0]);
+		if (v.codecs) parts.push(codecName(v.codecs.split(',')[0]));
 		return parts.join(' · ') || t('As offered');
+	}
+
+	/** `H.264` for `avc1.640028`; a codec it does not know, as it is given. */
+	function codecName(codec: string): string {
+		const names: Record<string, string> = {
+			avc1: 'H.264',
+			avc3: 'H.264',
+			hvc1: 'H.265',
+			hev1: 'H.265',
+			dvh1: 'Dolby Vision',
+			dvhe: 'Dolby Vision',
+			av01: 'AV1',
+			vp09: 'VP9',
+			vp9: 'VP9',
+			vp8: 'VP8'
+		};
+		return names[codec.trim().split('.')[0].toLowerCase()] ?? codec.trim();
 	}
 
 	function trackName(track: StreamInfo['audio'][number]): string {

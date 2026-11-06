@@ -445,6 +445,8 @@ export interface StreamInfo {
 		height: number | null;
 		codecs: string | null;
 		frame_rate: number | null;
+		/** `PQ` or `HLG` for high dynamic range. */
+		hdr: string | null;
 		audio_group: string | null;
 	}[];
 	audio: StreamTrack[];

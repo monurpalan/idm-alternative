@@ -71,6 +71,9 @@ pub fn parse_m3u8(url: &str, text: &str) -> Result<Streams, Error> {
                     height,
                     codecs: get(&a, "CODECS").map(str::to_owned),
                     frame_rate: get(&a, "FRAME-RATE").and_then(|f| f.parse().ok()),
+                    hdr: get(&a, "VIDEO-RANGE")
+                        .filter(|r| matches!(*r, "PQ" | "HLG"))
+                        .map(str::to_owned),
                     audio_group: get(&a, "AUDIO").map(str::to_owned),
                 });
             }
@@ -135,6 +138,7 @@ pub fn parse_m3u8(url: &str, text: &str) -> Result<Streams, Error> {
             height: None,
             codecs: None,
             frame_rate: None,
+            hdr: None,
             audio_group: None,
         });
     }
@@ -161,7 +165,7 @@ mod tests {
 #EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English, CC",LANGUAGE="en",URI="subs/en.m3u8"
 #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS="avc1.4d401e,mp4a.40.2",AUDIO="aud",SUBTITLES="subs"
 360/index.m3u8
-#EXT-X-STREAM-INF:BANDWIDTH=5000000,AVERAGE-BANDWIDTH=4500000,RESOLUTION=1920x1080,FRAME-RATE=29.970,CODECS="avc1.640028,mp4a.40.2",AUDIO="aud"
+#EXT-X-STREAM-INF:BANDWIDTH=5000000,AVERAGE-BANDWIDTH=4500000,RESOLUTION=1920x1080,FRAME-RATE=29.970,CODECS="avc1.640028,mp4a.40.2",AUDIO="aud",VIDEO-RANGE=PQ
 1080/index.m3u8
 #EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720,AUDIO="aud"
 
@@ -177,7 +181,9 @@ https://other.cdn/720.m3u8
         assert_eq!(s.video[0].id, "https://cdn.x/show/1080/index.m3u8");
         assert_eq!(s.video[0].bandwidth, 5_000_000);
         assert_eq!(s.video[0].frame_rate, Some(29.97));
+        assert_eq!(s.video[0].hdr.as_deref(), Some("PQ"));
         assert_eq!(s.video[1].id, "https://other.cdn/720.m3u8");
+        assert_eq!(s.video[1].hdr, None);
         assert_eq!(s.video[2].codecs.as_deref(), Some("avc1.4d401e,mp4a.40.2"));
         assert_eq!(s.audio.len(), 2);
         assert_eq!(s.audio[1].name.as_deref(), Some("Türkçe"));

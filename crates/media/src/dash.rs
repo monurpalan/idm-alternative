@@ -45,6 +45,7 @@ pub fn parse_mpd(_url: &str, text: &str) -> Result<Streams, Error> {
                 .map(str::to_owned);
             match kind {
                 "video" => video.push(Variant {
+                    hdr: dash_hdr(rep, set, codecs.as_deref()),
                     id,
                     bandwidth: bandwidth.unwrap_or(0),
                     width: number(rep, set, "width"),
@@ -114,6 +115,26 @@ fn number(rep: Node, set: Node, name: &str) -> Option<u32> {
 }
 
 /// `30`, `30000/1001`.
+/// HDR from the representation's or set's transfer characteristics (16 is PQ, 18 is HLG,
+/// as in ISO/IEC 23091-2), or a Dolby Vision codec.
+fn dash_hdr(rep: Node, set: Node, codecs: Option<&str>) -> Option<String> {
+    if codecs.is_some_and(|c| c.starts_with("dvh1") || c.starts_with("dvhe")) {
+        return Some("PQ".into());
+    }
+    let transfer = [rep, set]
+        .into_iter()
+        .flat_map(|n| children(n, "SupplementalProperty").chain(children(n, "EssentialProperty")))
+        .find(|p| {
+            p.attribute("schemeIdUri") == Some("urn:mpeg:mpegB:cicp:TransferCharacteristics")
+        })?
+        .attribute("value")?;
+    match transfer.trim() {
+        "16" => Some("PQ".into()),
+        "18" => Some("HLG".into()),
+        _ => None,
+    }
+}
+
 fn frame_rate(v: &str) -> Option<f64> {
     match v.split_once('/') {
         Some((n, d)) => {
@@ -193,6 +214,13 @@ mod tests {
       <Representation id="v360" bandwidth="700000" width="640" height="360" codecs="avc1.4d401e"/>
       <Representation id="v1080" bandwidth="4800000" width="1920" height="1080" codecs="avc1.640028"/>
     </AdaptationSet>
+    <AdaptationSet contentType="video" mimeType="video/mp4">
+      <SupplementalProperty schemeIdUri="urn:mpeg:mpegB:cicp:TransferCharacteristics" value="18"/>
+      <Representation id="hlg" bandwidth="9000000" width="3840" height="2160" codecs="hvc1.2.4.L153.B0"/>
+    </AdaptationSet>
+    <AdaptationSet contentType="video" mimeType="video/mp4">
+      <Representation id="dv" bandwidth="8000000" width="3840" height="2160" codecs="dvh1.05.06"/>
+    </AdaptationSet>
     <AdaptationSet mimeType="audio/mp4" lang="en">
       <Label>English</Label>
       <Representation id="a64" bandwidth="64000" codecs="mp4a.40.5"/>
@@ -211,10 +239,12 @@ mod tests {
         assert_eq!(s.format, Format::Dash);
         assert_eq!(
             s.video.iter().map(|v| v.id.as_str()).collect::<Vec<_>>(),
-            ["v1080", "v360"]
+            ["hlg", "dv", "v1080", "v360"]
         );
-        assert_eq!(s.video[0].frame_rate, Some(29.97));
-        assert_eq!(s.video[0].height, Some(1080));
+        let hdr: Vec<_> = s.video.iter().map(|v| v.hdr.as_deref()).collect();
+        assert_eq!(hdr, [Some("HLG"), Some("PQ"), None, None]);
+        assert_eq!(s.video[2].frame_rate, Some(29.97));
+        assert_eq!(s.video[2].height, Some(1080));
         assert_eq!(
             s.audio.iter().map(|a| a.id.as_deref()).collect::<Vec<_>>(),
             [Some("a128"), Some("a64")]

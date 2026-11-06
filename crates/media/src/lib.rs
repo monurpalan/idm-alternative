@@ -45,6 +45,8 @@ pub struct Variant {
     pub height: Option<u32>,
     pub codecs: Option<String>,
     pub frame_rate: Option<f64>,
+    /// High dynamic range: `PQ` (HDR10, Dolby Vision) or `HLG`, when the playlist says.
+    pub hdr: Option<String>,
     /// HLS: the group of audio tracks that goes with this variant.
     pub audio_group: Option<String>,
 }
