@@ -154,6 +154,12 @@ impl Request {
                 | Self::Media(_)
         )
     }
+
+    /// Whether the work is dropped when the client goes away before the reply: it only
+    /// reads (a site's pages), so nothing is left half done.
+    pub fn ends_with_client(&self) -> bool {
+        matches!(self, Self::Grab { .. })
+    }
 }
 
 /// The version of the messages between the extension and the app. Raised when a change

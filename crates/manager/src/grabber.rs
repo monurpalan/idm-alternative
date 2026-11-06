@@ -15,11 +15,14 @@ const PAGE_LIMIT: usize = 4 << 20;
 /// Link texts are cut to this many characters.
 const TEXT_LIMIT: usize = 200;
 
+/// The deepest a grab goes, whatever it is asked.
+pub const MAX_DEPTH: u32 = 5;
+
 /// What to grab.
 #[derive(Debug, Clone)]
 pub struct GrabOptions {
     /// 1: the files the start page links to; 2: also those of the pages it links to; and
-    /// so on.
+    /// so on, to [`MAX_DEPTH`].
     pub depth: u32,
     /// Follow only pages on the start page's site (its host, with or without `www.`).
     /// Files are collected from anywhere.
@@ -72,7 +75,8 @@ pub async fn grab(
     let mut found: Vec<Found> = Vec::new();
     let mut level: VecDeque<Url> = VecDeque::from([start.clone()]);
     let mut pages_read = 0;
-    for depth in 1..=opts.depth.max(1) {
+    let deepest = opts.depth.clamp(1, MAX_DEPTH);
+    for depth in 1..=deepest {
         let mut next: VecDeque<Url> = VecDeque::new();
         while !level.is_empty() && pages_read < opts.max_pages {
             let take = PARALLEL.min(level.len()).min(opts.max_pages - pages_read);
@@ -102,7 +106,7 @@ pub async fn grab(
                 for link in links(&html, &base) {
                     let key = strip_fragment(&link.url);
                     if is_page(&link.url) {
-                        if depth < opts.depth
+                        if depth < deepest
                             && (!opts.same_site || site_of(&link.url) == site)
                             && seen_pages.insert(key)
                         {

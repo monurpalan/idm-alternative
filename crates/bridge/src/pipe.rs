@@ -5,7 +5,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 use crate::{Error, Reply, Request, Result, read_json, same_token, write_json};
 
@@ -31,10 +31,72 @@ where
         }
     }
     while let Some(request) = read_json::<Request, _>(&mut conn).await? {
-        let reply = handler(request).await;
+        let reply = if request.ends_with_client() {
+            let work = handler(request);
+            tokio::pin!(work);
+            let mut byte = [0u8; 1];
+            tokio::select! {
+                reply = &mut work => reply,
+                // A client waits for its reply: the connection ending (or anything else
+                // arriving) means it is gone, and the work with it.
+                _ = conn.read(&mut byte) => return Ok(()),
+            }
+        } else {
+            handler(request).await
+        };
         write_json(&mut conn, &reply).await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use super::*;
+
+    /// Sets its flag when dropped: the work it sits in was given up.
+    struct Dropped(Arc<AtomicBool>);
+
+    impl Drop for Dropped {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_grab_ends_when_its_client_goes_away() {
+        let (server, mut client) = tokio::io::duplex(1024);
+        let dropped = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&dropped);
+        let handler = move |_: Request| {
+            let guard = Dropped(Arc::clone(&flag));
+            async move {
+                let _guard = guard;
+                std::future::pending::<Reply>().await
+            }
+        };
+        let answering = tokio::spawn(async move { answer(server, "t", &handler).await });
+        let hello = Request::Hello { token: "t".into() };
+        write_json(&mut client, &hello).await.expect("hello");
+        let ok: Reply = read_json(&mut client).await.expect("read").expect("reply");
+        assert!(ok.ok);
+        let grab = Request::Grab {
+            url: "https://example.org/".into(),
+            depth: None,
+            same_site: None,
+        };
+        write_json(&mut client, &grab).await.expect("grab");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(!dropped.load(Ordering::SeqCst), "still waited for");
+        drop(client);
+        tokio::time::timeout(std::time::Duration::from_secs(5), answering)
+            .await
+            .expect("answer ended")
+            .expect("join")
+            .expect("clean end");
+        assert!(dropped.load(Ordering::SeqCst));
+    }
 }
 
 /// Says `hello` with `token` on a fresh connection.

@@ -254,7 +254,7 @@ async fn tool_command(
             same_site,
         } => {
             let opts = shardload_manager::grabber::GrabOptions {
-                depth: depth.unwrap_or(1).clamp(1, 5),
+                depth: depth.unwrap_or(1),
                 same_site: same_site.unwrap_or(true),
                 ..Default::default()
             };

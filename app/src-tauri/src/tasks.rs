@@ -233,7 +233,7 @@ pub(crate) async fn grab_site(
         old.cancel();
     }
     let opts = shardload_manager::grabber::GrabOptions {
-        depth: depth.clamp(1, 5),
+        depth,
         same_site,
         ..Default::default()
     };
