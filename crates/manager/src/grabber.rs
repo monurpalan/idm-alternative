@@ -56,6 +56,7 @@ pub struct GrabProgress {
 
 /// Grabs the files linked from `start` and, to `opts.depth`, from the pages it links to.
 /// Pages that cannot be read are skipped; only the start page failing is an error.
+/// `headers` (a login) go only to the pages of `start`'s site, never to other sites.
 pub async fn grab(
     start: &str,
     opts: &GrabOptions,
@@ -76,7 +77,9 @@ pub async fn grab(
         while !level.is_empty() && pages_read < opts.max_pages {
             let take = PARALLEL.min(level.len()).min(opts.max_pages - pages_read);
             let batch: Vec<Url> = level.drain(..take).collect();
+            let own = &site;
             let reads = batch.iter().map(|page| async move {
+                let headers = if site_of(page) == *own { headers } else { &[] };
                 let r =
                     shardload_engine::fetch_text(page.as_str(), headers, engine, PAGE_LIMIT).await;
                 (page, r)

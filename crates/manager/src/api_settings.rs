@@ -36,7 +36,14 @@ impl Manager {
         cancel: &CancellationToken,
     ) -> Result<Vec<grabber::Found>> {
         let engine = lock(&self.inner.config).engine.clone();
-        grabber::grab(url, opts, &[], &engine, progress, cancel)
+        // A password-protected folder opens with the login saved for its site.
+        let headers: Vec<(String, String)> = self
+            .saved_login(url)
+            .await?
+            .map(|(user, password)| shardload_engine::basic_auth(&user, &password))
+            .into_iter()
+            .collect();
+        grabber::grab(url, opts, &headers, &engine, progress, cancel)
             .await
             .map_err(|e| shardload_engine::Error::State(e).into())
     }

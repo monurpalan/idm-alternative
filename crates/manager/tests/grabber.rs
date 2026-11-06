@@ -147,3 +147,123 @@ async fn a_start_page_that_cannot_be_read_is_an_error() {
     .expect_err("broken");
     assert!(err.contains("500"), "{err}");
 }
+
+/// A password-protected folder linking to a page on another site: the login opens the
+/// folder and is not sent to the other site. `127.0.0.1` and `localhost` are two sites.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_login_opens_its_site_and_goes_nowhere_else() {
+    let other_saw_login = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let saw = Arc::clone(&other_saw_login);
+    let other = Router::new().fallback(move |headers: axum::http::HeaderMap| {
+        let saw = Arc::clone(&saw);
+        async move {
+            if headers.contains_key("authorization") {
+                saw.store(true, Ordering::Relaxed);
+            }
+            Html(r#"<a href="/elsewhere.zip">Elsewhere</a>"#)
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let other_port = listener.local_addr().expect("addr").port();
+    tokio::spawn(async move { axum::serve(listener, other).await });
+
+    let login = shardload_engine::basic_auth("user", "secret");
+    let wanted = login.1.clone();
+    let folder = Router::new().fallback(move |headers: axum::http::HeaderMap| {
+        let wanted = wanted.clone();
+        async move {
+            let given = headers.get("authorization").and_then(|v| v.to_str().ok());
+            if given != Some(wanted.as_str()) {
+                return StatusCode::UNAUTHORIZED.into_response();
+            }
+            Html(format!(
+                r#"<a href="private.zip">Private</a>
+                   <a href="http://localhost:{other_port}/page.html">Other site</a>"#
+            ))
+            .into_response()
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("addr"));
+    tokio::spawn(async move { axum::serve(listener, folder).await });
+
+    let opts = GrabOptions {
+        depth: 2,
+        same_site: false,
+        ..GrabOptions::default()
+    };
+    let found = grab(
+        &format!("{base}/"),
+        &opts,
+        &[login],
+        &engine(),
+        |_| {},
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("grab");
+    let urls: Vec<&str> = found.iter().map(|f| f.url.as_str()).collect();
+    assert!(urls.iter().any(|u| u.ends_with("/private.zip")), "{urls:?}");
+    assert!(
+        urls.iter().any(|u| u.ends_with("/elsewhere.zip")),
+        "{urls:?}"
+    );
+    assert!(!other_saw_login.load(Ordering::Relaxed));
+}
+
+/// The app's grabber uses the login saved for the site.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_login_saved_for_a_site_is_used() {
+    let wanted = shardload_engine::basic_auth("user", "secret").1;
+    let folder = Router::new().fallback(move |headers: axum::http::HeaderMap| {
+        let wanted = wanted.clone();
+        async move {
+            match headers.get("authorization").and_then(|v| v.to_str().ok()) {
+                Some(given) if given == wanted => {
+                    Html(r#"<a href="private.zip">Private</a>"#).into_response()
+                }
+                _ => StatusCode::UNAUTHORIZED.into_response(),
+            }
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move { axum::serve(listener, folder).await });
+
+    let dir = std::env::temp_dir().join(format!("shardload-grab-login-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).expect("dir");
+    let m = shardload_manager::Manager::open(
+        &dir.join("list.db"),
+        shardload_manager::Config {
+            dir: dir.join("downloads"),
+            engine: engine(),
+            ..shardload_manager::Config::default()
+        },
+    )
+    .await
+    .expect("open");
+    let url = format!("http://{addr}/");
+    let cancel = CancellationToken::new();
+    let refused = m
+        .grab_site(&url, &GrabOptions::default(), |_| {}, &cancel)
+        .await;
+    assert!(refused.is_err(), "no login yet");
+    m.save_login(&addr.to_string(), "user", "secret")
+        .await
+        .expect("save");
+    let found = m
+        .grab_site(&url, &GrabOptions::default(), |_| {}, &cancel)
+        .await
+        .expect("grab");
+    assert_eq!(found.len(), 1);
+    assert!(found[0].url.ends_with("/private.zip"));
+    m.close().await;
+    std::fs::remove_dir_all(&dir).ok();
+}
