@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// Fragments fetched at once at most, whatever the connection setting: enough for a
+/// stream's fragments, few enough not to look like an attack to the site.
+pub const MAX_FRAGMENTS: usize = 8;
+
 /// One progress line from our `--progress-template`: downloaded, total, estimated total,
 /// speed (`NA` when unknown).
 pub(crate) fn parse_progress(line: &str) -> Option<(u64, Option<u64>, f64)> {
@@ -20,6 +24,8 @@ pub(crate) fn parse_progress(line: &str) -> Option<(u64, Option<u64>, f64)> {
 /// With `clip`, only that part, cut at keyframes forced at its ends (needs ffmpeg).
 /// Cancelling stops yt-dlp; running again continues its partial files. A live broadcast
 /// (`record`) is recorded as MPEG-TS until cancelled, which then keeps what was recorded.
+/// A stream sent in fragments (HLS, DASH) is fetched over up to `connections` of them at
+/// once, at most [`MAX_FRAGMENTS`]; one file sent whole (most of YouTube) is not affected.
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
     tools: &Tools,
@@ -29,6 +35,7 @@ pub async fn run(
     record: Option<&crate::task::Recording>,
     output_stem: &Path,
     headers: &[(String, String)],
+    connections: usize,
     progress: &watch::Sender<Progress>,
     cancel: &CancellationToken,
 ) -> Result<PathBuf, String> {
@@ -63,6 +70,9 @@ pub async fn run(
         if r.from_start {
             args.push("--live-from-start".into());
         }
+    } else {
+        let n = connections.clamp(1, MAX_FRAGMENTS);
+        args.extend(["--concurrent-fragments".into(), n.to_string()]);
     }
     args.extend(base_args(tools, url, headers, cookies.as_deref()));
     let mut cmd = command(&tools.ytdlp);

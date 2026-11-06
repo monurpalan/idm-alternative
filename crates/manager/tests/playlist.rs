@@ -300,3 +300,45 @@ async fn record_live_page(url: &str, tag: &str) {
     m.close().await;
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// A stream sent in fragments, each at 1 MiB/s like a CDN serving one connection: with
+/// several connections, yt-dlp fetches them at once (no network: the test server's HLS).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs yt-dlp (SHARDLOAD_TOOLS)"]
+async fn a_streams_fragments_come_over_several_connections() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            shardload_testserver::router()
+                .into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+    });
+    let url = format!("http://{addr}/hls/v720.m3u8?segments=16&seg_size=1M&rate=1M");
+    let dir = scratch().join("fragments");
+    std::fs::create_dir_all(&dir).expect("dir");
+    let (tx, _rx) = tokio::sync::watch::channel(shardload_engine::Progress::default());
+    let started = std::time::Instant::now();
+    let file = shardload_manager::ytdlp::run(
+        &tools(),
+        &url,
+        "best",
+        None,
+        None,
+        &dir.join("stream"),
+        &[],
+        8,
+        &tx,
+        &shardload_engine::CancellationToken::new(),
+    )
+    .await
+    .expect("run");
+    // One at a time takes 16 s.
+    assert!(started.elapsed().as_secs() < 8, "{:?}", started.elapsed());
+    assert_eq!(std::fs::metadata(&file).expect("file").len(), 16 << 20);
+    std::fs::remove_dir_all(&dir).ok();
+}

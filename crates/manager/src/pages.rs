@@ -181,6 +181,7 @@ impl Inner {
             record.as_ref(),
             &stem,
             &task.headers,
+            task.connections,
             &tx,
             &stop,
         )
