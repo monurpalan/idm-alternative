@@ -389,7 +389,13 @@ impl Inner {
                 let note = format!("{e} (retrying in {} s)", delay.as_secs().max(1));
                 self.db.set_status(id, Status::Queued, Some(&note)).await
             }
-            None => self.failed(id, e).await,
+            None => {
+                self.failed(id, e).await?;
+                if matches!(e, Error::Engine(e) if ErrorKind::of(e) == Some(ErrorKind::Expired)) {
+                    self.refresh_from_page(id).await;
+                }
+                Ok(())
+            }
         }
     }
 

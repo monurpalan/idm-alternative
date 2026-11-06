@@ -32,6 +32,7 @@ mod pages;
 mod peek;
 mod previous;
 mod queue;
+mod refresh;
 mod relocate;
 pub mod rescue;
 mod retry;

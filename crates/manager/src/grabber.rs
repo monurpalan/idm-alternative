@@ -11,7 +11,7 @@ use url::Url;
 /// Pages read at the same time.
 const PARALLEL: usize = 4;
 /// The most of a page that is read.
-const PAGE_LIMIT: usize = 4 << 20;
+pub(crate) const PAGE_LIMIT: usize = 4 << 20;
 /// Link texts are cut to this many characters.
 const TEXT_LIMIT: usize = 200;
 
@@ -132,6 +132,11 @@ pub async fn grab(
         }
     }
     Ok(found)
+}
+
+/// The addresses a page links to (anchors, media, refreshes, files named in its scripts).
+pub(crate) fn link_urls(html: &str, page: &Url) -> Vec<Url> {
+    links(html, page).into_iter().map(|l| l.url).collect()
 }
 
 /// For the fuzz target: the links of an untrusted page, each an http, https or ftp address.
