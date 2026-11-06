@@ -23,6 +23,10 @@ struct Files {
     delay_ms: AtomicU64,
 }
 
+/// Sent by the process that is killed part way (see
+/// `a_killed_update_resumes_with_only_the_missing_ranges`).
+const CHILD: &str = "x-killed-child";
+
 async fn serve(
     State(s): State<Arc<Files>>,
     Path(name): Path<String>,
@@ -48,7 +52,11 @@ async fn serve(
     let total = data.len();
     match range {
         Some((a, b)) if a <= b => {
-            s.asked.lock().expect("lock").push((a as u64, b as u64 + 1));
+            // A killed child's last request may only be handled after the parent has
+            // cleared the list: it does not count.
+            if !h.contains_key(CHILD) {
+                s.asked.lock().expect("lock").push((a as u64, b as u64 + 1));
+            }
             let delay = s.delay_ms.load(Ordering::Relaxed);
             tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
             s.sent.fetch_add((b + 1 - a) as u64, Ordering::Relaxed);
@@ -194,11 +202,13 @@ async fn child_update(control_url: &str) {
         .expect("control");
     let seed = std::env::var_os("ZSYNC_KILL_SEED").expect("seed");
     let out = std::env::var_os("ZSYNC_KILL_OUT").expect("out");
+    let mut req = request(String::new(), std::path::Path::new(&out));
+    req.headers.push((CHILD.to_owned(), "1".to_owned()));
     let done = update(
         control_url,
         &control,
         &[seed.into()],
-        &request(String::new(), std::path::Path::new(&out)),
+        &req,
         &opts(1),
         None,
         &CancellationToken::new(),

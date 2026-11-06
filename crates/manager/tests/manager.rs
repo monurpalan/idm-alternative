@@ -17,14 +17,20 @@ async fn downloads_under_the_server_name_and_reports_progress() {
     let m = Manager::open(&w.db(), w.config(3)).await.expect("open");
     let mut events = m.subscribe();
     let size = 2 * MB;
+    // Added paused: started at once, the server's name could already be in by the time
+    // `add` reads the task back.
     let task = m
-        .add(new_task(format!(
-            "{base}/file/x.pdf?size={size}&seed=1&rate=1M&cd=%C3%A7ay.zip"
-        )))
+        .add(NewTask {
+            start: false,
+            ..new_task(format!(
+                "{base}/file/x.pdf?size={size}&seed=1&rate=1M&cd=%C3%A7ay.zip"
+            ))
+        })
         .await
         .expect("add");
     // Guessed from the URL first, then taken from the server's name.
     assert_eq!(task.category, Category::Documents);
+    m.start(task.id).await.expect("start");
     let done = wait_done(&m, task.id).await;
     assert_eq!(done.name.as_deref(), Some("çay.zip"));
     assert_eq!(done.category, Category::Compressed);

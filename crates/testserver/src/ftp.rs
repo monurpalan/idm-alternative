@@ -42,6 +42,29 @@ impl Authenticator for Logins {
     }
 }
 
+/// Opens each passive data port where the system says, on a port no other socket holds.
+/// libunftp's own picks one at random from a range with `SO_REUSEADDR`, which on Windows lets
+/// two servers (two tests running at once) hold the same port: a client then reaches the
+/// other test's server, a plain one where TLS was expected, or none that answers.
+#[derive(Debug)]
+struct FreePort;
+
+#[async_trait::async_trait]
+impl libunftp::options::Binder for FreePort {
+    async fn bind(
+        &mut self,
+        local_addr: std::net::IpAddr,
+        _passive_ports: std::ops::RangeInclusive<u16>,
+    ) -> std::io::Result<tokio::net::TcpSocket> {
+        let socket = match local_addr {
+            std::net::IpAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
+            std::net::IpAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
+        };
+        socket.bind(std::net::SocketAddr::new(local_addr, 0))?;
+        Ok(socket)
+    }
+}
+
 /// Serves `root` until the runtime ends; returns the port. With `tls`, the certificate and key
 /// are written next to `root` (`root.pem`, `root.key`).
 pub async fn serve(root: PathBuf, tls: bool) -> anyhow::Result<u16> {
@@ -66,7 +89,7 @@ pub async fn serve(root: PathBuf, tls: bool) -> anyhow::Result<u16> {
                 Box::new(move || unftp_sbe_fs::Filesystem::new(root.clone()).expect("folder")),
                 Arc::new(Logins),
             )
-            .passive_ports(40000..=49999);
+            .binder(FreePort);
             if let Some((pem, key)) = &certs {
                 builder = builder.ftps(pem.clone(), key.clone());
             }
