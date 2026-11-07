@@ -56,6 +56,7 @@ pub async fn run(
     format: &str,
     clip: Option<&crate::clip::Clip>,
     record: Option<&crate::task::Recording>,
+    continuing: bool,
     output_stem: &Path,
     headers: &[(String, String)],
     connections: usize,
@@ -75,7 +76,14 @@ pub async fn run(
     if let Some(r) = record {
         // Written as it comes, in a container that stays playable when cut off.
         args.extend(["--hls-use-mpegts".into(), "--no-part".into()]);
-        if r.from_start {
+        if continuing {
+            // Not the broadcast's recording once it has ended (`?`: a site that does not
+            // say goes on until it fails).
+            args.extend([
+                "--match-filter".into(),
+                "live_status!=?was_live & live_status!=?post_live & live_status!=?not_live".into(),
+            ]);
+        } else if r.from_start {
             args.push("--live-from-start".into());
         }
     } else {
@@ -110,8 +118,25 @@ pub async fn run(
     let mut finished = 0u64;
     let mut last = (0u64, None::<u64>);
     progress.send_modify(|p| p.phase = Phase::Downloading);
+    // A live broadcast is written by ffmpeg, which says nothing as it goes: what it has
+    // written is measured on disk once a second.
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+    let mut on_disk = OnDisk::new();
     let result = loop {
         tokio::select! {
+            _ = tick.tick(), if record.is_some() => {
+                let written = file.clone().filter(|f| f.is_file()).or_else(|| written_file(output_stem));
+                if let Some((size, speed, seconds)) = on_disk.measure(written.as_deref()) {
+                    progress.send_modify(|p| {
+                        p.phase = Phase::Recording;
+                        p.received = size;
+                        p.size = None;
+                        p.speed = speed;
+                        p.connections = 1;
+                        p.recorded = seconds;
+                    });
+                }
+            }
             line = lines.next_segment() => match line {
                 Ok(Some(line)) => {
                     let line = String::from_utf8_lossy(&line);
@@ -164,6 +189,33 @@ pub async fn run(
     file.filter(|f| f.is_file())
         .or_else(|| written_file(output_stem))
         .ok_or_else(|| "yt-dlp finished without saying which file it wrote".to_owned())
+}
+
+/// A recording's file as it grows: its size, the speed since the last look, and the seconds
+/// since the recording began.
+struct OnDisk {
+    since: std::time::Instant,
+    last: (u64, std::time::Instant),
+}
+
+impl OnDisk {
+    fn new() -> Self {
+        let now = std::time::Instant::now();
+        Self {
+            since: now,
+            last: (0, now),
+        }
+    }
+
+    /// `None` until something is written.
+    fn measure(&mut self, file: Option<&Path>) -> Option<(u64, f64, f64)> {
+        let size = std::fs::metadata(file?).ok()?.len();
+        let now = std::time::Instant::now();
+        let seconds = now.duration_since(self.last.1).as_secs_f64().max(0.001);
+        let speed = size.saturating_sub(self.last.0) as f64 / seconds;
+        self.last = (size, now);
+        (size > 0).then(|| (size, speed, now.duration_since(self.since).as_secs_f64()))
+    }
 }
 
 /// Stops yt-dlp and what it started (ffmpeg, which downloads a live stream or joins tracks):

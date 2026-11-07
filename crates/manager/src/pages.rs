@@ -274,19 +274,210 @@ async fn fetch_page(
         ytdlp::Direct::Fallback(why) => {
             tracing::info!(id = task.id, "yt-dlp downloads the page itself: {why}");
             tx.send_replace(Progress::default());
-            ytdlp::run(
+            let file = ytdlp::run(
                 tools,
                 &task.url,
                 format,
                 clip,
                 record,
+                false,
                 stem,
                 &task.headers,
                 task.connections,
                 tx,
                 stop,
             )
-            .await
+            .await;
+            let Some(r) = record else { return file };
+            // A recording that failed along the way keeps what it wrote, and goes on.
+            let file = match file {
+                Ok(f) => f,
+                Err(e) => match ytdlp::written_file(stem)
+                    .filter(|f| std::fs::metadata(f).is_ok_and(|m| m.len() > 0))
+                {
+                    Some(f) => {
+                        tracing::warn!(id = task.id, "the recording broke off: {e}");
+                        f
+                    }
+                    None => return Err(e),
+                },
+            };
+            Ok(continue_recording(task, format, tools, r, file, stem, tx, stop).await)
         }
+    }
+}
+
+/// Parts recorded after the first, at most: a broadcast that keeps dropping is let go.
+const MAX_PARTS: u32 = 50;
+
+/// A recording whose ffmpeg stopped on its own while the user had not stopped it (a hiccup
+/// reading the live playlist ends it like the broadcast ending): recorded on into further
+/// parts while the broadcast is live, each added to the end of `file` (MPEG-TS joins by
+/// putting one after the other). Returns `file`, with what the parts added.
+#[allow(clippy::too_many_arguments, reason = "a download's parts, passed down")]
+async fn continue_recording(
+    task: &Task,
+    format: &str,
+    tools: &ytdlp::Tools,
+    record: &crate::task::Recording,
+    file: PathBuf,
+    stem: &Path,
+    tx: &watch::Sender<Progress>,
+    stop: &CancellationToken,
+) -> PathBuf {
+    for part in 1..=MAX_PARTS {
+        if stop.is_cancelled() {
+            break;
+        }
+        let before = tx.borrow().clone();
+        let offset = std::fs::metadata(&file).map_or(0, |m| m.len());
+        tracing::info!(
+            id = task.id,
+            part,
+            "the recording stopped on its own: recording on"
+        );
+        let name = stem
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let part_stem = stem.with_file_name(format!("{name}.part{part}"));
+        // The part's progress, shown after what was recorded before it.
+        let (ptx, mut prx) = watch::channel(Progress::default());
+        let forward = {
+            let tx = tx.clone();
+            async move {
+                while prx.changed().await.is_ok() {
+                    let p = prx.borrow().clone();
+                    if p.received == 0 {
+                        continue;
+                    }
+                    tx.send_modify(|q| {
+                        *q = Progress {
+                            received: offset + p.received,
+                            recorded: before.recorded + p.recorded,
+                            ..p
+                        };
+                    });
+                }
+            }
+        };
+        let (got, ()) = tokio::join!(
+            async {
+                let got = ytdlp::run(
+                    tools,
+                    &task.url,
+                    format,
+                    None,
+                    Some(record),
+                    true,
+                    &part_stem,
+                    &task.headers,
+                    task.connections,
+                    &ptx,
+                    stop,
+                )
+                .await;
+                drop(ptx);
+                got
+            },
+            forward
+        );
+        let Ok(piece) = got else { break };
+        let added = append(&file, &piece);
+        std::fs::remove_file(&piece).ok();
+        if !added {
+            break;
+        }
+    }
+    file
+}
+
+/// Adds `piece` to the end of `file`; whether anything was added.
+fn append(file: &Path, piece: &Path) -> bool {
+    let Ok(mut from) = std::fs::File::open(piece) else {
+        return false;
+    };
+    let Ok(mut to) = std::fs::OpenOptions::new().append(true).open(file) else {
+        return false;
+    };
+    std::io::copy(&mut from, &mut to).is_ok_and(|n| n > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_part_is_added_to_the_end_of_the_recording() {
+        let dir = std::env::temp_dir().join(format!("shardload-append-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let (file, piece, empty) = (dir.join("a.ts"), dir.join("b.ts"), dir.join("c.ts"));
+        std::fs::write(&file, b"first").expect("write");
+        std::fs::write(&piece, b"second").expect("write");
+        std::fs::write(&empty, b"").expect("write");
+        assert!(append(&file, &piece));
+        assert!(!append(&file, &empty));
+        assert!(!append(&file, &dir.join("missing.ts")));
+        assert_eq!(std::fs::read(&file).expect("read"), b"firstsecond");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A live broadcast (`SHARDLOAD_LIVE`, a page yt-dlp knows) recorded for 70 seconds, its
+    /// ffmpeg killed twenty seconds in, as a hiccup would end it: the recording goes on.
+    #[tokio::test]
+    #[ignore = "network: a live broadcast, and SHARDLOAD_TOOLS"]
+    async fn a_recording_whose_ffmpeg_stops_goes_on() {
+        let dir = PathBuf::from(std::env::var("SHARDLOAD_TOOLS").expect("SHARDLOAD_TOOLS"));
+        let tools = ytdlp::Tools {
+            ytdlp: dir.join("yt-dlp.exe"),
+            deno: Some(dir.join("deno.exe")),
+            ffmpeg: None,
+        };
+        let task = crate::task::tests::sample(
+            &std::env::var("SHARDLOAD_LIVE").expect("SHARDLOAD_LIVE"),
+            "live",
+        );
+        let out = std::env::temp_dir().join(format!("shardload-live-{}", std::process::id()));
+        std::fs::create_dir_all(&out).expect("dir");
+        let stem = out.join("live");
+        let record = crate::task::Recording::default();
+        let (tx, _rx) = watch::channel(Progress::default());
+        let stop = CancellationToken::new();
+        let limit = stop.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(20)).await;
+            std::process::Command::new("taskkill")
+                .args(["/F", "/IM", "ffmpeg.exe"])
+                .output()
+                .ok();
+            tokio::time::sleep(Duration::from_secs(50)).await;
+            limit.cancel();
+        });
+        let file = fetch_page(
+            &task,
+            "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
+            &tools,
+            &Options::default(),
+            None,
+            Some(&record),
+            &stem,
+            &tx,
+            &stop,
+        )
+        .await
+        .expect("recorded");
+        let size = std::fs::metadata(&file).expect("file").len();
+        let p = tx.borrow().clone();
+        println!(
+            "{} bytes, {:.0} s recorded, {} shown",
+            size, p.recorded, p.received
+        );
+        assert!(
+            p.recorded > 40.0,
+            "recorded on after the stop: {:.0} s",
+            p.recorded
+        );
+        assert!(size >= p.received);
+        std::fs::remove_dir_all(&out).ok();
     }
 }

@@ -221,7 +221,8 @@
 		ctx.stroke();
 		paint(ctx, '--fg', 0.62);
 		ctx.font = `${token('--text-caption')} ${token('--font-mono')}`;
-		ctx.fillText(speed(max), 4, 12);
+		// The top line's speed; none while nothing has come yet.
+		if (max > 1) ctx.fillText(speed(max), 4, 12);
 		ctx.globalAlpha = 1;
 	});
 

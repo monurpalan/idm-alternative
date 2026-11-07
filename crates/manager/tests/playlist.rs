@@ -330,6 +330,7 @@ async fn a_streams_fragments_come_over_several_connections() {
         "best",
         None,
         None,
+        false,
         &dir.join("stream"),
         &[],
         8,
