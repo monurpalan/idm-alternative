@@ -174,32 +174,44 @@ function hintsFor(video: HTMLVideoElement): Hints {
 	const around: string[] = [];
 	const near: string[] = [];
 	const ids: string[] = [];
-	const post: string[] = [];
-	let timed = false;
 	const r = video.getBoundingClientRect();
 	const area = Math.max(1, r.width * r.height);
 	let e: Element | null = video;
-	for (let depth = 0; e && depth < 16; depth++, e = e.parentElement) {
-		if (e.id) ids.push(e.id);
+	// Sites nest a video deep (X: twenty boxes and more), so all the way up for the links it
+	// is inside; only the closest boxes for the rest.
+	for (let depth = 0; e && e !== document.body; depth++, e = e.parentElement) {
 		if (e instanceof HTMLAnchorElement && e.href) around.push(e.href);
-		// The post the video is in: a `permalink` (Reddit), or, in the closest box that has
-		// one, the links holding a time (how nearly every social site links a post).
-		const permalink = e.getAttribute('permalink');
-		if (permalink) post.push(new URL(permalink, location.href).href);
-		if (!timed) {
-			const links = Array.from(e.querySelectorAll('a[href]')).filter((a) => a.querySelector('time'));
-			if (links.length) {
-				timed = true;
-				for (const a of links.slice(0, 5)) post.push((a as HTMLAnchorElement).href);
-			}
-		}
+		if (depth >= 16) continue;
+		if (e.id) ids.push(e.id);
 		// Links inside boxes not much larger than the video: its card, not the whole feed.
 		const b = e.getBoundingClientRect();
 		if (near.length < 50 && b.width * b.height <= area * 4) {
 			for (const a of Array.from(e.querySelectorAll('a[href]')).slice(0, 20)) near.push((a as HTMLAnchorElement).href);
 		}
 	}
-	return { page: location.href, around, near, ids, post };
+	return { page: location.href, around, near, ids, post: postLinks(video) };
+}
+
+/**
+ * Links naming the post the video is in: a `permalink` (Reddit), or the links holding a time,
+ * as nearly every social site links a post by its time. They are looked for in the closest box
+ * that has any, however deep the video sits; of those, the ones before the video come first,
+ * nearest first: a post's header, with its time, comes before its media, so a box that turns
+ * out to hold the whole feed still gives this post's link, not its neighbour's.
+ */
+function postLinks(video: HTMLVideoElement): string[] {
+	const out: string[] = [];
+	for (let e = video.parentElement; e && e !== document.documentElement; e = e.parentElement) {
+		const permalink = e.getAttribute('permalink');
+		if (permalink) out.push(new URL(permalink, location.href).href);
+		const timed = Array.from(e.querySelectorAll('a[href]')).filter((a) => a.querySelector('time'));
+		if (!timed.length) continue;
+		const before = timed.filter((a) => a.compareDocumentPosition(video) & Node.DOCUMENT_POSITION_FOLLOWING);
+		const after = timed.filter((a) => !before.includes(a));
+		for (const a of [...before.reverse(), ...after].slice(0, 5)) out.push((a as HTMLAnchorElement).href);
+		break;
+	}
+	return out;
 }
 
 /** How long the page's own data (page-data.ts) is waited for; it answers in a moment or not. */

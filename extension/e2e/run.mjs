@@ -207,6 +207,16 @@ function serve() {
 			res.writeHead(200, { 'content-type': 'text/html' });
 			res.end(`<!doctype html><title>choose</title><body style="margin:0;padding-top:120px">
 <video id="v" src="/choose.mp4" width="640" height="360" muted preload="auto" style="display:block;background:#000"></video>`);
+		} else if (url.pathname === '/deepfeed.html') {
+			// X's way: three posts with no <article> around them, each video twenty-two boxes
+			// deep under its post's header.
+			const deep = (inner) => '<div>'.repeat(22) + inner + '</div>'.repeat(22);
+			const post = (n) =>
+				`<div class="post"><a href="/user${n}">user${n}</a> <a href="/user${n}/status/${String(n).repeat(10)}"><time>${n} Nov</time></a>` +
+				deep(`<video id="v${n}" width="480" height="270" muted style="display:block;background:#000"></video>`) +
+				'</div>';
+			res.writeHead(200, { 'content-type': 'text/html' });
+			res.end(`<!doctype html><title>deep feed</title><body style="margin:0;padding-top:40px">${post(1)}${post(2)}${post(3)}`);
 		} else if (url.pathname === '/feed.html') {
 			// A feed post as social sites build it: the player plays from blob:, the post's
 			// link holds its time.
@@ -525,6 +535,20 @@ async function main() {
 			}, 'the qualities asked for');
 			const first = asked().items?.[0];
 			if (first?.url !== post || first?.kind !== 'page') throw new Error(JSON.stringify(asked().items));
+		});
+
+		await test('in a deep feed the button names its own post, not a neighbour', async () => {
+			const page = await open(cdp, `${base}/deepfeed.html`);
+			await evaluate(cdp, page, `document.querySelector('#v2').scrollIntoView({ block: 'center' })`);
+			await sleep(200);
+			const at = await centre(cdp, page, '#v2');
+			const asked = () => message((m) => m.type === 'media_qualities' && m.page?.endsWith('/deepfeed.html'));
+			await waitFor(async () => {
+				await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y }, page);
+				return asked() !== undefined;
+			}, 'the qualities asked for');
+			const first = asked().items?.[0];
+			if (first?.url !== `${base}/user2/status/2222222222`) throw new Error(JSON.stringify(asked().items));
 		});
 
 		await test("on YouTube the menu lists the player's own heights at once", async () => {
