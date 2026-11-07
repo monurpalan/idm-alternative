@@ -19,6 +19,29 @@ pub(crate) fn parse_progress(line: &str) -> Option<(u64, Option<u64>, f64)> {
     Some((downloaded, total, speed))
 }
 
+/// The format, the progress lines read by [`parse_progress`], the line naming the file
+/// written, and where it goes.
+fn output_args(format: &str, output_stem: &Path) -> Vec<String> {
+    vec![
+        "-f".to_owned(),
+        format.to_owned(),
+        "-S".into(),
+        FORMAT_SORT.into(),
+        "--merge-output-format".into(),
+        "mp4".into(),
+        "--continue".into(),
+        "--newline".into(),
+        // `--print` below makes yt-dlp quiet, which hides progress unless asked for.
+        "--progress".into(),
+        "--progress-template".into(),
+        "download:shardload %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s %(progress.speed)s".into(),
+        "--print".into(),
+        "after_move:shardload-file %(filepath)s".into(),
+        "-o".into(),
+        format!("{}.%(ext)s", output_stem.display()),
+    ]
+}
+
 /// Downloads `url` in `format` to `<dir>/<stem>.<ext>` and returns the file written. yt-dlp
 /// downloads video and audio one after the other and joins them; progress covers both.
 /// With `clip`, only that part, cut at keyframes forced at its ends (needs ffmpeg).
@@ -41,22 +64,7 @@ pub async fn run(
 ) -> Result<PathBuf, String> {
     let cookie_path = PathBuf::from(format!("{}.shardload-cookies.txt", output_stem.display()));
     let cookies = write_cookies(&cookie_path, url, headers);
-    let mut args = vec![
-        "-f".to_owned(),
-        format.to_owned(),
-        "-S".into(),
-        FORMAT_SORT.into(),
-        "--merge-output-format".into(),
-        "mp4".into(),
-        "--continue".into(),
-        "--newline".into(),
-        "--progress-template".into(),
-        "download:shardload %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s %(progress.speed)s".into(),
-        "--print".into(),
-        "after_move:shardload-file %(filepath)s".into(),
-        "-o".into(),
-        format!("{}.%(ext)s", output_stem.display()),
-    ];
+    let mut args = output_args(format, output_stem);
     if let Some(c) = clip {
         args.extend([
             "--download-sections".into(),
@@ -227,4 +235,18 @@ pub(crate) fn written_file(stem: &Path) -> Option<PathBuf> {
         })
         // Video and audio parts are joined into the largest file.
         .max_by_key(|p| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_is_shown_although_print_makes_it_quiet() {
+        // `--print` implies `--quiet`, which hides the progress lines the app reads: without
+        // `--progress` a download showed no speed or size until it finished.
+        let args = output_args("best", Path::new("out"));
+        assert!(args.iter().any(|a| a == "--print"));
+        assert!(args.iter().any(|a| a == "--progress"));
+    }
 }
