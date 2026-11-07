@@ -433,6 +433,10 @@ export interface CapturedMedia {
 		mime: string | null;
 	}[];
 	headers: Headers;
+	/** The quality picked on the page (a height or `audio`, or a stream variant's id). */
+	choice?: string | null;
+	/** What was read for the page's list of qualities: `PageInfo` or `StreamInfo`. */
+	info?: unknown;
 }
 
 /** What a stream offers; see `shardload-media`. */

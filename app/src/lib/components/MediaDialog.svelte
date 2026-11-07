@@ -12,6 +12,7 @@
 		type StreamInfo
 	} from '../api.ts';
 	import ClipFields from './ClipFields.svelte';
+	import FolderField from './FolderField.svelte';
 	import RecordFields from './RecordFields.svelte';
 	import { duration } from '../format.ts';
 	import { msg, t } from '../i18n.svelte.ts';
@@ -33,6 +34,8 @@
 	let video = $state('');
 	let audio = $state('');
 	let name = $state('');
+	/** Empty: the default folder. */
+	let dir = $state('');
 	/** Ids of the subtitle tracks to save. */
 	let subtitles = $state(new Set<string>());
 	let ffmpeg = $state(true);
@@ -60,7 +63,7 @@
 				// HLS: the chosen variant's playlist; DASH: the manifest, with representation ids.
 				url: info.format === 'dash' ? chosenUrl : video,
 				name: name.trim() || null,
-				dir: null,
+				dir: dir.trim() || null,
 				start: true,
 				login: null,
 				headers: media.headers,
@@ -87,8 +90,12 @@
 		error = null;
 		info = null;
 		try {
-			info = await inspectMedia(url, media.headers);
+			// Read already for the list of qualities on the page.
+			const known = media.info && url === streams[0]?.url ? (media.info as StreamInfo) : null;
+			info = known ?? (await inspectMedia(url, media.headers));
 			video = info.video[0]?.id ?? '';
+			// Picked on the page.
+			if (known && media.choice && info.video.some((v) => v.id === media.choice)) video = media.choice;
 			audio = (info.audio.find((a) => a.default) ?? info.audio[0])?.id ?? '';
 			subtitles = new Set();
 		} catch (e) {
@@ -202,6 +209,7 @@
 		<Field label={t('Save as')}>
 			<Input bind:value={name} placeholder={t('Name from the address')} />
 		</Field>
+		<FolderField bind:dir />
 		{#if info.live}
 			<RecordFields bind:record bind:problem={recordProblem} />
 		{:else}

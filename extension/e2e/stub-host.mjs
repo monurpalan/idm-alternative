@@ -18,6 +18,21 @@ function reply(message) {
 function answer(message) {
 	if (log) appendFileSync(log, JSON.stringify(message) + '\n');
 	if (message.type === 'ping') return { ok: true, version: 'e2e' };
+	// The app lists qualities for videos it can pick from; "choose" stands for one here.
+	if (message.type === 'media_qualities') {
+		const choose = message.items?.[0]?.url?.includes('choose');
+		return {
+			ok: true,
+			data: {
+				qualities: choose
+					? [
+							{ id: '720', label: '720p' },
+							{ id: 'audio', label: 'Audio only' }
+						]
+					: []
+			}
+		};
+	}
 	if (typeof message.url === 'string' && message.url.includes('refuse')) {
 		return { ok: false, error: 'refused by the test' };
 	}

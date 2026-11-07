@@ -1,15 +1,28 @@
-// A "Download" button over videos, like IDM's: it appears at the top right corner of a video
-// the pointer is over, and hands that video (or the stream the page plays through it) to the
-// app. Drawn in a closed shadow root so the page's styles cannot reach it.
+// A "Download" button by videos, like IDM's: it appears just outside the top right corner of
+// the video the pointer is over (see place.ts), so it never covers the picture. Clicking it
+// lists the qualities the video offers right there on the page; the one picked goes to the
+// app, which opens on it to confirm the name and folder. A plain file, with nothing to pick,
+// goes at once. Drawn in a closed shadow root so the page's styles cannot reach it.
+
+import { placeButton } from './place.ts';
 
 /** Videos smaller than this are previews, avatars or ads. */
 const MIN_WIDTH = 200;
 const MIN_HEIGHT = 120;
+const LABEL = '⬇ Download';
+
+interface Quality {
+	id: string;
+	label: string;
+}
 
 let host: HTMLElement | null = null;
 let button: HTMLButtonElement | null = null;
+let menu: HTMLElement | null = null;
 let current: HTMLVideoElement | null = null;
 let hideTimer: number | undefined;
+/** The video the open menu is for; the button stays while it is open. */
+let menuFor: HTMLVideoElement | null = null;
 
 function build() {
 	host = document.createElement('shardload-video-button');
@@ -19,41 +32,66 @@ function build() {
 		<style>
 			/* The app's colors (see ui.css); the page's styles cannot reach a shadow root, so
 			   they are spelled out here. */
+			:host { font: 600 12px system-ui, 'Segoe UI', sans-serif; }
 			button {
-				min-height: 32px;
-				padding: 0 12px;
+				font: inherit;
 				border: 0;
+				cursor: pointer;
+			}
+			.main {
+				display: block;
+				min-height: 24px;
+				padding: 0 10px;
 				border-radius: 4px;
 				background: #2563eb;
 				color: #f3f1ec;
-				font: 600 13px system-ui, 'Segoe UI', sans-serif;
-				box-shadow: 0 4px 16px color-mix(in srgb, #16181d 35%, transparent);
-				cursor: pointer;
+				box-shadow: 0 2px 10px color-mix(in srgb, #16181d 35%, transparent);
 				opacity: 0.92;
+				white-space: nowrap;
 			}
-			button:hover { opacity: 1; }
-			button[disabled] { background: #f3f1ec; cursor: default; }
+			.main:hover { opacity: 1; }
+			.main[disabled] { cursor: default; opacity: 1; }
+			.menu {
+				position: absolute;
+				top: calc(100% + 2px);
+				right: 0;
+				min-width: 160px;
+				max-height: 320px;
+				overflow-y: auto;
+				padding: 4px;
+				border-radius: 6px;
+				background: #1c1f26;
+				color: #f3f1ec;
+				box-shadow: 0 6px 24px color-mix(in srgb, #000 45%, transparent);
+			}
+			.menu[hidden] { display: none; }
+			.menu button {
+				display: block;
+				width: 100%;
+				padding: 6px 10px;
+				border-radius: 4px;
+				background: transparent;
+				color: inherit;
+				text-align: left;
+				white-space: nowrap;
+			}
+			.menu button:hover, .menu button:focus-visible { background: #2563eb; outline: none; }
+			.note { padding: 6px 10px; color: #b9b6ae; font-weight: 400; white-space: nowrap; }
 		</style>
-		<button type="button" title="Download with Shardload">⬇ Download</button>`;
-	button = root.querySelector('button');
-	button?.addEventListener('click', async (e) => {
+		<button type="button" class="main" title="Download with Shardload">${LABEL}</button>
+		<div class="menu" role="menu" hidden></div>`;
+	button = root.querySelector('.main');
+	menu = root.querySelector('.menu');
+	button?.addEventListener('click', (e) => {
 		e.preventDefault();
 		e.stopPropagation();
-		if (!current || !button) return;
-		button.disabled = true;
-		button.textContent = 'Sending…';
-		const reply = (await chrome.runtime
-			.sendMessage({ videoButton: { src: current.currentSrc || current.src } })
-			.catch((err: unknown) => ({ ok: false, error: String(err) }))) as { ok: boolean; error?: string };
-		button.textContent = reply?.ok ? 'Sent ✓' : 'Not available';
-		button.title = reply?.ok ? 'Sent to Shardload' : (reply?.error ?? '');
-		setTimeout(() => {
-			if (!button) return;
-			button.disabled = false;
-			button.textContent = '⬇ Download';
-			button.title = 'Download with Shardload';
-		}, 2000);
+		if (menuFor) closeMenu();
+		else if (current) openMenu(current);
 	});
+	// Clicks inside stay inside: the page must not take them as clicks on the player.
+	for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click', 'dblclick']) {
+		host.addEventListener(type, (e) => e.stopPropagation());
+	}
 	host.addEventListener('pointerenter', () => clearTimeout(hideTimer));
 	host.addEventListener('pointerleave', scheduleHide);
 	document.documentElement.append(host);
@@ -61,20 +99,110 @@ function build() {
 
 function place(video: HTMLVideoElement) {
 	if (!host) build();
-	const r = video.getBoundingClientRect();
 	if (!host) return;
-	host.style.top = `${Math.max(4, r.top + 8)}px`;
-	host.style.left = `${Math.max(4, r.right - 120)}px`;
 	host.style.display = 'block';
+	const r = video.getBoundingClientRect();
+	const b = button?.getBoundingClientRect();
+	const p = placeButton(
+		r,
+		{ width: b?.width || 100, height: b?.height || 24 },
+		{ width: document.documentElement.clientWidth, height: innerHeight }
+	);
+	host.style.top = `${p.top}px`;
+	host.style.left = `${p.left}px`;
 	current = video;
 }
 
 function scheduleHide() {
 	clearTimeout(hideTimer);
+	if (menuFor) return; // stays while its menu is open
 	hideTimer = window.setTimeout(() => {
 		if (host) host.style.display = 'none';
 		current = null;
 	}, 1200);
+}
+
+function note(text: string) {
+	if (!menu) return;
+	const p = document.createElement('div');
+	p.className = 'note';
+	p.textContent = text;
+	menu.replaceChildren(p);
+}
+
+function srcOf(video: HTMLVideoElement): string {
+	return video.currentSrc || video.src;
+}
+
+async function openMenu(video: HTMLVideoElement) {
+	if (!menu || !button) return;
+	menuFor = video;
+	clearTimeout(hideTimer);
+	note('Reading the qualities…');
+	menu.hidden = false;
+	button.disabled = true;
+	const reply = (await chrome.runtime
+		.sendMessage({ videoQualities: { src: srcOf(video) } })
+		.catch((err: unknown) => ({ ok: false, error: String(err) }))) as {
+		ok: boolean;
+		error?: string;
+		qualities?: Quality[];
+	};
+	if (menuFor !== video) return; // closed meanwhile
+	button.disabled = false;
+	if (!reply?.ok) {
+		note(reply?.error ?? 'Not available');
+		return;
+	}
+	const qualities = reply.qualities ?? [];
+	if (!qualities.length) {
+		// Nothing to choose (a plain file), or the app reads it itself.
+		closeMenu();
+		send(video, null);
+		return;
+	}
+	menu.replaceChildren(
+		...qualities.map((q) => {
+			const item = document.createElement('button');
+			item.type = 'button';
+			item.setAttribute('role', 'menuitem');
+			item.textContent = q.label;
+			item.addEventListener('click', (e) => {
+				e.preventDefault();
+				closeMenu();
+				send(video, q.id);
+			});
+			return item;
+		})
+	);
+	(menu.firstElementChild as HTMLElement | null)?.focus();
+}
+
+function closeMenu() {
+	menuFor = null;
+	if (menu) {
+		menu.hidden = true;
+		menu.replaceChildren();
+	}
+	if (button) button.disabled = false;
+}
+
+/** Hands the video to the app, with the quality picked (`null`: the app asks). */
+async function send(video: HTMLVideoElement, choice: string | null) {
+	if (!button) return;
+	button.disabled = true;
+	button.textContent = 'Sending…';
+	const reply = (await chrome.runtime
+		.sendMessage({ videoButton: { src: srcOf(video), choice } })
+		.catch((err: unknown) => ({ ok: false, error: String(err) }))) as { ok: boolean; error?: string };
+	button.textContent = reply?.ok ? 'Sent ✓' : 'Not available';
+	button.title = reply?.ok ? 'Sent to Shardload' : (reply?.error ?? '');
+	setTimeout(() => {
+		if (!button) return;
+		button.disabled = false;
+		button.textContent = LABEL;
+		button.title = 'Download with Shardload';
+	}, 2000);
 }
 
 /** The large video under the pointer, also when an overlay (controls, a div) covers it. */
@@ -92,7 +220,7 @@ addEventListener(
 	'pointermove',
 	(e) => {
 		// At most one check per frame: pointer events come fast.
-		if (pending) return;
+		if (pending || menuFor) return;
 		pending = true;
 		requestAnimationFrame(() => {
 			pending = false;
@@ -106,6 +234,28 @@ addEventListener(
 		});
 	},
 	{ passive: true, capture: true }
+);
+
+// A click elsewhere or Escape closes the menu.
+addEventListener(
+	'pointerdown',
+	(e) => {
+		if (menuFor && e.target !== host) {
+			closeMenu();
+			scheduleHide();
+		}
+	},
+	{ capture: true }
+);
+addEventListener(
+	'keydown',
+	(e) => {
+		if (menuFor && e.key === 'Escape') {
+			closeMenu();
+			scheduleHide();
+		}
+	},
+	{ capture: true }
 );
 
 // Keep the button on its video while the page scrolls.

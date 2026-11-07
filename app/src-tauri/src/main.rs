@@ -66,6 +66,9 @@ struct App {
     clipboard: Mutex<Option<clipboard::Watcher>>,
     /// The browser extensions heard from.
     extensions: Mutex<extensions::Record>,
+    /// What the media last asked about by the button over a video offers (its address and
+    /// what was read), so the dialog opened with the choice does not read it again.
+    media_info: Mutex<Option<(String, serde_json::Value)>>,
 }
 
 /// How long "refresh in browser" waits for the user to start the download again.
@@ -318,6 +321,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(windows)]
         clipboard: Mutex::new(None),
         extensions: Mutex::new(seen),
+        media_info: Mutex::new(None),
         path_ffmpeg,
     });
     tauri::async_runtime::spawn(daily_checks(app.handle().clone()));

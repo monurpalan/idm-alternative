@@ -20,6 +20,7 @@
 		type TaskId
 	} from '../api.ts';
 	import ClipFields from './ClipFields.svelte';
+	import FolderField from './FolderField.svelte';
 	import RecordFields from './RecordFields.svelte';
 	import PreviousNotice from './PreviousNotice.svelte';
 	import { duration } from '../format.ts';
@@ -43,6 +44,8 @@
 	/** A height, or 0 for audio alone. */
 	let choice = $state(0);
 	let name = $state('');
+	/** Empty: the default folder. */
+	let dir = $state('');
 	let busy = $state(false);
 	let dialog: { close(): void } | undefined = $state();
 	let clip = $state<Clip | null>(null);
@@ -72,8 +75,15 @@
 			const found = await tools();
 			missing = !found.ytdlp;
 			if (missing) return;
-			info = await inspectPage(page, media.headers, wholeList);
+			// Read already for the list of qualities on the page, unless the whole list is wanted.
+			info =
+				media.info && !wholeList
+					? (media.info as PageInfo)
+					: await inspectPage(page, media.headers, wholeList);
 			choice = info.playlist ? 1080 : (info.heights[0] ?? 0);
+			// Picked on the page.
+			if (!wholeList && media.choice && !info.playlist)
+				choice = media.choice === 'audio' ? 0 : Number(media.choice) || choice;
 			name = info.playlist?.title ?? info.title ?? media.title ?? '';
 			if (info.playlist) {
 				const urls = info.playlist.entries.map((e) => e.url);
@@ -124,7 +134,7 @@
 				await addTask({
 					url: page,
 					name: name.trim() || null,
-					dir: null,
+					dir: dir.trim() || null,
 					start: true,
 					login: null,
 					headers: media.headers,
@@ -224,6 +234,7 @@
 		<Field label={t('Save as')}>
 			<Input bind:value={name} placeholder={t('Title of the page')} />
 		</Field>
+		<FolderField bind:dir />
 		{#if info.live}
 			<RecordFields fromStartOffered bind:record bind:problem={recordProblem} />
 		{:else}

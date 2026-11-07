@@ -55,6 +55,7 @@ async function cookiesFor(url: string): Promise<string | null> {
 interface Reply {
 	ok: boolean;
 	error?: string;
+	data?: unknown;
 }
 
 async function send(message: object): Promise<Reply> {
@@ -142,37 +143,67 @@ api.downloads.onCreated.addListener(async (item) => {
 // (is the app there?).
 chrome.runtime.onMessage.addListener(
 	(
-		message: { alt?: boolean; videoButton?: { src: string }; hello?: boolean },
+		message: {
+			alt?: boolean;
+			videoButton?: { src: string; choice?: string | null };
+			videoQualities?: { src: string };
+			hello?: boolean;
+		},
 		sender: chrome.runtime.MessageSender,
-		sendResponse: (reply: Reply | null) => void
+		sendResponse: (reply: object | null) => void
 	) => {
 		if (message?.alt) altDownAt = Date.now();
 		if (message?.hello) {
 			hello(true).then(sendResponse);
 			return true;
 		}
-		if (message?.videoButton && sender.tab?.id !== undefined) {
-			sendVideo(sender.tab, message.videoButton.src).then(sendResponse);
+		if (message?.videoQualities && sender.tab?.id !== undefined) {
+			videoQualities(sender.tab, message.videoQualities.src).then(sendResponse);
 			return true; // the reply comes later
+		}
+		if (message?.videoButton && sender.tab?.id !== undefined) {
+			sendVideo(sender.tab, message.videoButton.src, message.videoButton.choice ?? null).then(sendResponse);
+			return true;
 		}
 		return false;
 	}
 );
 
-/** Sends what the button over a video stands for, with the page's cookies. */
-async function sendVideo(tab: chrome.tabs.Tab, src: string): Promise<Reply> {
+/** What the button by a video stands for, with the page's cookies, as the app takes it. */
+async function videoCapture(tab: chrome.tabs.Tab, src: string) {
 	const key = mediaKey(tab.id!);
 	const seen = ((await api.storage.session.get(key))[key] as MediaItem[] | undefined) ?? [];
 	const items = chooseMedia(src, seen, tab.url ?? null);
-	if (!items.length) return { ok: false, error: 'no media found on this page yet; let it play first' };
-	return send({
-		type: 'media',
+	if (!items.length) return null;
+	return {
 		page: tab.url ?? null,
 		title: tab.title ?? null,
 		items,
 		cookies: await cookiesFor(items[0].url),
 		user_agent: navigator.userAgent
-	});
+	};
+}
+
+const NO_MEDIA = 'no media found on this page yet; let it play first';
+
+/**
+ * The qualities to list by the video. None when there is nothing to pick, and also when the
+ * app cannot list them (an older app, or yt-dlp not set up yet): the video is then sent as
+ * it is and the app asks.
+ */
+async function videoQualities(tab: chrome.tabs.Tab, src: string) {
+	const capture = await videoCapture(tab, src);
+	if (!capture) return { ok: false, error: NO_MEDIA };
+	const reply = await send({ type: 'media_qualities', ...capture });
+	const qualities = reply.ok ? (reply.data as { qualities?: unknown } | undefined)?.qualities : null;
+	return { ok: true, qualities: Array.isArray(qualities) ? qualities : [] };
+}
+
+/** Sends what the button by a video stands for, with the quality picked on the page. */
+async function sendVideo(tab: chrome.tabs.Tab, src: string, choice: string | null): Promise<Reply> {
+	const capture = await videoCapture(tab, src);
+	if (!capture) return { ok: false, error: NO_MEDIA };
+	return send({ type: 'media', ...capture, choice });
 }
 
 // Right-click menu.

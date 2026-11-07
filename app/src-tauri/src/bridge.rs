@@ -11,7 +11,10 @@ pub(crate) async fn bridge_reply(
     use shardload_bridge::{Reply, Request};
     if matches!(
         request,
-        Request::Download(_) | Request::Links { .. } | Request::Media(_)
+        Request::Download(_)
+            | Request::Links { .. }
+            | Request::Media(_)
+            | Request::MediaQualities(_)
     ) {
         // Only the extension sends these; one too old to say hello still works.
         update_extensions(handle, |r| r.unnamed_at = Some(extensions::now())).await;
@@ -40,7 +43,22 @@ pub(crate) async fn bridge_reply(
             Reply::ok()
         }
         Request::Rescue(r) => rescue(handle, r).await,
+        Request::MediaQualities(media) => match media_qualities(handle, &media).await {
+            Ok(qualities) => Reply {
+                data: Some(serde_json::json!({ "qualities": qualities })),
+                ..Reply::ok()
+            },
+            Err(e) => Reply::error(e),
+        },
         Request::Media(media) => {
+            // Picked on the page: the dialog opens on what was read for the list.
+            let info = media.choice.as_ref().and_then(|_| {
+                let url = &media.items.first()?.url;
+                lock(&handle.state::<App>().media_info)
+                    .take()
+                    .filter(|(read, _)| read == url)
+                    .map(|(_, info)| info)
+            });
             to_page(
                 handle,
                 "capture-media",
@@ -49,6 +67,8 @@ pub(crate) async fn bridge_reply(
                     "title": media.title,
                     "items": media.items,
                     "headers": media.request_headers(),
+                    "choice": media.choice,
+                    "info": info,
                 }),
                 true,
             );

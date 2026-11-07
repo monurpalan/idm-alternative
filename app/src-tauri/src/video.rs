@@ -178,3 +178,124 @@ pub(crate) async fn install_tool(app: State<'_, App>, tool: tools::Tool) -> CmdR
         .map_err(msg)?;
     Ok(tools::version(&exe).await.unwrap_or_default())
 }
+
+/// One quality the button over a video lists on the page.
+#[derive(Serialize, Debug, PartialEq)]
+pub(crate) struct Quality {
+    /// What the dialog picks: a height or `audio` for a page, a variant's id for a stream.
+    pub(crate) id: String,
+    pub(crate) label: String,
+}
+
+/// The qualities the first item of `media` offers, best first, read the way the dialog
+/// reads them (and kept for it). A page of a video site goes through yt-dlp; an HLS or DASH
+/// playlist is read directly; a plain file or a playlist page offers nothing to choose.
+pub(crate) async fn media_qualities(
+    handle: &AppHandle,
+    media: &shardload_bridge::MediaCapture,
+) -> Result<Vec<Quality>, String> {
+    let Some(item) = media.items.first() else {
+        return Ok(Vec::new());
+    };
+    let headers = media.request_headers();
+    let app = handle.state::<App>();
+    let (qualities, info) = match item.kind.as_str() {
+        "page" => {
+            let info = inspect_page(app.clone(), item.url.clone(), Some(headers), None).await?;
+            (page_qualities(&info), serde_json::to_value(&info))
+        }
+        "hls" | "dash" => {
+            let info = inspect_media(app.clone(), item.url.clone(), Some(headers)).await?;
+            (stream_qualities(&info), serde_json::to_value(&info))
+        }
+        _ => return Ok(Vec::new()),
+    };
+    if let Ok(info) = info {
+        *lock(&app.media_info) = Some((item.url.clone(), info));
+    }
+    Ok(qualities)
+}
+
+fn page_qualities(info: &shardload_manager::ytdlp::PageInfo) -> Vec<Quality> {
+    if info.playlist.is_some() {
+        // Its videos are picked in the app.
+        return Vec::new();
+    }
+    let mut out: Vec<Quality> = info
+        .heights
+        .iter()
+        .map(|h| Quality {
+            id: h.to_string(),
+            label: format!("{h}p"),
+        })
+        .collect();
+    if info.audio_only {
+        out.push(Quality {
+            id: "audio".into(),
+            label: "Audio only".into(),
+        });
+    }
+    out
+}
+
+fn stream_qualities(info: &shardload_media::Streams) -> Vec<Quality> {
+    if info.video.len() < 2 {
+        return Vec::new();
+    }
+    info.video
+        .iter()
+        .map(|v| {
+            let mut parts = Vec::new();
+            if let Some(h) = v.height {
+                parts.push(format!("{h}p"));
+            }
+            if v.frame_rate.is_some_and(|f| f > 30.5) {
+                parts.push(format!("{:.0} fps", v.frame_rate.unwrap_or_default()));
+            }
+            if v.hdr.is_some() {
+                parts.push("HDR".into());
+            }
+            if v.bandwidth > 0 {
+                parts.push(format!("{:.1} Mbps", v.bandwidth as f64 / 1e6));
+            }
+            Quality {
+                id: v.id.clone(),
+                label: if parts.is_empty() {
+                    v.id.clone()
+                } else {
+                    parts.join(" · ")
+                },
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_video_page_lists_its_heights_and_audio() {
+        let info: shardload_manager::ytdlp::PageInfo = shardload_manager::ytdlp::PageInfo {
+            title: None,
+            duration: None,
+            heights: vec![1080, 720],
+            audio_only: true,
+            playlist: None,
+            in_playlist: false,
+            live: false,
+        };
+        let ids: Vec<_> = page_qualities(&info)
+            .into_iter()
+            .map(|q| (q.id, q.label))
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                ("1080".into(), "1080p".into()),
+                ("720".into(), "720p".into()),
+                ("audio".into(), "Audio only".into())
+            ]
+        );
+    }
+}

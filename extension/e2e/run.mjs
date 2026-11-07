@@ -202,7 +202,11 @@ function serve() {
 			res.writeHead(200, { 'content-type': 'text/html' });
 			res.end(`<!doctype html><title>video</title><body style="margin:0">
 <video id="v" src="/clip.mp4" width="640" height="360" muted preload="auto" style="display:block;background:#000"></video>`);
-		} else if (url.pathname === '/clip.mp4') {
+		} else if (url.pathname === '/choose.html') {
+			res.writeHead(200, { 'content-type': 'text/html' });
+			res.end(`<!doctype html><title>choose</title><body style="margin:0;padding-top:120px">
+<video id="v" src="/choose.mp4" width="640" height="360" muted preload="auto" style="display:block;background:#000"></video>`);
+		} else if (url.pathname === '/clip.mp4' || url.pathname === '/choose.mp4') {
 			res.writeHead(200, { 'content-type': 'video/mp4', 'content-length': 4096 });
 			res.end(Buffer.alloc(4096));
 		} else {
@@ -427,6 +431,31 @@ async function main() {
 			const m = message((m) => m.type === 'media');
 			if (!m.items?.some((i) => i.url === `${base}/clip.mp4`)) throw new Error(JSON.stringify(m.items));
 			if (m.page !== `${base}/video.html`) throw new Error(`page ${m.page}`);
+		});
+
+		await test('the button sits outside the video and lists its qualities there', async () => {
+			const page = await open(cdp, `${base}/choose.html`);
+			const at = await centre(cdp, page, '#v');
+			let box = null;
+			await waitFor(async () => {
+				await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y }, page);
+				box = await evaluate(
+					cdp,
+					page,
+					`(() => { const h = document.querySelector('shardload-video-button');
+					  if (!h || getComputedStyle(h).display === 'none') return null;
+					  const r = h.getBoundingClientRect(), v = document.querySelector('#v').getBoundingClientRect();
+					  return { x: r.x + r.width / 2, y: r.y + r.height / 2, right: r.right, bottom: r.bottom, videoTop: v.top }; })()`
+				);
+				return box !== null;
+			}, 'the button');
+			if (box.bottom > box.videoTop) throw new Error(`the button covers the video: ${JSON.stringify(box)}`);
+			await click(cdp, page, box);
+			await waitFor(() => message((m) => m.type === 'media_qualities' && m.items?.[0]?.url?.endsWith('/choose.mp4')), 'the question for qualities');
+			await sleep(300);
+			// The menu opens under the button, best first; its first entry is 720p.
+			await click(cdp, page, { x: box.right - 40, y: box.bottom + 2 + 4 + 12 });
+			await waitFor(() => message((m) => m.type === 'media' && m.choice === '720'), 'the video with its quality');
 		});
 
 		const hashes = await open(cdp, `${base}/hashes.html`);

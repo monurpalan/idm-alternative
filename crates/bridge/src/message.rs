@@ -29,6 +29,10 @@ pub enum Request {
     },
     /// Video or audio the extension saw a page load (files, or HLS/DASH playlists).
     Media(MediaCapture),
+    /// The qualities the first of these items offers, for the button over a video to list
+    /// on the page. Answered in [`Reply::data`] as `{"qualities": [{"id", "label"}]}`,
+    /// best first; empty when there is nothing to choose (a plain file).
+    MediaQualities(MediaCapture),
     /// The download list. Answered in [`Reply::data`] as an array of tasks.
     Tasks,
     /// Adds a download without asking (the tool's user asked for it). Answered with the new
@@ -152,6 +156,7 @@ impl Request {
                 | Self::Rescue(_)
                 | Self::Links { .. }
                 | Self::Media(_)
+                | Self::MediaQualities(_)
         )
     }
 
@@ -263,6 +268,8 @@ pub struct MediaCapture {
     /// `Cookie` header value for the media's site.
     pub cookies: Option<String>,
     pub user_agent: Option<String>,
+    /// The quality picked on the page, an `id` from [`Request::MediaQualities`]'s answer.
+    pub choice: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -499,6 +506,23 @@ mod tests {
             assert!(!r.from_browser(), "{msg}");
         }
         assert!(Request::Ping.from_browser());
+    }
+
+    #[test]
+    fn the_button_over_a_video_asks_for_qualities_then_sends_its_choice() {
+        let ask: Request = serde_json::from_str(
+            r#"{"type":"media_qualities","page":"https://x/watch","items":[{"url":"https://x/watch","kind":"page"}]}"#,
+        )
+        .expect("qualities");
+        assert!(ask.from_browser());
+        let send: Request = serde_json::from_str(
+            r#"{"type":"media","items":[{"url":"https://x/watch","kind":"page"}],"choice":"720"}"#,
+        )
+        .expect("media");
+        let Request::Media(m) = send else {
+            panic!("not media")
+        };
+        assert_eq!(m.choice.as_deref(), Some("720"));
     }
 
     #[test]
