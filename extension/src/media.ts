@@ -146,3 +146,15 @@ export function label(item: MediaItem): string {
 		return item.url;
 	}
 }
+
+/**
+ * Whether a reply is a playlist, by how it begins rather than by its name or type: players
+ * on many sites fetch theirs from addresses named like images or scripts, served as
+ * `text/plain` or worse, so only their text tells. `head` is the reply's first bytes as text.
+ */
+export function playlistKind(head: string): 'hls' | 'dash' | null {
+	const text = head.replace(/^\uFEFF/, '').trimStart();
+	if (text.startsWith('#EXTM3U')) return 'hls';
+	if (/^(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<MPD[\s>]/.test(text)) return 'dash';
+	return null;
+}

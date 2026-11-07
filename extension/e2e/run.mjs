@@ -207,6 +207,24 @@ function serve() {
 			res.writeHead(200, { 'content-type': 'text/html' });
 			res.end(`<!doctype html><title>choose</title><body style="margin:0;padding-top:120px">
 <video id="v" src="/choose.mp4" width="640" height="360" muted preload="auto" style="display:block;background:#000"></video>`);
+		} else if (url.pathname === '/embed.html') {
+			// A streaming site's way: the player sits in a frame and fetches its playlist from an
+			// address named like an image, served as plain text.
+			res.writeHead(200, { 'content-type': 'text/html' });
+			res.end(`<!doctype html><title>embed</title><body style="margin:0;padding-top:60px">
+<iframe id="f" src="/player.html" width="660" height="380" style="border:0;display:block"></iframe>`);
+		} else if (url.pathname === '/player.html') {
+			res.writeHead(200, { 'content-type': 'text/html' });
+			res.end(`<!doctype html><title>player</title><body style="margin:0">
+<video id="v" width="640" height="360" muted style="display:block;background:#000"></video>
+<script>const x = new XMLHttpRequest(); x.open('GET', '/cdn/7/master.png'); x.send();
+fetch('/cdn/7/thumb.png').then((r) => r.text());</script>`);
+		} else if (url.pathname === '/cdn/7/master.png') {
+			res.writeHead(200, { 'content-type': 'text/plain' });
+			res.end('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\n360.png\n');
+		} else if (url.pathname === '/cdn/7/thumb.png') {
+			res.writeHead(200, { 'content-type': 'image/png' });
+			res.end(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 		} else if (url.pathname === '/deepfeed.html') {
 			// X's way: three posts with no <article> around them, each video twenty-two boxes
 			// deep under its post's header.
@@ -535,6 +553,19 @@ async function main() {
 			}, 'the qualities asked for');
 			const first = asked().items?.[0];
 			if (first?.url !== post || first?.kind !== 'page') throw new Error(JSON.stringify(asked().items));
+		});
+
+		await test('a playlist a framed player fetched under an image name is found by its text', async () => {
+			const page = await open(cdp, `${base}/embed.html`);
+			const at = await centre(cdp, page, '#f');
+			const asked = () => message((m) => m.type === 'media_qualities' && m.page?.endsWith('/player.html'));
+			await waitFor(async () => {
+				await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y }, page);
+				return asked() !== undefined;
+			}, 'the qualities asked for');
+			const items = asked().items ?? [];
+			if (!items.some((i) => i.url === `${base}/cdn/7/master.png` && i.kind === 'hls')) throw new Error(JSON.stringify(items));
+			if (items.some((i) => i.url.endsWith('/thumb.png'))) throw new Error('an image was taken for a playlist');
 		});
 
 		await test('in a deep feed the button names its own post, not a neighbour', async () => {

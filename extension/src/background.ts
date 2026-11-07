@@ -148,12 +148,20 @@ chrome.runtime.onMessage.addListener(
 			alt?: boolean;
 			videoButton?: { src: string; hints?: Hints; choice?: string | null; items?: MediaItem[] };
 			videoQualities?: { src: string; hints?: Hints; ahead?: boolean };
+			playlist?: { url: string; kind: string };
 			hello?: boolean;
 		},
 		sender: chrome.runtime.MessageSender,
 		sendResponse: (reply: object | null) => void
 	) => {
 		if (message?.alt) altDownAt = Date.now();
+		// A playlist a page's player fetched, known by its text (sniff.ts).
+		const p = message?.playlist;
+		if (p && sender.tab?.id !== undefined && /^https?:/i.test(p.url) && (p.kind === 'hls' || p.kind === 'dash')) {
+			const item: MediaItem = { url: p.url, kind: p.kind, size: null, mime: null };
+			updateMedia(sender.tab.id, (list) => remember(list, item));
+			return false;
+		}
 		if (message?.hello) {
 			hello(true).then(sendResponse);
 			return true;

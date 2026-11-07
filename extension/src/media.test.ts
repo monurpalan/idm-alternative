@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { MAX_ITEMS, MIN_FILE_BYTES, chooseMedia, classify, label, remember, totalSize, type MediaItem, type Response } from './media.ts';
+import { playlistKind, MAX_ITEMS, MIN_FILE_BYTES, chooseMedia, classify, label, remember, totalSize, type MediaItem, type Response } from './media.ts';
 
 const r = (url: string, contentType: string | null, contentLength: number | null = null, contentRange: string | null = null): Response => ({
 	url,
@@ -98,4 +98,14 @@ test('on other sites the post the video is in comes first, then what the tab fet
 	assert.deepEqual(chooseMedia('blob:x', seen, null, { known: false, url: null }).map((m) => m.url), ['https://cdn/video.m3u8', 'https://cdn/audio.m3u8']);
 	// A plain file source is that file, post or not.
 	assert.deepEqual(chooseMedia('https://cdn/a.mp4', seen, null, own), [seen[0]]);
+});
+
+test('playlists are known by their text, whatever their name or type', () => {
+	assert.equal(playlistKind('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1'), 'hls');
+	assert.equal(playlistKind('\uFEFF  #EXTM3U\n'), 'hls');
+	assert.equal(playlistKind('<?xml version="1.0"?>\n<!-- made by x -->\n<MPD xmlns="urn:mpeg:dash:schema:mpd:2011">'), 'dash');
+	assert.equal(playlistKind('<MPD type="static">'), 'dash');
+	assert.equal(playlistKind('\x89PNG\r\n'), null);
+	assert.equal(playlistKind('{"m3u8":"#EXTM3U"}'), null);
+	assert.equal(playlistKind('<?xml version="1.0"?><rss>'), null);
 });

@@ -52,3 +52,12 @@ chrome.runtime.onMessage.addListener(
 		return false;
 	}
 );
+
+// Playlists the page's player fetched, spotted by their text in the page's world (sniff.ts),
+// go to the background, which lists them with the media seen in this tab.
+addEventListener('message', (e) => {
+	if (e.source !== window || e.data?.type !== 'shardload:playlist') return;
+	const { url, kind } = e.data as { url?: unknown; kind?: unknown };
+	if (typeof url !== 'string' || typeof kind !== 'string') return;
+	chrome.runtime.sendMessage({ playlist: { url, kind } }).catch(() => {});
+});

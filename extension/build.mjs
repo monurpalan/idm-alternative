@@ -19,6 +19,9 @@ const common = {
 		{ matches: ['<all_urls>'], js: ['video-button.js'], run_at: 'document_idle', all_frames: true },
 		// In the page's own world, to note the formats YouTube and TikTok give their players
 		// (page-data.ts); Firefox has run such scripts since 128, the version asked for below.
+		// In every page's own world and frame, to spot the playlists players fetch, by their
+		// text, wherever they hide them (sniff.ts).
+		{ matches: ['<all_urls>'], js: ['sniff.js'], run_at: 'document_start', all_frames: true, world: 'MAIN' },
 		{
 			matches: ['*://*.youtube.com/*', '*://*.tiktok.com/*'],
 			js: ['page-data.js'],
@@ -63,7 +66,7 @@ for (const [name, manifest] of Object.entries(targets)) {
 	rmSync(out, { recursive: true, force: true });
 	mkdirSync(out, { recursive: true });
 	await build({
-		entryPoints: ['src/background.ts', 'src/content.ts', 'src/video-button.ts', 'src/page-data.ts', 'src/options.ts', 'src/popup.ts'],
+		entryPoints: ['src/background.ts', 'src/content.ts', 'src/video-button.ts', 'src/page-data.ts', 'src/sniff.ts', 'src/options.ts', 'src/popup.ts'],
 		bundle: true,
 		format: 'iife',
 		target: 'es2022',
