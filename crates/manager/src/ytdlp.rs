@@ -387,11 +387,65 @@ fn entry(e: &serde_json::Value) -> Option<PlaylistEntry> {
     })
 }
 
+/// Codecs Windows does not play without a paid extension (H.265/HEVC; TikTok calls it
+/// `bytevc1`): saved in them, a video shows a black picture over its sound.
+const UNPLAYABLE: &[&str] = &["hev", "hvc", "h265", "bytevc1"];
+
+/// The same filter as yt-dlp sees it, for [`prefer_playable`].
+const PLAYABLE_FILTER: &str = "[vcodec!~='^(hev|hvc|h265|bytevc1)']";
+
+fn playable(vcodec: &str) -> bool {
+    let c = vcodec.to_ascii_lowercase();
+    !UNPLAYABLE.iter().any(|u| c.starts_with(u))
+}
+
+/// `format` with the same choices tried first among formats Windows plays (see
+/// [`UNPLAYABLE`]), then as given for a video that comes in nothing else. Audio alone is left
+/// as it is.
+pub fn prefer_playable(format: &str) -> String {
+    let is_video = |part: &str| {
+        (part.starts_with("best") && !part.starts_with("bestaudio"))
+            || part.starts_with("bv")
+            || part == "b"
+            || part.starts_with("b[")
+    };
+    let mut any = false;
+    let filtered: Vec<String> = format
+        .split('/')
+        .map(|choice| {
+            choice
+                .split('+')
+                .map(|part| {
+                    if is_video(part) {
+                        any = true;
+                        format!("{part}{PLAYABLE_FILTER}")
+                    } else {
+                        part.to_owned()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("+")
+        })
+        .collect();
+    if !any || format.starts_with("bestaudio") {
+        return format.to_owned();
+    }
+    format!("{}/{format}", filtered.join("/"))
+}
+
 fn page_info(v: &serde_json::Value) -> PageInfo {
     let formats = v["formats"].as_array().cloned().unwrap_or_default();
+    let video = |f: &&serde_json::Value| f["vcodec"].as_str().is_some_and(|c| c != "none");
+    // Heights only offered in a codec Windows cannot play are left out when others exist:
+    // the download takes a playable format (see `prefer_playable`).
+    let some_playable = formats
+        .iter()
+        .filter(video)
+        .any(|f| f["height"].is_u64() && f["vcodec"].as_str().is_some_and(playable));
     let mut heights: Vec<u32> = formats
         .iter()
-        .filter(|f| f["vcodec"].as_str().is_some_and(|c| c != "none"))
+        .filter(video)
+        .filter(|f| !some_playable || f["vcodec"].as_str().is_some_and(playable))
         .filter_map(|f| f["height"].as_u64().map(|h| h as u32))
         .collect();
     heights.sort_unstable_by(|a, b| b.cmp(a));
@@ -432,6 +486,34 @@ mod tests {
             "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
         );
         assert_eq!(selector(None), "bestaudio/best");
+    }
+
+    #[test]
+    fn playable_formats_first() {
+        assert_eq!(
+            prefer_playable(&selector(Some(720))),
+            format!(
+                "bestvideo[height<=720]{f}+bestaudio/best[height<=720]{f}/best{f}/{}",
+                selector(Some(720)),
+                f = PLAYABLE_FILTER
+            )
+        );
+        assert_eq!(prefer_playable("bestaudio/best"), "bestaudio/best");
+    }
+
+    #[test]
+    fn heights_only_in_hevc_are_left_out() {
+        // A TikTok post: 720p in H.265 only, 576p in H.264 too.
+        let v = serde_json::json!({"formats": [
+            {"vcodec": "h264", "acodec": "aac", "height": 576},
+            {"vcodec": "h265", "acodec": "aac", "height": 576},
+            {"vcodec": "h265", "acodec": "aac", "height": 720},
+            {"vcodec": "bytevc1", "acodec": "aac", "height": 1080},
+        ]});
+        assert_eq!(page_info(&v).heights, [576]);
+        // Nothing else: what there is.
+        let only = serde_json::json!({"formats": [{"vcodec": "hev1.1.6", "height": 720}]});
+        assert_eq!(page_info(&only).heights, [720]);
     }
 
     #[test]

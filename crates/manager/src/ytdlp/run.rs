@@ -24,7 +24,7 @@ pub(crate) fn parse_progress(line: &str) -> Option<(u64, Option<u64>, f64)> {
 fn output_args(format: &str, output_stem: &Path) -> Vec<String> {
     vec![
         "-f".to_owned(),
-        format.to_owned(),
+        prefer_playable(format),
         "-S".into(),
         FORMAT_SORT.into(),
         "--merge-output-format".into(),
