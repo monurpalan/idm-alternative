@@ -146,8 +146,8 @@ chrome.runtime.onMessage.addListener(
 	(
 		message: {
 			alt?: boolean;
-			videoButton?: { src: string; hints?: Hints; choice?: string | null };
-			videoQualities?: { src: string; hints?: Hints };
+			videoButton?: { src: string; hints?: Hints; choice?: string | null; items?: MediaItem[] };
+			videoQualities?: { src: string; hints?: Hints; ahead?: boolean };
 			hello?: boolean;
 		},
 		sender: chrome.runtime.MessageSender,
@@ -159,13 +159,13 @@ chrome.runtime.onMessage.addListener(
 			return true;
 		}
 		if (message?.videoQualities && sender.tab?.id !== undefined) {
-			const { src, hints } = message.videoQualities;
-			videoQualities(sender.tab, src, hints).then(sendResponse);
+			const { src, hints, ahead } = message.videoQualities;
+			videoQualities(sender.tab, src, hints, ahead === true).then(sendResponse);
 			return true; // the reply comes later
 		}
 		if (message?.videoButton && sender.tab?.id !== undefined) {
-			const { src, hints, choice } = message.videoButton;
-			sendVideo(sender.tab, src, hints, choice ?? null).then(sendResponse);
+			const { src, hints, choice, items } = message.videoButton;
+			sendVideo(sender.tab, src, hints, choice ?? null, items).then(sendResponse);
 			return true;
 		}
 		return false;
@@ -173,12 +173,22 @@ chrome.runtime.onMessage.addListener(
 );
 
 /** What the button by a video stands for, with the page's cookies, as the app takes it. */
-async function videoCapture(tab: chrome.tabs.Tab, src: string, hints: Hints | undefined) {
+/** Items the qualities were read for, given back with the choice; only web addresses. */
+function givenItems(items: MediaItem[] | undefined): MediaItem[] | null {
+	if (!Array.isArray(items) || !items.length) return null;
+	const ok = items.every((i) => typeof i?.url === 'string' && /^https?:/i.test(i.url) && typeof i.kind === 'string');
+	return ok ? items : null;
+}
+
+async function videoCapture(tab: chrome.tabs.Tab, src: string, hints: Hints | undefined, given?: MediaItem[]) {
 	const key = mediaKey(tab.id!);
 	const seen = ((await api.storage.session.get(key))[key] as MediaItem[] | undefined) ?? [];
 	// The page's address as the page says it now: feeds change it as they scroll.
 	const page = hints?.page || tab.url || null;
-	const items = chooseMedia(src, seen, page, hints && videoAddress(hints));
+	// With the choice, the very items its qualities were read for: the page around the video
+	// may have changed since (a preview gone, a feed scrolled), and the app keeps what it read
+	// by their address.
+	const items = givenItems(given) ?? chooseMedia(src, seen, page, hints && videoAddress(hints));
 	if (!items.length) return null;
 	return {
 		page,
@@ -196,12 +206,14 @@ const NO_MEDIA = 'no address found for this video; let it play, or open it';
  * app cannot list them (an older app, or yt-dlp not set up yet): the video is then sent as
  * it is and the app asks.
  */
-async function videoQualities(tab: chrome.tabs.Tab, src: string, hints: Hints | undefined) {
+async function videoQualities(tab: chrome.tabs.Tab, src: string, hints: Hints | undefined, ahead: boolean) {
 	const capture = await videoCapture(tab, src, hints);
 	if (!capture) return { ok: false, error: NO_MEDIA };
-	const reply = await send({ type: 'media_qualities', ...capture });
+	const reply = await send({ type: 'media_qualities', ...capture, ahead });
+	// Asked ahead of a click, an app that is not running says no: nothing is known yet.
+	if (ahead && !reply.ok) return { ok: false, error: reply.error };
 	const qualities = reply.ok ? (reply.data as { qualities?: unknown } | undefined)?.qualities : null;
-	return { ok: true, qualities: Array.isArray(qualities) ? qualities : [] };
+	return { ok: true, qualities: Array.isArray(qualities) ? qualities : [], items: capture.items };
 }
 
 /** Sends what the button by a video stands for, with the quality picked on the page. */
@@ -209,9 +221,10 @@ async function sendVideo(
 	tab: chrome.tabs.Tab,
 	src: string,
 	hints: Hints | undefined,
-	choice: string | null
+	choice: string | null,
+	items?: MediaItem[]
 ): Promise<Reply> {
-	const capture = await videoCapture(tab, src, hints);
+	const capture = await videoCapture(tab, src, hints, items);
 	if (!capture) return { ok: false, error: NO_MEDIA };
 	return send({ type: 'media', ...capture, choice });
 }

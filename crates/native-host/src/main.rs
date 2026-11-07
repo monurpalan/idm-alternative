@@ -95,12 +95,31 @@ async fn forward(app: &mut Client, frame: &[u8]) -> Result<Vec<u8>> {
 /// Whether this message starts the app when it is not running. The extension says hello
 /// whenever the browser starts; that alone must not bring back an app the user quit.
 fn starts_app(request: &Request) -> bool {
-    !matches!(request, Request::Extension(_))
+    match request {
+        Request::Extension(_) => false,
+        // Asked ahead of a click, by a pointer resting on a video.
+        Request::MediaQualities(m) => !m.ahead,
+        _ => true,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn qualities_asked_ahead_leave_a_quit_app_alone() {
+        let ahead: Request = serde_json::from_str(
+            r#"{"type":"media_qualities","items":[{"url":"https://x/watch","kind":"page"}],"ahead":true}"#,
+        )
+        .expect("ahead");
+        assert!(!starts_app(&ahead));
+        let clicked: Request = serde_json::from_str(
+            r#"{"type":"media_qualities","items":[{"url":"https://x/watch","kind":"page"}]}"#,
+        )
+        .expect("clicked");
+        assert!(starts_app(&clicked));
+    }
 
     #[test]
     fn only_a_hello_leaves_a_quit_app_alone() {

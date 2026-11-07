@@ -180,7 +180,7 @@ pub(crate) async fn install_tool(app: State<'_, App>, tool: tools::Tool) -> CmdR
 }
 
 /// One quality the button over a video lists on the page.
-#[derive(Serialize, Debug, PartialEq)]
+#[derive(Serialize, Debug, PartialEq, Clone)]
 pub(crate) struct Quality {
     /// What the dialog picks: a height or `audio` for a page, a variant's id for a stream.
     pub(crate) id: String,
@@ -197,8 +197,11 @@ pub(crate) async fn media_qualities(
     let Some(item) = media.items.first() else {
         return Ok(Vec::new());
     };
-    let headers = media.request_headers();
     let app = handle.state::<App>();
+    if let Some((_, qualities)) = lock(&app.media_info).get(&item.url) {
+        return Ok(qualities);
+    }
+    let headers = media.request_headers();
     let (qualities, info) = match item.kind.as_str() {
         "page" => {
             let info = inspect_page(app.clone(), item.url.clone(), Some(headers), None).await?;
@@ -211,9 +214,41 @@ pub(crate) async fn media_qualities(
         _ => return Ok(Vec::new()),
     };
     if let Ok(info) = info {
-        *lock(&app.media_info) = Some((item.url.clone(), info));
+        lock(&app.media_info).put(&item.url, info, &qualities);
     }
     Ok(qualities)
+}
+
+/// What was read for the latest few videos, for a while: the links in it expire.
+#[derive(Default)]
+pub(crate) struct MediaCache {
+    entries: Vec<(String, std::time::Instant, serde_json::Value, Vec<Quality>)>,
+}
+
+impl MediaCache {
+    const KEEP: usize = 16;
+    const FOR: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+    pub(crate) fn get(&self, url: &str) -> Option<(serde_json::Value, Vec<Quality>)> {
+        self.entries
+            .iter()
+            .find(|(u, at, ..)| u == url && at.elapsed() < Self::FOR)
+            .map(|(_, _, info, q)| (info.clone(), q.clone()))
+    }
+
+    fn put(&mut self, url: &str, info: serde_json::Value, qualities: &[Quality]) {
+        self.entries
+            .retain(|(u, at, ..)| u != url && at.elapsed() < Self::FOR);
+        self.entries.push((
+            url.to_owned(),
+            std::time::Instant::now(),
+            info,
+            qualities.to_vec(),
+        ));
+        if self.entries.len() > Self::KEEP {
+            self.entries.remove(0);
+        }
+    }
 }
 
 fn page_qualities(info: &shardload_manager::ytdlp::PageInfo) -> Vec<Quality> {

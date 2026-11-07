@@ -450,12 +450,14 @@ async function main() {
 				return box !== null;
 			}, 'the button');
 			if (box.bottom > box.videoTop) throw new Error(`the button covers the video: ${JSON.stringify(box)}`);
+			// Resting on the video reads its qualities ahead of the click.
+			await waitFor(() => message((m) => m.type === 'media_qualities' && m.ahead === true), 'the qualities read ahead');
 			await click(cdp, page, box);
 			await waitFor(() => message((m) => m.type === 'media_qualities' && m.items?.[0]?.url?.endsWith('/choose.mp4')), 'the question for qualities');
 			await sleep(300);
 			// The menu opens under the button, best first; its first entry is 720p.
 			await click(cdp, page, { x: box.right - 40, y: box.bottom + 2 + 4 + 12 });
-			await waitFor(() => message((m) => m.type === 'media' && m.choice === '720'), 'the video with its quality');
+			await waitFor(() => message((m) => m.type === 'media' && m.choice === '720' && m.items?.[0]?.url?.endsWith('/choose.mp4')), 'the video with its quality');
 		});
 
 		const hashes = await open(cdp, `${base}/hashes.html`);

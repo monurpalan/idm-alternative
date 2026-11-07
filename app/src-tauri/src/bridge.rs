@@ -55,9 +55,8 @@ pub(crate) async fn bridge_reply(
             let info = media.choice.as_ref().and_then(|_| {
                 let url = &media.items.first()?.url;
                 lock(&handle.state::<App>().media_info)
-                    .take()
-                    .filter(|(read, _)| read == url)
-                    .map(|(_, info)| info)
+                    .get(url)
+                    .map(|(info, _)| info)
             });
             to_page(
                 handle,

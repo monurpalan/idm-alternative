@@ -111,7 +111,42 @@ function place(video: HTMLVideoElement) {
 	);
 	host.style.top = `${p.top}px`;
 	host.style.left = `${p.left}px`;
+	if (current !== video) readAheadOf(video);
 	current = video;
+}
+
+interface QualitiesReply {
+	ok: boolean;
+	error?: string;
+	qualities?: Quality[];
+	/** What they were read for, given back with the choice. */
+	items?: unknown[];
+}
+
+/** How long the pointer rests on a video before its qualities are read ahead of a click. */
+const READ_AHEAD_MS = 600;
+let aheadTimer: number | undefined;
+/** Qualities read ahead, for the video (and its source) they were read for. */
+let ahead: { video: HTMLVideoElement; src: string; reply: Promise<QualitiesReply> } | null = null;
+
+function askQualities(video: HTMLVideoElement, readAhead: boolean): Promise<QualitiesReply> {
+	return chrome.runtime
+		.sendMessage({ videoQualities: { src: srcOf(video), hints: hintsFor(video), ahead: readAhead } })
+		.catch((err: unknown) => ({ ok: false, error: String(err) })) as Promise<QualitiesReply>;
+}
+
+/**
+ * Reading the qualities takes yt-dlp a few seconds; a pointer resting on a video starts it,
+ * so the list is (nearly) there when the button is pressed. Only an app already running
+ * answers: resting on a video never starts it.
+ */
+function readAheadOf(video: HTMLVideoElement) {
+	clearTimeout(aheadTimer);
+	aheadTimer = window.setTimeout(() => {
+		const src = srcOf(video);
+		if (current !== video || menuFor || (ahead?.video === video && ahead.src === src)) return;
+		ahead = { video, src, reply: askQualities(video, true) };
+	}, READ_AHEAD_MS);
 }
 
 function scheduleHide() {
@@ -162,13 +197,10 @@ async function openMenu(video: HTMLVideoElement) {
 	note('Reading the qualities…');
 	menu.hidden = false;
 	button.disabled = true;
-	const reply = (await chrome.runtime
-		.sendMessage({ videoQualities: { src: srcOf(video), hints: hintsFor(video) } })
-		.catch((err: unknown) => ({ ok: false, error: String(err) }))) as {
-		ok: boolean;
-		error?: string;
-		qualities?: Quality[];
-	};
+	clearTimeout(aheadTimer);
+	const early = ahead?.video === video && ahead.src === srcOf(video) ? await ahead.reply : null;
+	// Not read ahead, or the app was not running then.
+	const reply = early?.ok ? early : await askQualities(video, false);
 	if (menuFor !== video) return; // closed meanwhile
 	button.disabled = false;
 	if (!reply?.ok) {
@@ -191,7 +223,7 @@ async function openMenu(video: HTMLVideoElement) {
 			item.addEventListener('click', (e) => {
 				e.preventDefault();
 				closeMenu();
-				send(video, q.id);
+				send(video, q.id, reply.items);
 			});
 			return item;
 		})
@@ -209,12 +241,12 @@ function closeMenu() {
 }
 
 /** Hands the video to the app, with the quality picked (`null`: the app asks). */
-async function send(video: HTMLVideoElement, choice: string | null) {
+async function send(video: HTMLVideoElement, choice: string | null, items?: unknown[]) {
 	if (!button) return;
 	button.disabled = true;
 	button.textContent = 'Sending…';
 	const reply = (await chrome.runtime
-		.sendMessage({ videoButton: { src: srcOf(video), hints: hintsFor(video), choice } })
+		.sendMessage({ videoButton: { src: srcOf(video), hints: hintsFor(video), choice, items } })
 		.catch((err: unknown) => ({ ok: false, error: String(err) }))) as { ok: boolean; error?: string };
 	button.textContent = reply?.ok ? 'Sent ✓' : 'Not available';
 	button.title = reply?.ok ? 'Sent to Shardload' : (reply?.error ?? '');

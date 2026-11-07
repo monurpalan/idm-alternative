@@ -270,6 +270,9 @@ pub struct MediaCapture {
     pub user_agent: Option<String>,
     /// The quality picked on the page, an `id` from [`Request::MediaQualities`]'s answer.
     pub choice: Option<String>,
+    /// Qualities asked for ahead, while the pointer rests on the video: answered only by an
+    /// app already running, which this does not start.
+    pub ahead: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
