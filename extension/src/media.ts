@@ -111,11 +111,15 @@ export function chooseMedia(src: string, seen: MediaItem[], page: string | null,
 		return [known ?? { url: src, kind: 'video', size: null, mime: null }];
 	}
 	if (own?.known) return own.url ? [{ url: own.url, kind: 'page', size: null, mime: null }] : [];
+	// The post the video is in, found on any other site: first, for yt-dlp to try; what the
+	// tab fetched follows, for when yt-dlp does not know the site.
+	const post: MediaItem[] = own?.url ? [{ url: own.url, kind: 'page', size: null, mime: null }] : [];
 	const newest = [...seen].reverse();
 	const streams = newest.filter((m) => m.kind === 'hls' || m.kind === 'dash');
-	if (streams.length) return streams;
+	if (streams.length) return [...post, ...streams];
 	const files = newest.filter((m) => m.kind === 'video' || m.kind === 'audio');
-	if (files.length) return files;
+	if (files.length) return [...post, ...files];
+	if (post.length) return post;
 	if (page) {
 		try {
 			const host = new URL(page).hostname.toLowerCase();

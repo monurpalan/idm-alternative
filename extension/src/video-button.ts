@@ -174,19 +174,32 @@ function hintsFor(video: HTMLVideoElement): Hints {
 	const around: string[] = [];
 	const near: string[] = [];
 	const ids: string[] = [];
+	const post: string[] = [];
+	let timed = false;
 	const r = video.getBoundingClientRect();
 	const area = Math.max(1, r.width * r.height);
 	let e: Element | null = video;
 	for (let depth = 0; e && depth < 16; depth++, e = e.parentElement) {
 		if (e.id) ids.push(e.id);
 		if (e instanceof HTMLAnchorElement && e.href) around.push(e.href);
+		// The post the video is in: a `permalink` (Reddit), or, in the closest box that has
+		// one, the links holding a time (how nearly every social site links a post).
+		const permalink = e.getAttribute('permalink');
+		if (permalink) post.push(new URL(permalink, location.href).href);
+		if (!timed) {
+			const links = Array.from(e.querySelectorAll('a[href]')).filter((a) => a.querySelector('time'));
+			if (links.length) {
+				timed = true;
+				for (const a of links.slice(0, 5)) post.push((a as HTMLAnchorElement).href);
+			}
+		}
 		// Links inside boxes not much larger than the video: its card, not the whole feed.
 		const b = e.getBoundingClientRect();
 		if (near.length < 50 && b.width * b.height <= area * 4) {
 			for (const a of Array.from(e.querySelectorAll('a[href]')).slice(0, 20)) near.push((a as HTMLAnchorElement).href);
 		}
 	}
-	return { page: location.href, around, near, ids };
+	return { page: location.href, around, near, ids, post };
 }
 
 /** How long the page's own data (page-data.ts) is waited for; it answers in a moment or not. */

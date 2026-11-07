@@ -187,36 +187,93 @@ pub(crate) struct Quality {
     pub(crate) label: String,
 }
 
-/// The qualities the first item of `media` offers, best first, read the way the dialog
-/// reads them (and kept for it). A page of a video site goes through yt-dlp; an HLS or DASH
-/// playlist is read directly; a plain file or a playlist page offers nothing to choose.
+/// How many streams of a page are read for the one with a picture.
+const STREAMS_TRIED: usize = 5;
+
+/// The qualities `media` offers, best first, read the way the dialog reads them (and kept for
+/// it), with the link of the item they are for. A page of a video site (the first item) goes
+/// through yt-dlp. Otherwise the HLS or DASH playlists are read in order, and the first with
+/// several qualities is used, else the first with a picture: a feed's newest playlist may be
+/// audio alone. A plain file or a playlist page offers nothing to choose.
 pub(crate) async fn media_qualities(
     handle: &AppHandle,
     media: &shardload_bridge::MediaCapture,
-) -> Result<Vec<Quality>, String> {
-    let Some(item) = media.items.first() else {
-        return Ok(Vec::new());
+) -> Result<(String, Vec<Quality>), String> {
+    let Some(first) = media.items.first() else {
+        return Ok((String::new(), Vec::new()));
     };
     let app = handle.state::<App>();
-    if let Some((_, qualities)) = lock(&app.media_info).get(&item.url) {
-        return Ok(qualities);
-    }
     let headers = media.request_headers();
-    let (qualities, info) = match item.kind.as_str() {
-        "page" => {
-            let info = inspect_page(app.clone(), item.url.clone(), Some(headers), None).await?;
-            (page_qualities(&info), serde_json::to_value(&info))
+    if first.kind == "page" {
+        if let Some((_, qualities)) = lock(&app.media_info).get(&first.url) {
+            return Ok((first.url.clone(), qualities));
         }
-        "hls" | "dash" => {
-            let info = inspect_media(app.clone(), item.url.clone(), Some(headers)).await?;
-            (stream_qualities(&info), serde_json::to_value(&info))
+        let info = inspect_page(app.clone(), first.url.clone(), Some(headers), None).await?;
+        let qualities = page_qualities(&info);
+        if let Ok(info) = serde_json::to_value(&info) {
+            lock(&app.media_info).put(&first.url, info, &qualities);
         }
-        _ => return Ok(Vec::new()),
-    };
-    if let Ok(info) = info {
-        lock(&app.media_info).put(&item.url, info, &qualities);
+        return Ok((first.url.clone(), qualities));
     }
-    Ok(qualities)
+    // (url, pictures, qualities) of each stream read, in order.
+    let mut read: Vec<(String, usize, Vec<Quality>)> = Vec::new();
+    let mut error = None;
+    let streams = media
+        .items
+        .iter()
+        .filter(|i| matches!(i.kind.as_str(), "hls" | "dash"))
+        .take(STREAMS_TRIED);
+    for item in streams {
+        let cached = lock(&app.media_info).get(&item.url);
+        let (pictures, qualities) = match cached {
+            Some((info, qualities)) => (pictures_in(&info), qualities),
+            None => match inspect_media(app.clone(), item.url.clone(), Some(headers.clone())).await
+            {
+                Ok(info) => {
+                    let qualities = stream_qualities(&info);
+                    if let Ok(value) = serde_json::to_value(&info) {
+                        lock(&app.media_info).put(&item.url, value, &qualities);
+                    }
+                    (info.video.len(), qualities)
+                }
+                Err(e) => {
+                    error.get_or_insert(e);
+                    continue;
+                }
+            },
+        };
+        read.push((item.url.clone(), pictures, qualities));
+        if pictures >= 2 {
+            break;
+        }
+    }
+    let counts: Vec<usize> = read.iter().map(|(_, n, _)| *n).collect();
+    match choose_stream(&counts) {
+        Some(i) => {
+            let (url, _, qualities) = read.swap_remove(i);
+            Ok((url, qualities))
+        }
+        None => match error {
+            Some(e) if read.is_empty() => Err(e),
+            _ => Ok((first.url.clone(), Vec::new())),
+        },
+    }
+}
+
+/// How many video qualities a kept reading of a stream lists.
+fn pictures_in(info: &serde_json::Value) -> usize {
+    info.get("video")
+        .and_then(|v| v.as_array())
+        .map_or(0, Vec::len)
+}
+
+/// Which of the streams read (by how many video qualities each lists) the button offers: the
+/// first with several, else the first with a picture at all.
+fn choose_stream(pictures: &[usize]) -> Option<usize> {
+    pictures
+        .iter()
+        .position(|n| *n >= 2)
+        .or_else(|| pictures.iter().position(|n| *n >= 1))
 }
 
 /// What was read for the latest few videos, for a while: the links in it expire.
@@ -308,6 +365,21 @@ fn stream_qualities(info: &shardload_media::Streams) -> Vec<Quality> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_stream_with_several_qualities_is_offered_before_audio_alone() {
+        assert_eq!(choose_stream(&[]), None);
+        assert_eq!(choose_stream(&[0, 0]), None);
+        // An audio playlist lists no video; a media playlist lists one.
+        assert_eq!(choose_stream(&[0, 1]), Some(1));
+        assert_eq!(choose_stream(&[1, 0, 3]), Some(2));
+        assert_eq!(choose_stream(&[0, 4, 2]), Some(1));
+        assert_eq!(
+            pictures_in(&serde_json::json!({ "video": [{}, {}], "audio": [] })),
+            2
+        );
+        assert_eq!(pictures_in(&serde_json::json!({})), 0);
+    }
 
     #[test]
     fn a_video_page_lists_its_heights_and_audio() {

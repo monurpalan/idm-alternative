@@ -16,9 +16,19 @@ export interface Hints {
 	near: string[];
 	/** Ids of the elements the video is inside. */
 	ids: string[];
+	/**
+	 * Links naming the post the video is in: those holding its time (`<a><time>`, as nearly
+	 * every social site shows a post's time as the link to it), and `permalink` attributes
+	 * (Reddit), closest first.
+	 */
+	post?: string[];
 }
 
-/** `known`: a site handled here; `url`: its video's address, `null` when none was found. */
+/**
+ * `known`: a site handled here, whose answer is final; `url`: its video's address, `null` when
+ * none was found. On other sites `url` is the post's address when one was found (see
+ * [`postAddress`]), worth trying with yt-dlp before the media the tab fetched.
+ */
 export interface Address {
 	known: boolean;
 	url: string | null;
@@ -100,5 +110,43 @@ export function videoAddress(h: Hints): Address {
 	if (site(host, 'instagram.com')) {
 		return { known: true, url: first(h.around, instagramVideo) ?? first(h.near, instagramVideo) ?? instagramVideo(h.page) };
 	}
-	return { known: false, url: null };
+	return { known: false, url: postAddress(h) };
+}
+
+/** The last two labels of a host (`x.com`, `reddit.com`), enough to tell the same site. */
+function base(host: string): string {
+	return host.toLowerCase().split('.').slice(-2).join('.');
+}
+
+/** Path segments that look like an item's id: a long number, or letters and digits mixed. */
+function idLike(segment: string): boolean {
+	return /^\d{5,}$/.test(segment) || (/^[\w-]{6,}$/.test(segment) && /\d/.test(segment) && /[a-z]/i.test(segment));
+}
+
+/**
+ * On any other site, the address of the post the video is in: a link it sits inside, or the
+ * post's own link (its time, or a `permalink`), on the same site and naming one item (an id in
+ * its path). `/status/<id>` and the like are cut there, so `/status/1/video/1` is the post.
+ */
+export function postAddress(h: Hints): string | null {
+	const page = parse(h.page);
+	if (!page) return null;
+	const read = (url: string): string | null => {
+		const u = parse(url);
+		if (!u || (u.protocol !== 'https:' && u.protocol !== 'http:')) return null;
+		if (base(u.hostname) !== base(page.hostname)) return null;
+		const parts = u.pathname.split('/').filter(Boolean);
+		// The id after a first segment (a user, a section), or a lone number (`/123456`): a
+		// user name with digits (`/user123/likes`) is not a post.
+		const lone = parts.length === 1 && /^\d{5,}$/.test(parts[0]);
+		if (!lone && !parts.slice(1).some(idLike)) return null;
+		const status = parts.findIndex((p, i) => /^(status|statuses|post|posts|comments|videos?|reel|p)$/i.test(p) && idLike(parts[i + 1] ?? ''));
+		const keep = status >= 0 ? parts.slice(0, status + 2) : parts;
+		return `${u.origin}/${keep.join('/')}`;
+	};
+	for (const url of [...h.around, ...(h.post ?? [])]) {
+		const found = read(url);
+		if (found) return found;
+	}
+	return null;
 }

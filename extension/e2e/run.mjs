@@ -207,6 +207,14 @@ function serve() {
 			res.writeHead(200, { 'content-type': 'text/html' });
 			res.end(`<!doctype html><title>choose</title><body style="margin:0;padding-top:120px">
 <video id="v" src="/choose.mp4" width="640" height="360" muted preload="auto" style="display:block;background:#000"></video>`);
+		} else if (url.pathname === '/feed.html') {
+			// A feed post as social sites build it: the player plays from blob:, the post's
+			// link holds its time.
+			res.writeHead(200, { 'content-type': 'text/html' });
+			res.end(`<!doctype html><title>feed</title><body style="margin:0;padding-top:120px">
+<article><a href="/someone">someone</a> <a href="/someone/status/1234567890"><time datetime="2026-11-01">1 Nov</time></a>
+<video id="v" width="640" height="360" muted style="display:block;background:#000"></video></article>
+<script>v.src = URL.createObjectURL(new Blob([new Uint8Array(4096)], { type: 'video/mp4' }));</script>`);
 		} else if (url.pathname === '/watch' && req.headers.host?.startsWith('www.youtube.com')) {
 			// A watch page as YouTube serves it, with the player's formats in it (see page-data.ts).
 			res.writeHead(200, { 'content-type': 'text/html' });
@@ -504,6 +512,19 @@ async function main() {
 			// The menu opens under the button, best first; its first entry is 720p.
 			await click(cdp, page, { x: box.right - 40, y: box.bottom + 2 + 4 + 12 });
 			await waitFor(() => message((m) => m.type === 'media' && m.choice === '720' && m.items?.[0]?.url?.endsWith('/choose.mp4')), 'the video with its quality');
+		});
+
+		await test('on a feed the button asks first for the post the video is in', async () => {
+			const page = await open(cdp, `${base}/feed.html`);
+			const at = await centre(cdp, page, '#v');
+			const post = `${base}/someone/status/1234567890`;
+			const asked = () => message((m) => m.type === 'media_qualities' && m.page?.endsWith('/feed.html'));
+			await waitFor(async () => {
+				await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y }, page);
+				return asked() !== undefined;
+			}, 'the qualities asked for');
+			const first = asked().items?.[0];
+			if (first?.url !== post || first?.kind !== 'page') throw new Error(JSON.stringify(asked().items));
 		});
 
 		await test("on YouTube the menu lists the player's own heights at once", async () => {

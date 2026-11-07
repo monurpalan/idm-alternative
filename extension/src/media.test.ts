@@ -78,3 +78,24 @@ test('what the button over a video sends', () => {
 	assert.deepEqual(chooseMedia('blob:x', [], 'https://example.com/'), []);
 	assert.deepEqual(chooseMedia('', [], 'https://notyoutube.com/'), []);
 });
+
+test('on other sites the post the video is in comes first, then what the tab fetched', () => {
+	const seen: MediaItem[] = [
+		{ url: 'https://cdn/a.mp4', kind: 'video', size: 9, mime: null },
+		{ url: 'https://cdn/audio.m3u8', kind: 'hls', size: null, mime: null },
+		{ url: 'https://cdn/video.m3u8', kind: 'hls', size: null, mime: null }
+	];
+	const post = 'https://x.com/someone/status/1234567890';
+	const own = { known: false, url: post };
+	const page = { url: post, kind: 'page', size: null, mime: null };
+	assert.deepEqual(
+		chooseMedia('blob:https://x.com/1', seen, 'https://x.com/home', own).map((m) => m.url),
+		[post, 'https://cdn/video.m3u8', 'https://cdn/audio.m3u8']
+	);
+	assert.deepEqual(chooseMedia('blob:x', [seen[0]], null, own), [page, seen[0]]);
+	assert.deepEqual(chooseMedia('blob:x', [], null, own), [page]);
+	// No post found: the streams alone, as before.
+	assert.deepEqual(chooseMedia('blob:x', seen, null, { known: false, url: null }).map((m) => m.url), ['https://cdn/video.m3u8', 'https://cdn/audio.m3u8']);
+	// A plain file source is that file, post or not.
+	assert.deepEqual(chooseMedia('https://cdn/a.mp4', seen, null, own), [seen[0]]);
+});

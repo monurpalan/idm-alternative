@@ -44,8 +44,8 @@ pub(crate) async fn bridge_reply(
         }
         Request::Rescue(r) => rescue(handle, r).await,
         Request::MediaQualities(media) => match media_qualities(handle, &media).await {
-            Ok(qualities) => Reply {
-                data: Some(serde_json::json!({ "qualities": qualities })),
+            Ok((url, qualities)) => Reply {
+                data: Some(serde_json::json!({ "qualities": qualities, "url": url })),
                 ..Reply::ok()
             },
             Err(e) => Reply::error(e),

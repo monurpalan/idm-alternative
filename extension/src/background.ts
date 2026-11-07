@@ -209,11 +209,24 @@ const NO_MEDIA = 'no address found for this video; let it play, or open it';
 async function videoQualities(tab: chrome.tabs.Tab, src: string, hints: Hints | undefined, ahead: boolean) {
 	const capture = await videoCapture(tab, src, hints);
 	if (!capture) return { ok: false, error: NO_MEDIA };
-	const reply = await send({ type: 'media_qualities', ...capture, ahead });
+	let items = capture.items;
+	// The post the video is in, found on a site handled nowhere else (see `chooseMedia`): yt-dlp
+	// tries it alone first; when it cannot, the media the tab fetched.
+	const post = items.length > 1 && items[0].kind === 'page';
+	let reply = await send({ type: 'media_qualities', ...capture, items: post ? items.slice(0, 1) : items, ahead });
+	if (post && reply.ok) items = items.slice(0, 1);
+	else if (post && !(ahead && /not running/i.test(reply.error ?? ''))) {
+		items = items.slice(1);
+		reply = await send({ type: 'media_qualities', ...capture, items, ahead });
+	}
 	// Asked ahead of a click, an app that is not running says no: nothing is known yet.
 	if (ahead && !reply.ok) return { ok: false, error: reply.error };
-	const qualities = reply.ok ? (reply.data as { qualities?: unknown } | undefined)?.qualities : null;
-	return { ok: true, qualities: Array.isArray(qualities) ? qualities : [], items: capture.items };
+	const data = reply.ok ? (reply.data as { qualities?: unknown; url?: unknown } | undefined) : undefined;
+	// The app answers for the stream with a picture among those sent (not an audio track).
+	const chosen = typeof data?.url === 'string' ? items.findIndex((i) => i.url === data.url) : -1;
+	if (chosen > 0) items = [items[chosen], ...items.filter((_, i) => i !== chosen)];
+	const qualities = data?.qualities;
+	return { ok: true, qualities: Array.isArray(qualities) ? qualities : [], items };
 }
 
 /** Sends what the button by a video stands for, with the quality picked on the page. */
