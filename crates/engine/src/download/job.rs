@@ -154,6 +154,7 @@ impl Job<'_> {
             finished: Arc::new(Mutex::new(false)),
             disk_writes: AtomicUsize::new(0),
             slow_disk: self.opts.slow_disk,
+            max_request: self.opts.max_request,
         }))
     }
 

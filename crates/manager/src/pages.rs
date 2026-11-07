@@ -110,18 +110,22 @@ impl Inner {
         }
     }
 
-    /// A page of a site yt-dlp knows: yt-dlp downloads the chosen format; the file's real
-    /// extension is known only at the end. `mark` gives the file the Mark of the Web, with
-    /// the page as its address.
+    /// A page of a site yt-dlp knows: the engine downloads the chosen formats from the
+    /// addresses yt-dlp gives (see [`ytdlp::download_direct`]), or yt-dlp itself when that
+    /// cannot be done (a clip, a recording, a stream in fragments); the file's real
+    /// extension is known only at the end. `opts` are the engine's, with the speed limits;
+    /// their `mark_of_the_web` gives the file the Mark of the Web, with the page as its
+    /// address.
     pub(crate) async fn download_page(
         &self,
         mut task: Task,
         format: &str,
         tools: &ytdlp::Tools,
+        opts: &Options,
         conflict: Conflict,
-        mark: bool,
         cancel: &CancellationToken,
     ) -> Result<Outcome> {
+        let mark = opts.mark_of_the_web;
         let started = std::time::Instant::now();
         let path = match &task.path {
             Some(p) => p.clone(),
@@ -175,15 +179,14 @@ impl Inner {
                 stop.cancel();
             });
         }
-        let result = ytdlp::run(
-            tools,
-            &task.url,
+        let result = fetch_page(
+            &task,
             format,
+            tools,
+            opts,
             clip.as_ref(),
             record.as_ref(),
             &stem,
-            &task.headers,
-            task.connections,
             &tx,
             &stop,
         )
@@ -232,5 +235,58 @@ impl Inner {
             checksum_from: None,
             structure: None,
         })
+    }
+}
+
+/// The page's file, written to `<stem>.<ext>` by the engine from the addresses yt-dlp gives,
+/// or by yt-dlp itself when that cannot be done (a clip, a recording, a stream in
+/// fragments, a link that stops working).
+#[allow(clippy::too_many_arguments, reason = "a download's parts, passed down")]
+async fn fetch_page(
+    task: &Task,
+    format: &str,
+    tools: &ytdlp::Tools,
+    opts: &Options,
+    clip: Option<&crate::clip::Clip>,
+    record: Option<&crate::task::Recording>,
+    stem: &Path,
+    tx: &watch::Sender<Progress>,
+    stop: &CancellationToken,
+) -> std::result::Result<PathBuf, String> {
+    let direct = if clip.is_none() && record.is_none() {
+        ytdlp::download_direct(
+            tools,
+            &task.url,
+            format,
+            stem,
+            &task.headers,
+            opts,
+            tx,
+            stop,
+        )
+        .await
+    } else {
+        ytdlp::Direct::Fallback("a clip or a recording".into())
+    };
+    match direct {
+        ytdlp::Direct::Done(file) => Ok(file),
+        ytdlp::Direct::Cancelled => Err("cancelled".to_owned()),
+        ytdlp::Direct::Fallback(why) => {
+            tracing::info!(id = task.id, "yt-dlp downloads the page itself: {why}");
+            tx.send_replace(Progress::default());
+            ytdlp::run(
+                tools,
+                &task.url,
+                format,
+                clip,
+                record,
+                stem,
+                &task.headers,
+                task.connections,
+                tx,
+                stop,
+            )
+            .await
+        }
     }
 }

@@ -222,9 +222,8 @@ impl Inner {
                 deno,
                 ffmpeg,
             };
-            let mark = opts.mark_of_the_web;
             return self
-                .download_from_page(task, format, tools, no_ffmpeg, conflict, mark, cancel)
+                .download_from_page(task, format, tools, no_ffmpeg, opts, conflict, cancel)
                 .await;
         }
         if torrent::is_torrent(&task.url) {
@@ -288,8 +287,8 @@ impl Inner {
         mut format: String,
         tools: ytdlp::Tools,
         no_ffmpeg: Option<String>,
+        opts: Options,
         conflict: Conflict,
-        mark: bool,
         cancel: &CancellationToken,
     ) -> Result<Outcome> {
         let fallback = no_ffmpeg.clone().filter(|_| ytdlp::merges(&format));
@@ -310,7 +309,7 @@ impl Inner {
             self.note(&mut task, note).await?;
         }
         let result = self
-            .download_page(task, &format, &tools, conflict, mark, cancel)
+            .download_page(task, &format, &tools, &opts, conflict, cancel)
             .await;
         match (result, fallback) {
             // No format with both (YouTube has none any more): nothing was downloaded.

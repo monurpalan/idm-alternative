@@ -38,6 +38,40 @@ async fn tiny_and_empty_files() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn requests_ask_for_no_more_than_the_largest_allowed() {
+    // A server that serves large requests slowly (YouTube): each connection's range comes
+    // in pieces of 1 MiB at most, one after another.
+    let base = start().await;
+    let dir = workdir("max-request");
+    let out = dir.join("f.bin");
+    let size = 12 * MB;
+    let url = format!("{base}/file/f.bin?size={size}&seed=7");
+    let o = Options {
+        max_request: Some(MB),
+        ..opts(4)
+    };
+    get(&request(url, &out), &o).await.expect("download");
+    assert_verified(&out, 7, size);
+    let ranges = ranges_asked(&base).await;
+    assert!(ranges.len() >= 12, "{ranges:?}");
+    for r in &ranges {
+        let (start, end) = r
+            .strip_prefix("bytes=")
+            .and_then(|r| r.split_once('-'))
+            .expect("a range");
+        if end.is_empty() {
+            assert_eq!(
+                start, "0",
+                "only the first request is open: it learns the size"
+            );
+            continue;
+        }
+        let len = end.parse::<u64>().expect("end") - start.parse::<u64>().expect("start") + 1;
+        assert!(len <= MB, "{r}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn per_connection_limit_uses_parallelism() {
     // 8 connections at 2 MiB/s: about 1 s; one connection would need 8 s.
     let done = ok("per-conn", 16 * MB, "&rate=2M", 8).await;

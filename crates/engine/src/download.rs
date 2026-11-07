@@ -141,6 +141,10 @@ pub struct Options {
     /// Without a checksum, check the finished file by its own structure (see
     /// [`crate::structure`]) and download damaged parts again.
     pub check_structure: bool,
+    /// The most bytes one request asks for; the rest of a connection's range comes in more
+    /// requests over the same connection. For a server that serves larger requests slowly:
+    /// YouTube's video servers send a request over 10 MiB at the speed of playback.
+    pub max_request: Option<u64>,
     /// Tests only: every write to the file first waits this long, like a slow disk.
     #[doc(hidden)]
     pub slow_disk: Option<Duration>,
@@ -207,6 +211,7 @@ impl Default for Options {
             learn: Learning::default(),
             pieces: None,
             check_structure: true,
+            max_request: None,
             slow_disk: None,
         }
     }

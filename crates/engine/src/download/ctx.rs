@@ -38,6 +38,8 @@ pub(crate) struct Ctx {
     pub(crate) disk_writes: AtomicUsize,
     /// See [`Options::slow_disk`].
     pub(crate) slow_disk: Option<Duration>,
+    /// See [`Options::max_request`].
+    pub(crate) max_request: Option<u64>,
 }
 
 /// How one source of the file is doing: the download's own URL (0) or a mirror.
@@ -88,11 +90,19 @@ impl Ctx {
     /// for half a second of the limit at most: a throttled connection fills the buffers
     /// between it and the server, and whatever is buffered past the point where its range
     /// shrinks or it closes is thrown away. Small requests bound that loss and let a
-    /// connection close between two of them without any.
+    /// connection close between two of them without any. Requests never ask for more than
+    /// [`Options::max_request`] either.
     pub(crate) fn window_end(&self, pos: u64, end: u64) -> u64 {
-        match self.tightest_limit() {
-            Some(rate) if self.ranges => end.min(pos + (rate / 2).clamp(MIN_WINDOW, MAX_WINDOW)),
-            _ => end,
+        if !self.ranges {
+            return end;
+        }
+        let limited = match self.tightest_limit() {
+            Some(rate) => end.min(pos + (rate / 2).clamp(MIN_WINDOW, MAX_WINDOW)),
+            None => end,
+        };
+        match self.max_request {
+            Some(max) => limited.min(pos.saturating_add(max.max(MIN_WINDOW))),
+            None => limited,
         }
     }
 

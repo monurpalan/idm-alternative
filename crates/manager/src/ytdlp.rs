@@ -1,8 +1,10 @@
 //! yt-dlp, for sites that hide their media behind their own players (YouTube, X, Instagram…):
 //! reading what a page offers, and downloading the chosen format with progress.
 
+mod direct;
 mod run;
 
+pub use direct::*;
 pub use run::*;
 
 use std::path::{Path, PathBuf};

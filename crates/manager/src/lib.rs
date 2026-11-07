@@ -417,14 +417,24 @@ fn delete_files_of(path: &Path) {
         std::fs::remove_file(with(suffix)).ok();
     }
     std::fs::remove_dir_all(with(".shardload-hls")).ok();
-    // yt-dlp's partial files: `<stem>.f137.mp4.part`, `<stem>.mp4.ytdl` and the like.
+    // yt-dlp's partial files: `<stem>.f137.mp4.part`, `<stem>.mp4.ytdl` and the like; the
+    // formats the engine downloads before joining them: `<stem>.f137.mp4` and its partial
+    // files.
     if let (Some(dir), Some(stem)) = (path.parent(), path.file_stem()) {
         let prefix = format!("{}.", stem.to_string_lossy());
         for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
             let partial = name.ends_with(".part") || name.ends_with(".ytdl");
             let subtitles = name.ends_with(".vtt") || name.ends_with(".ttml");
-            if name.starts_with(&prefix) && (partial || subtitles) {
+            let format = name
+                .strip_prefix(&prefix)
+                .and_then(|rest| rest.strip_prefix('f'))
+                .and_then(|rest| rest.split_once('.'))
+                .is_some_and(|(id, _)| {
+                    id.chars().any(|c| c.is_ascii_digit())
+                        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+                });
+            if name.starts_with(&prefix) && (partial || subtitles || format) {
                 std::fs::remove_file(entry.path()).ok();
             }
         }
