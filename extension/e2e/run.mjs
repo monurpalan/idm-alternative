@@ -17,6 +17,7 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -175,7 +176,7 @@ function serve() {
 		});
 		res.write(Buffer.alloc(256 << 10, 3), () => setTimeout(() => res.destroy(), 100));
 	};
-	const server = createServer((req, res) => {
+	const handle = (req, res) => {
 		const url = new URL(req.url, 'http://x');
 		if (url.pathname === '/') {
 			res.writeHead(200, { 'content-type': 'text/html', 'set-cookie': 'sid=e2e; Path=/' });
@@ -206,6 +207,13 @@ function serve() {
 			res.writeHead(200, { 'content-type': 'text/html' });
 			res.end(`<!doctype html><title>choose</title><body style="margin:0;padding-top:120px">
 <video id="v" src="/choose.mp4" width="640" height="360" muted preload="auto" style="display:block;background:#000"></video>`);
+		} else if (url.pathname === '/watch' && req.headers.host?.startsWith('www.youtube.com')) {
+			// A watch page as YouTube serves it, with the player's formats in it (see page-data.ts).
+			res.writeHead(200, { 'content-type': 'text/html' });
+			res.end(`<!doctype html><title>watch</title><body style="margin:0;padding-top:120px">
+<script>var ytInitialPlayerResponse = ${JSON.stringify(YT_PLAYER)};</script>
+<video id="v" width="640" height="360" muted style="display:block;background:#000"></video>
+<script>v.src = URL.createObjectURL(new Blob([new Uint8Array(4096)], { type: 'video/mp4' }));</script>`);
 		} else if (url.pathname === '/clip.mp4' || url.pathname === '/choose.mp4') {
 			res.writeHead(200, { 'content-type': 'video/mp4', 'content-length': 4096 });
 			res.end(Buffer.alloc(4096));
@@ -213,9 +221,44 @@ function serve() {
 			res.writeHead(404);
 			res.end();
 		}
-	});
+	};
+	const server = createServer(handle);
+	server.handle = handle;
 	return new Promise((r) => server.listen(0, '127.0.0.1', () => r(server)));
 }
+
+/**
+ * The same pages over https, for YouTube's address: the browser asks for it only over https
+ * (HSTS). With a certificate made for the run by openssl; `null` without openssl.
+ */
+function serveTls(work, handle) {
+	const key = join(work, 'tls.key');
+	const cert = join(work, 'tls.crt');
+	try {
+		execFileSync(
+			'openssl',
+			['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=www.youtube.com', '-keyout', key, '-out', cert],
+			{ stdio: 'ignore' }
+		);
+	} catch {
+		return Promise.resolve(null);
+	}
+	const server = createHttpsServer({ key: readFileSync(key), cert: readFileSync(cert) }, handle);
+	return new Promise((r) => server.listen(0, '127.0.0.1', () => r(server)));
+}
+
+/** A YouTube player response, cut down: 1080p and 720p, and audio. */
+const YT_PLAYER = {
+	playabilityStatus: { status: 'OK' },
+	videoDetails: { videoId: 'dQw4w9WgXcQ' },
+	streamingData: {
+		adaptiveFormats: [
+			{ itag: 399, mimeType: 'video/mp4; codecs="av01.0.08M.08"', height: 1080, fps: 25, contentLength: '30415996' },
+			{ itag: 136, mimeType: 'video/mp4; codecs="avc1.4D401F"', height: 720, fps: 25, contentLength: '26455880' },
+			{ itag: 251, mimeType: 'audio/webm; codecs="opus"', contentLength: '3433755' }
+		]
+	}
+};
 
 // ---- The DevTools Protocol ----------------------------------------------------------------
 
@@ -319,6 +362,7 @@ async function main() {
 	const EXTENSION = testCopy(work);
 	const unregister = registerHost(work, profile);
 	const server = await serve();
+	const tls = await serveTls(work, server.handle);
 	const base = `http://127.0.0.1:${server.address().port}`;
 	const args = [
 		`--user-data-dir=${profile}`,
@@ -328,6 +372,8 @@ async function main() {
 		'--no-first-run',
 		'--no-default-browser-check',
 		'--disable-search-engine-choice-screen',
+		// YouTube's address, served here.
+		...(tls ? [`--host-resolver-rules=MAP www.youtube.com 127.0.0.1:${tls.address().port}`, '--ignore-certificate-errors'] : []),
 		...(process.env.SHARDLOAD_E2E_HEADED ? [] : ['--headless=new']),
 		...(WINDOWS ? [] : ['--no-sandbox']),
 		'about:blank'
@@ -460,6 +506,38 @@ async function main() {
 			await waitFor(() => message((m) => m.type === 'media' && m.choice === '720' && m.items?.[0]?.url?.endsWith('/choose.mp4')), 'the video with its quality');
 		});
 
+		await test("on YouTube the menu lists the player's own heights at once", async () => {
+			if (!tls) {
+				console.log('      (no openssl: YouTube is not served here)');
+				return;
+			}
+			const page = await open(cdp, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+			const at = await centre(cdp, page, '#v');
+			let box = null;
+			await waitFor(async () => {
+				await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y }, page);
+				box = await evaluate(
+					cdp,
+					page,
+					`(() => { const h = document.querySelector('shardload-video-button');
+					  if (!h || getComputedStyle(h).display === 'none') return null;
+					  const r = h.getBoundingClientRect();
+					  return { x: r.x + r.width / 2, y: r.y + r.height / 2, right: r.right, bottom: r.bottom }; })()`
+				);
+				return box !== null;
+			}, 'the button');
+			// Pressed at once, before any read ahead.
+			await click(cdp, page, box);
+			await sleep(300);
+			// 1080p comes first from the page; the stand-in app would have listed 720p first.
+			await click(cdp, page, { x: box.right - 40, y: box.bottom + 2 + 4 + 12 });
+			await waitFor(() => message((m) => m.type === 'media' && m.choice === '1080'), 'the video with its height');
+			const m = message((m) => m.type === 'media' && m.choice === '1080');
+			if (m.items?.[0]?.url !== 'https://www.youtube.com/watch?v=dQw4w9WgXcQ') throw new Error(JSON.stringify(m.items));
+			const asked = message((m) => m.type === 'media_qualities' && !m.ahead && m.items?.[0]?.url?.includes('dQw4w9WgXcQ'));
+			if (asked) throw new Error('the app was asked for the qualities');
+		});
+
 		const hashes = await open(cdp, `${base}/hashes.html`);
 		for (const [id, want] of [
 			['side', `sha256:${h(1)}`],
@@ -522,6 +600,7 @@ async function main() {
 		cdp?.close();
 		browser.kill();
 		server.close();
+		tls?.close();
 		unregister();
 		await sleep(500);
 		rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

@@ -1,21 +1,19 @@
 // A "Download" button by videos, like IDM's: it appears just outside the top right corner of
 // the video the pointer is over (see place.ts), so it never covers the picture. Clicking it
-// lists the qualities the video offers right there on the page; the one picked goes to the
-// app, which opens on it to confirm the name and folder. A plain file, with nothing to pick,
-// goes at once. Drawn in a closed shadow root so the page's styles cannot reach it.
+// lists the qualities the video offers right there on the page (at once on YouTube and TikTok,
+// from what the site gave its player: page-data.ts; else as the app reads them with yt-dlp);
+// the one picked goes to the app, which opens on it to confirm the name and folder. A plain
+// file, with nothing to pick, goes at once. Drawn in a closed shadow root so the page's styles
+// cannot reach it.
 
-import type { Hints } from './address.ts';
+import { videoAddress, type Hints } from './address.ts';
+import { asNoted, qualitiesOf, videoKey, type Formats, type Quality } from './formats.ts';
 import { placeButton } from './place.ts';
 
 /** Videos smaller than this are previews, avatars or ads. */
 const MIN_WIDTH = 200;
 const MIN_HEIGHT = 120;
 const LABEL = '⬇ Download';
-
-interface Quality {
-	id: string;
-	label: string;
-}
 
 let host: HTMLElement | null = null;
 let button: HTMLButtonElement | null = null;
@@ -33,7 +31,8 @@ function build() {
 		<style>
 			/* The app's colors (see ui.css); the page's styles cannot reach a shadow root, so
 			   they are spelled out here. */
-			:host { font: 600 12px system-ui, 'Segoe UI', sans-serif; }
+			/* On the button and the menu, not :host: the host's inline \`all: initial\` wins over it. */
+			.main, .menu { font: 600 12px system-ui, 'Segoe UI', sans-serif; }
 			button {
 				font: inherit;
 				border: 0;
@@ -190,6 +189,32 @@ function hintsFor(video: HTMLVideoElement): Hints {
 	return { page: location.href, around, near, ids };
 }
 
+/** How long the page's own data (page-data.ts) is waited for; it answers in a moment or not. */
+const PAGE_WAIT_MS = 150;
+
+/**
+ * The formats the site gave its player for this video, noted in the page's world (page-data.ts,
+ * on YouTube and TikTok), or `null` when there are none: the app reads them then.
+ */
+function pageFormats(video: HTMLVideoElement): Promise<Formats | null> {
+	const key = videoKey(videoAddress(hintsFor(video)).url);
+	if (!key) return Promise.resolve(null);
+	return new Promise((resolve) => {
+		const done = (f: Formats | null) => {
+			removeEventListener('message', heard);
+			clearTimeout(timer);
+			resolve(f && f.heights.length ? f : null);
+		};
+		const heard = (e: MessageEvent) => {
+			if (e.source !== window || e.data?.type !== 'shardload:formats' || e.data.key !== key) return;
+			done(asNoted({ key, formats: e.data.formats })?.formats ?? null);
+		};
+		const timer = window.setTimeout(() => done(null), PAGE_WAIT_MS);
+		addEventListener('message', heard);
+		window.postMessage({ type: 'shardload:formats?', key }, location.origin);
+	});
+}
+
 async function openMenu(video: HTMLVideoElement) {
 	if (!menu || !button) return;
 	menuFor = video;
@@ -198,6 +223,14 @@ async function openMenu(video: HTMLVideoElement) {
 	menu.hidden = false;
 	button.disabled = true;
 	clearTimeout(aheadTimer);
+	// At once, from what the site gave the page.
+	const fromPage = await pageFormats(video);
+	if (menuFor !== video) return;
+	if (fromPage) {
+		button.disabled = false;
+		list(video, qualitiesOf(fromPage));
+		return;
+	}
 	const early = ahead?.video === video && ahead.src === srcOf(video) ? await ahead.reply : null;
 	// Not read ahead, or the app was not running then.
 	const reply = early?.ok ? early : await askQualities(video, false);
@@ -214,6 +247,12 @@ async function openMenu(video: HTMLVideoElement) {
 		send(video, null);
 		return;
 	}
+	list(video, qualities, reply.items);
+}
+
+/** Lists the qualities; the one picked goes with the items they were read for, if any. */
+function list(video: HTMLVideoElement, qualities: Quality[], items?: unknown[]) {
+	if (!menu) return;
 	menu.replaceChildren(
 		...qualities.map((q) => {
 			const item = document.createElement('button');
@@ -223,7 +262,7 @@ async function openMenu(video: HTMLVideoElement) {
 			item.addEventListener('click', (e) => {
 				e.preventDefault();
 				closeMenu();
-				send(video, q.id, reply.items);
+				send(video, q.id, items);
 			});
 			return item;
 		})
