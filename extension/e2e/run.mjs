@@ -217,11 +217,18 @@ function serve() {
 			res.writeHead(200, { 'content-type': 'text/html' });
 			res.end(`<!doctype html><title>player</title><body style="margin:0">
 <video id="v" width="640" height="360" muted style="display:block;background:#000"></video>
-<script>const x = new XMLHttpRequest(); x.open('GET', '/cdn/7/master.png'); x.send();
+<script>const x = new XMLHttpRequest(); x.open('GET', '/cdn/7/master.png');
+x.onload = () => fetch('/cdn/7/360.png').then((r) => r.text());
+x.send();
 fetch('/cdn/7/thumb.png').then((r) => r.text());</script>`);
 		} else if (url.pathname === '/cdn/7/master.png') {
-			res.writeHead(200, { 'content-type': 'text/plain' });
+			// Served as audio, as playlists often are.
+			res.writeHead(200, { 'content-type': 'audio/mpegurl' });
 			res.end('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\n360.png\n');
+		} else if (url.pathname === '/cdn/7/360.png') {
+			// The one quality's list the player fetches after the master.
+			res.writeHead(200, { 'content-type': 'text/plain' });
+			res.end('#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\n0.png\n#EXT-X-ENDLIST\n');
 		} else if (url.pathname === '/cdn/7/thumb.png') {
 			res.writeHead(200, { 'content-type': 'image/png' });
 			res.end(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
@@ -383,6 +390,64 @@ async function waitFor(check, what, ms = 10_000) {
 	throw new Error(`timed out waiting for ${what}`);
 }
 
+// ---- Probing real sites -------------------------------------------------------------------
+
+/**
+ * `SHARDLOAD_E2E_PROBE="url1 url2"`: for a site where the button finds the wrong thing or
+ * nothing. Opens each page, clicks the largest video or frame to start it, rests the pointer on
+ * it, and prints what the extension would hand the app: the items asked about, and for each
+ * playlist whether it is a master (and how many qualities) or a single quality's list.
+ */
+async function probe(cdp, urls, messages) {
+	for (const url of urls) {
+		console.log(`\n== ${url}`);
+		const page = await open(cdp, url).catch((e) => console.log(`   could not open: ${e.message}`));
+		if (!page) continue;
+		await sleep(8000);
+		const box = await evaluate(
+			cdp,
+			page,
+			`(() => { const all = [...document.querySelectorAll('video, iframe')].map((e) => [e, e.getBoundingClientRect()])
+			   .filter(([, r]) => r.width > 200 && r.height > 120).sort((a, b) => b[1].width * b[1].height - a[1].width * a[1].height);
+			  if (!all.length) return null; const [e, r] = all[0]; e.scrollIntoView({ block: 'center' }); const q = e.getBoundingClientRect();
+			  return { tag: e.tagName, src: (e.currentSrc || e.src || '').slice(0, 120), x: q.x + q.width / 2, y: q.y + q.height / 2 }; })()`
+		);
+		if (!box) {
+			console.log('   no video or frame on the page');
+			continue;
+		}
+		console.log(`   largest: <${box.tag.toLowerCase()}> ${box.src}`);
+		// Counted before the click: resting on the video already asks (read ahead).
+		const before = messages().length;
+		await click(cdp, page, box);
+		await sleep(8000);
+		for (let i = 0; i < 30 && messages().length === before; i++) {
+			await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: box.x + (i % 2), y: box.y }, page);
+			await sleep(300);
+		}
+		const asked = messages().slice(before).findLast((m) => m.type === 'media_qualities');
+		if (!asked) {
+			console.log('   the button asked nothing (no button, or no media found)');
+			continue;
+		}
+		console.log(`   page in the request: ${asked.page}`);
+		const seen = messages().filter((m) => m.type === 'media_qualities').length;
+		console.log(`   sniffer in the page: ${await evaluate(cdp, page, 'String(XMLHttpRequest.prototype.send).includes("addEventListener")')}, fetch: ${await evaluate(cdp, page, 'String(window.fetch).includes("clone")')}, asked ${seen} times`);
+		for (const item of asked.items ?? []) {
+			let what = '';
+			if (item.kind === 'hls') {
+				const text = await fetch(item.url, { headers: { referer: asked.page ?? '' } })
+					.then((r) => r.text())
+					.catch(() => '');
+				const variants = (text.match(/#EXT-X-STREAM-INF/g) ?? []).length;
+				const heights = [...text.matchAll(/RESOLUTION=\d+x(\d+)/g)].map((m) => m[1]);
+				what = !text.startsWith('#EXTM3U') ? '(could not read)' : variants ? `master: ${variants} qualities ${heights.join('/')}` : 'one quality (media list)';
+			}
+			console.log(`   ${item.kind.padEnd(5)} ${what.padEnd(36)} ${item.url.slice(0, 140)}`);
+		}
+	}
+}
+
 // ---- The tests ----------------------------------------------------------------------------
 
 async function main() {
@@ -442,6 +507,11 @@ async function main() {
 				results.push([name, false]);
 				console.log(`FAIL  ${name}: ${e.message}`);
 			}
+		}
+
+		if (process.env.SHARDLOAD_E2E_PROBE) {
+			await probe(cdp, process.env.SHARDLOAD_E2E_PROBE.split(/\s+/).filter(Boolean), () => sent(log));
+			return;
 		}
 
 		await test('says hello to the app when it starts', async () => {
@@ -564,7 +634,9 @@ async function main() {
 				return asked() !== undefined;
 			}, 'the qualities asked for');
 			const items = asked().items ?? [];
-			if (!items.some((i) => i.url === `${base}/cdn/7/master.png` && i.kind === 'hls')) throw new Error(JSON.stringify(items));
+			// The master first, although the one quality's list came after it.
+			if (items[0]?.url !== `${base}/cdn/7/master.png` || items[0]?.kind !== 'hls') throw new Error(JSON.stringify(items));
+			if (!items.some((i) => i.url === `${base}/cdn/7/360.png`)) throw new Error(JSON.stringify(items));
 			if (items.some((i) => i.url.endsWith('/thumb.png'))) throw new Error('an image was taken for a playlist');
 		});
 

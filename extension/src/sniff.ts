@@ -5,12 +5,12 @@
 // a video then found nothing. Only the first bytes of a copy of each reply are read, after the
 // page has it; the page's own handling is never touched, and nothing here can break it.
 
-import { playlistKind } from './media.ts';
+import { isMaster, playlistKind } from './media.ts';
 
 /** Replies said to be larger than this are not playlists. */
 const MAX_LENGTH = 16 * 1024 * 1024;
-/** Enough of the start to see past an XML declaration and a comment before `<MPD`. */
-const HEAD = 512;
+/** Enough of the start to see what it is, and whether an HLS master's qualities follow. */
+const HEAD = 16 * 1024;
 
 const told = new Set<string>();
 
@@ -19,12 +19,16 @@ function tell(url: string, head: string) {
 	if (!kind || told.has(url) || !/^https?:/i.test(url)) return;
 	told.add(url);
 	// To the extension's script in this frame (content.ts), which hands it to the background.
-	window.postMessage({ type: 'shardload:playlist', url, kind }, location.origin);
+	window.postMessage({ type: 'shardload:playlist', url, kind, master: isMaster(head) }, location.origin);
 }
 
-/** Media and fonts are what they say; anything else may be a playlist in disguise. */
+/**
+ * Media and fonts are what they say; anything else may be a playlist in disguise. Playlists
+ * themselves often come as `audio/mpegurl` or `video/vnd.mpeg.dash.mpd`, so those are read.
+ */
 function maybe(type: string | null, length: string | null): boolean {
-	if (type && /^\s*(video|audio|font|image\/(svg|webp|avif|gif))\b/i.test(type)) return false;
+	const media = type && /^\s*(video|audio|font|image\/(svg|webp|avif|gif))\b/i.test(type);
+	if (media && !/mpegurl|dash|mpd/i.test(type)) return false;
 	return !(length && Number(length) > MAX_LENGTH);
 }
 

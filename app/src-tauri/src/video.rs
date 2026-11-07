@@ -187,8 +187,10 @@ pub(crate) struct Quality {
     pub(crate) label: String,
 }
 
-/// How many streams of a page are read for the one with a picture.
-const STREAMS_TRIED: usize = 5;
+/// How many streams of a page are read for the one listing qualities. A player fetches a list
+/// per quality as it switches, newer than the master that names them all; the extension puts
+/// the masters it recognised first, so the reading mostly stops at the first.
+const STREAMS_TRIED: usize = 12;
 
 /// The qualities `media` offers, best first, read the way the dialog reads them (and kept for
 /// it), with the link of the item they are for. A page of a video site (the first item) goes

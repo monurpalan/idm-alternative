@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { playlistKind, MAX_ITEMS, MIN_FILE_BYTES, chooseMedia, classify, label, remember, totalSize, type MediaItem, type Response } from './media.ts';
+import { isMaster, playlistKind, MAX_ITEMS, MIN_FILE_BYTES, chooseMedia, classify, label, remember, totalSize, type MediaItem, type Response } from './media.ts';
 
 const r = (url: string, contentType: string | null, contentLength: number | null = null, contentRange: string | null = null): Response => ({
 	url,
@@ -108,4 +108,24 @@ test('playlists are known by their text, whatever their name or type', () => {
 	assert.equal(playlistKind('\x89PNG\r\n'), null);
 	assert.equal(playlistKind('{"m3u8":"#EXTM3U"}'), null);
 	assert.equal(playlistKind('<?xml version="1.0"?><rss>'), null);
+});
+
+test('a master playlist goes first, before the one-quality lists a player fetched after it', () => {
+	const master: MediaItem = { url: 'https://cdn/x/master.m3u8', kind: 'hls', size: null, mime: null, master: true };
+	const low: MediaItem = { url: 'https://cdn/x/360.m3u8', kind: 'hls', size: null, mime: null };
+	const high: MediaItem = { url: 'https://cdn/x/1080.m3u8', kind: 'hls', size: null, mime: null };
+	let seen = remember([], master);
+	seen = remember(seen, low);
+	seen = remember(seen, high);
+	assert.deepEqual(chooseMedia('blob:x', seen, null).map((m) => m.url), [master.url, high.url, low.url]);
+	// The master fetched again and seen by its name alone stays a master.
+	seen = remember(seen, { ...master, master: undefined });
+	assert.equal(seen.find((m) => m.url === master.url)?.master, true);
+});
+
+test('masters are told by their text', () => {
+	assert.equal(isMaster('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\na.m3u8'), true);
+	assert.equal(isMaster('#EXTM3U\n#EXTINF:4,\na.ts'), false);
+	assert.equal(isMaster('<MPD type="static">'), true);
+	assert.equal(isMaster('hello'), false);
 });

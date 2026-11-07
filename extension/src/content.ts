@@ -57,7 +57,7 @@ chrome.runtime.onMessage.addListener(
 // go to the background, which lists them with the media seen in this tab.
 addEventListener('message', (e) => {
 	if (e.source !== window || e.data?.type !== 'shardload:playlist') return;
-	const { url, kind } = e.data as { url?: unknown; kind?: unknown };
+	const { url, kind, master } = e.data as { url?: unknown; kind?: unknown; master?: unknown };
 	if (typeof url !== 'string' || typeof kind !== 'string') return;
-	chrome.runtime.sendMessage({ playlist: { url, kind } }).catch(() => {});
+	chrome.runtime.sendMessage({ playlist: { url, kind, master: master === true } }).catch(() => {});
 });

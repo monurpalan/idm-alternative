@@ -13,6 +13,10 @@ export interface MediaItem {
 	/** Bytes, when the server said; playlists are small and their size means nothing. */
 	size: number | null;
 	mime: string | null;
+	/** A playlist that lists the qualities (an HLS master, or a DASH manifest), as its text
+	 * showed (sniff.ts); the stream to download, before the one quality's lists a player
+	 * fetches as it switches. Unknown for what was seen by name alone. */
+	master?: boolean;
 }
 
 /** Plain files smaller than this are thumbnails, previews or ads, not worth listing. */
@@ -87,7 +91,9 @@ export function classify(r: Response): MediaItem | null {
 export function remember(list: MediaItem[], item: MediaItem): MediaItem[] {
 	const key = (u: string) => u.split('#')[0];
 	const rest = list.filter((m) => key(m.url) !== key(item.url));
-	const next = [...rest, item];
+	// Seen again by name alone, a master stays one.
+	const known = list.some((m) => key(m.url) === key(item.url) && m.master);
+	const next = [...rest, known && !item.master ? { ...item, master: true } : item];
 	return next.length > MAX_ITEMS ? next.slice(next.length - MAX_ITEMS) : next;
 }
 
@@ -115,7 +121,10 @@ export function chooseMedia(src: string, seen: MediaItem[], page: string | null,
 	// tab fetched follows, for when yt-dlp does not know the site.
 	const post: MediaItem[] = own?.url ? [{ url: own.url, kind: 'page', size: null, mime: null }] : [];
 	const newest = [...seen].reverse();
-	const streams = newest.filter((m) => m.kind === 'hls' || m.kind === 'dash');
+	// Masters first: a player fetches each quality's list as it switches, newer than the master
+	// that names them all, and the newest is often the low quality it started on.
+	const stream = (m: MediaItem) => m.kind === 'hls' || m.kind === 'dash';
+	const streams = [...newest.filter((m) => stream(m) && m.master), ...newest.filter((m) => stream(m) && !m.master)];
 	if (streams.length) return [...post, ...streams];
 	const files = newest.filter((m) => m.kind === 'video' || m.kind === 'audio');
 	if (files.length) return [...post, ...files];
@@ -157,4 +166,10 @@ export function playlistKind(head: string): 'hls' | 'dash' | null {
 	if (text.startsWith('#EXTM3U')) return 'hls';
 	if (/^(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<MPD[\s>]/.test(text)) return 'dash';
 	return null;
+}
+
+/** Whether a playlist's text lists qualities: an HLS master, or any DASH manifest. */
+export function isMaster(text: string): boolean {
+	const kind = playlistKind(text);
+	return kind === 'dash' || (kind === 'hls' && text.includes('#EXT-X-STREAM-INF'));
 }
