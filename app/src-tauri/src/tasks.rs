@@ -89,6 +89,16 @@ pub(crate) async fn move_task(app: State<'_, App>, id: TaskId, to: Move) -> CmdR
     app.manager.move_task(id, to).await.map_err(msg)
 }
 
+/// How fast a download went from its first byte on, for the graph in its details: asked
+/// when they show, not sent with the list.
+#[tauri::command]
+pub(crate) async fn speed_history(
+    app: State<'_, App>,
+    id: TaskId,
+) -> CmdResult<Option<shardload_manager::SpeedHistory>> {
+    app.manager.speed_history(id).await.map_err(msg)
+}
+
 #[tauri::command]
 pub(crate) async fn restart_task(app: State<'_, App>, id: TaskId) -> CmdResult<()> {
     app.manager.restart(id).await.map_err(msg)

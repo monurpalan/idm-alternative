@@ -6,9 +6,10 @@
 	import SlowHints from './SlowHints.svelte';
 	import StructureFact from './StructureFact.svelte';
 	import ArchiveFact from './ArchiveFact.svelte';
-	// Details of one download: where it goes, live numbers, a speed graph, the segment map
-	// (the engine's live splitting, one bar per connection's range), its own speed limit and
-	// "refresh link" for links that expired.
+	import { untrack } from 'svelte';
+	// Details of one download: where it goes, live numbers, a graph of its speed from its
+	// first byte to its end, the segment map (the engine's live splitting, one bar per
+	// connection's range), its own speed limit and "refresh link" for links that expired.
 
 	import {
 		refreshInBrowser,
@@ -17,12 +18,15 @@
 		setHeaders,
 		setLogin,
 		setSpeedLimit,
+		pushSpeed,
 		siteMemory,
+		speedHistory,
 		startTasks,
 		type SiteMemory,
+		type SpeedHistory,
 		type Task
 	} from '../api.ts';
-	import { downloads, HISTORY, moveToFolder, row } from '../downloads.svelte.ts';
+	import { downloads, moveToFolder, row } from '../downloads.svelte.ts';
 	import { algorithmName, bytes, date, duration, percent, siteFacts, speed, timeLeft } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
 
@@ -151,12 +155,45 @@
 		return { ctx, w, h };
 	}
 
-	// Speed graph: redrawn with every new sample (reading `live` subscribes to it).
+	/** The download's speed from its first byte on: the manager's, then a second at a time
+	 * from the live numbers while it runs. Only the shown download's is held here. */
+	let speeds = $state.raw<SpeedHistory | null>(null);
+	/** The download `speeds` is of. */
+	let speedsOf = 0;
+	let sampledAt = 0;
+	// Asked again when another download is shown, and when it starts or stops: the manager
+	// has it whole then.
 	$effect(() => {
-		void downloads.live[task.id];
+		const id = task.id;
+		void task.status;
+		void task.started_at;
+		if (id !== speedsOf) {
+			speedsOf = id;
+			speeds = null;
+		}
+		speedHistory(id)
+			.then((h) => {
+				if (id === task.id) speeds = h;
+			})
+			.catch(() => (speeds = null));
+	});
+	$effect(() => {
+		const p = downloads.live[task.id];
+		if (task.status !== 'downloading' || !p || (p.phase !== 'downloading' && p.phase !== 'recording')) return;
+		const now = Date.now();
+		if (now - sampledAt < 1000) return;
+		sampledAt = now;
+		untrack(() => {
+			speeds = pushSpeed(speeds ?? { step: 1, points: [], count: 0, sum: 0 }, p.speed);
+		});
+	});
+
+	// Speed graph: the whole download, oldest at the left; redrawn with every new second.
+	$effect(() => {
 		if (!graph) return;
 		const { ctx, w, h } = prepare(graph);
-		const samples = downloads.history.get(task.id) ?? [];
+		const samples = speeds ? [...speeds.points] : [];
+		if (speeds?.count) samples.push(speeds.sum / speeds.count);
 		const max = Math.max(1, ...samples);
 		paint(ctx, '--fg', 0.09);
 		ctx.lineWidth = 1;
@@ -167,7 +204,7 @@
 			ctx.stroke();
 		}
 		if (samples.length < 2) return;
-		const x = (i: number) => w - ((samples.length - 1 - i) / (HISTORY - 1)) * w;
+		const x = (i: number) => (i / (samples.length - 1)) * w;
 		const y = (v: number) => h - 2 - (v / max) * (h - 6);
 		ctx.beginPath();
 		ctx.moveTo(x(0), h);
@@ -252,6 +289,18 @@
 			</dd>
 			<dt>{t('Added')}</dt>
 			<dd class="num">{date(task.added_at)}</dd>
+			{#if task.started_at !== null}
+				<dt>{t('Started')}</dt>
+				<dd class="num">{date(task.started_at)}</dd>
+			{/if}
+			{#if task.finished_at !== null}
+				<dt>{t('Completed')}</dt>
+				<dd class="num">
+					{date(task.finished_at)}{task.started_at !== null
+						? ` · ${duration((task.finished_at - task.started_at) / 1000)}`
+						: ''}
+				</dd>
+			{/if}
 			<dt>{t('Downloaded')}</dt>
 			<dd class="num">
 				{r.size ? t('{a} of {b}', { a: bytes(r.received), b: bytes(r.size) }) : bytes(r.received)}{r.fraction !==
@@ -404,8 +453,8 @@
 		{/if}
 	</div>
 	<div class="charts">
-		<Text variant="label">{t('Speed, last minute')}</Text>
-		<canvas bind:this={graph} class="graph" aria-label={t('Speed, last minute')}></canvas>
+		<Text variant="label">{t('Speed over the download')}</Text>
+		<canvas bind:this={graph} class="graph" aria-label={t('Speed over the download')}></canvas>
 		<Text variant="label">
 			{t('Segments')} · {t('{a} of {b} connections', { a: r.live?.connections ?? 0, b: task.connections })}
 		</Text>

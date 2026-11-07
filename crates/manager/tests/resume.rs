@@ -91,6 +91,63 @@ async fn pause_keeps_progress_and_start_resumes() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn started_once_and_its_speeds_go_on_after_a_pause() {
+    let base = start_server().await;
+    let w = WorkDir::new("speeds");
+    let m = Manager::open(&w.db(), w.config(3)).await.expect("open");
+    let size = 16 * MB;
+    // 4 connections at 1 MiB/s each: about 4 s in total.
+    let task = m
+        .add(new_task(format!(
+            "{base}/file/s.bin?size={size}&seed=5&rate=1M"
+        )))
+        .await
+        .expect("add");
+    let started = wait_for(&m, task.id, 10, |t| t.started_at.is_some())
+        .await
+        .started_at;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while m
+        .speed_history(task.id)
+        .await
+        .expect("speeds")
+        .is_none_or(|h| h.seconds() < 2)
+    {
+        assert!(tokio::time::Instant::now() < deadline, "no speeds kept");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    m.pause(task.id).await.expect("pause");
+    let paused = m
+        .speed_history(task.id)
+        .await
+        .expect("speeds")
+        .expect("saved when paused");
+    assert!(paused.seconds() >= 2, "{paused:?}");
+    assert!(paused.points.iter().any(|&p| p > 0), "{paused:?}");
+
+    m.start(task.id).await.expect("start");
+    let done = wait_done(&m, task.id).await;
+    assert_eq!(
+        done.started_at, started,
+        "a resume keeps when it first began"
+    );
+    assert!(done.finished_at >= started);
+    let whole = m
+        .speed_history(task.id)
+        .await
+        .expect("speeds")
+        .expect("saved when done");
+    assert!(whole.seconds() > paused.seconds(), "{whole:?}");
+    assert!(whole.points.starts_with(&paused.points), "{whole:?}");
+    m.close().await;
+
+    // Still there after the list is opened again.
+    let m = Manager::open(&w.db(), w.config(3)).await.expect("reopen");
+    assert_eq!(m.speed_history(task.id).await.expect("speeds"), Some(whole));
+    m.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn close_then_open_resumes() {
     let base = start_server().await;
     let w = WorkDir::new("close");

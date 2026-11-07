@@ -384,6 +384,7 @@ impl Inner {
             self.db.clone(),
             prior,
             watch,
+            self.speeds.clone(),
         ));
         let result = self
             .download_maybe_delta(&mut task, &req, &opts, &tx, cancel)
@@ -497,7 +498,8 @@ impl Inner {
     }
 }
 
-/// Forwards a running download's progress as events, and saves it now and then.
+/// Forwards a running download's progress as events, and saves it now and then. Keeps its
+/// speed history (see [`speeds`]) and when it first began downloading.
 pub(crate) async fn report(
     id: TaskId,
     mut rx: watch::Receiver<Progress>,
@@ -505,29 +507,36 @@ pub(crate) async fn report(
     db: Db,
     prior: Option<f64>,
     watch: hints::Watch,
+    speeds: speeds::Live,
 ) {
     let mut tick = tokio::time::interval(PROGRESS_EVERY);
     let mut saved = Instant::now();
     let started = Instant::now();
     let mut eta = eta::Estimator::new(prior);
     let mut hints = hints::Hints::new(watch);
+    let mut speeds = speeds::Recorder::open(id, &db, speeds).await;
     loop {
         tick.tick().await;
-        match rx.has_changed() {
+        let changed = match rx.has_changed() {
             Err(_) => {
-                // The download ended: keep its last count for the list.
+                // The download ended: keep its last count for the list, and its speeds.
                 let p = rx.borrow().clone();
-                if p.received > 0
-                    && let Err(e) = db.set_received(id, p.received, p.size).await
-                {
-                    tracing::warn!(id, "could not save progress: {e}");
+                if p.received > 0 {
+                    save_received(id, &db, &p).await;
                 }
+                speeds.close(&db).await;
                 return;
             }
-            Ok(false) => continue,
-            Ok(true) => {}
+            Ok(changed) => changed,
+        };
+        speeds.tick();
+        if !changed {
+            continue;
         }
         let p = rx.borrow_and_update().clone();
+        if speeds.saw(p.phase, p.speed) {
+            first_start(id, &db, &events).await;
+        }
         let left = match (p.phase, p.size) {
             (Phase::Downloading, Some(size)) => {
                 eta.update(started.elapsed().as_secs_f64(), p.received);
@@ -537,9 +546,7 @@ pub(crate) async fn report(
         };
         if saved.elapsed() >= SAVE_EVERY {
             saved = Instant::now();
-            if let Err(e) = db.set_received(id, p.received, p.size).await {
-                tracing::warn!(id, "could not save progress: {e}");
-            }
+            save_received(id, &db, &p).await;
         }
         let hints = hints.update(&p.health, p.phase == Phase::Downloading, Instant::now());
         let _ = events.send(Event::Progress(TaskProgress {
@@ -556,5 +563,24 @@ pub(crate) async fn report(
             hints,
             segments: p.segments,
         }));
+    }
+}
+
+async fn save_received(id: TaskId, db: &Db, p: &Progress) {
+    if let Err(e) = db.set_received(id, p.received, p.size).await {
+        tracing::warn!(id, "could not save progress: {e}");
+    }
+}
+
+/// The download began downloading: noted, the first time, and the list told.
+async fn first_start(id: TaskId, db: &Db, events: &broadcast::Sender<Event>) {
+    match db.set_started(id, now_ms()).await {
+        Ok(false) => {}
+        Ok(true) => {
+            if let Ok(Some(task)) = db.get(id).await {
+                let _ = events.send(Event::Updated(task));
+            }
+        }
+        Err(e) => tracing::warn!(id, "could not note when it started: {e}"),
     }
 }

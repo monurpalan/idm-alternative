@@ -12,6 +12,7 @@ use sqlx::sqlite::{
 
 use crate::Result;
 use crate::sites::SiteMemory;
+use crate::speeds::SpeedHistory;
 use crate::task::{Category, ErrorKind, Group, HistoryEntry, Status, Stream, Task, TaskId};
 
 #[derive(Clone)]
@@ -267,14 +268,14 @@ impl Db {
     ) -> Result<()> {
         sqlx::query(
             "UPDATE tasks SET status = 'error', error = ?, error_kind = ?, received = 0,
-                              finished_at = NULL WHERE id = ?",
+                              started_at = NULL, finished_at = NULL WHERE id = ?",
         )
         .bind(error)
         .bind(kind.map(ErrorKind::as_str))
         .bind(id)
         .execute(&self.pool)
         .await?;
-        Ok(())
+        self.forget_speeds(id).await
     }
 
     /// A checksum found for a download the user gave none for, and where it was found.
@@ -329,6 +330,49 @@ impl Db {
         Ok(())
     }
 
+    /// The first time the download began downloading, at `at` (Unix ms); a resume keeps the
+    /// first. Whether this was the first.
+    pub(crate) async fn set_started(&self, id: TaskId, at: i64) -> Result<bool> {
+        let done =
+            sqlx::query("UPDATE tasks SET started_at = ? WHERE id = ? AND started_at IS NULL")
+                .bind(at)
+                .bind(id)
+                .execute(&self.pool)
+                .await?;
+        Ok(done.rows_affected() > 0)
+    }
+
+    /// How fast the download went so far (see [`crate::speeds`]).
+    pub(crate) async fn speeds(&self, id: TaskId) -> Result<Option<SpeedHistory>> {
+        let text: Option<String> =
+            sqlx::query_scalar("SELECT history FROM speeds WHERE task_id = ?")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?;
+        // One that does not parse (written by a newer version) starts again.
+        Ok(text.and_then(|t| serde_json::from_str(&t).ok()))
+    }
+
+    pub(crate) async fn set_speeds(&self, id: TaskId, speeds: &SpeedHistory) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO speeds (task_id, history) SELECT id, ? FROM tasks WHERE id = ?
+             ON CONFLICT (task_id) DO UPDATE SET history = excluded.history",
+        )
+        .bind(serde_json::to_string(speeds)?)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn forget_speeds(&self, id: TaskId) -> Result<()> {
+        sqlx::query("DELETE FROM speeds WHERE task_id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub(crate) async fn finish(&self, id: TaskId, size: u64, at: i64) -> Result<()> {
         sqlx::query(
             "UPDATE tasks SET status = 'done', error = NULL, error_kind = NULL, size = ?, received = ?,
@@ -376,7 +420,8 @@ impl Db {
     pub(crate) async fn reset(&self, id: TaskId) -> Result<()> {
         sqlx::query(
             "UPDATE tasks SET status = 'queued', error = NULL, error_kind = NULL, received = 0,
-                              finished_at = NULL, content = NULL, structure = NULL,
+                              started_at = NULL, finished_at = NULL, content = NULL,
+                              structure = NULL,
                               after_log = NULL, skeleton = NULL
              WHERE id = ?",
         )
@@ -388,7 +433,7 @@ impl Db {
             .bind(id)
             .execute(&self.pool)
             .await?;
-        Ok(())
+        self.forget_speeds(id).await
     }
 
     /// Its history entry stays, no longer tied to the list.
@@ -499,6 +544,7 @@ fn task(r: &SqliteRow) -> Result<Task> {
         link_at: r
             .try_get::<Option<i64>, _>("link_at")?
             .unwrap_or(r.try_get("added_at")?),
+        started_at: r.try_get("started_at")?,
         finished_at: r.try_get("finished_at")?,
         queue_pos: r.try_get("queue_pos")?,
         stream: r
@@ -517,4 +563,80 @@ fn task(r: &SqliteRow) -> Result<Task> {
             .map(|s| serde_json::from_str(&s))
             .transpose()?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn one_task(name: &str) -> (Db, TaskId, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("shardload-db-{name}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).expect("dir");
+        let db = Db::open(&dir.join("list.db")).await.expect("open");
+        let id = db
+            .insert(Insert {
+                url: "https://e.x/a.bin",
+                headers: &[],
+                dir: &dir,
+                name: None,
+                status: Status::Queued,
+                category: Category::General,
+                connections: 1,
+                speed_limit: None,
+                checksum: None,
+                added_at: 1,
+                stream: None,
+                mirrors: &[],
+                group: None,
+                pieces: None,
+                page_title: None,
+                page_checksum: None,
+                size: None,
+                after: None,
+                deadline: None,
+            })
+            .await
+            .expect("insert");
+        (db, id, dir)
+    }
+
+    async fn started(db: &Db, id: TaskId) -> Option<i64> {
+        db.get(id).await.expect("get").expect("task").started_at
+    }
+
+    #[tokio::test]
+    async fn started_once_kept_on_resume_and_forgotten_from_scratch() {
+        let (db, id, dir) = one_task("started").await;
+        assert_eq!(started(&db, id).await, None);
+        assert!(db.set_started(id, 10).await.expect("start"));
+        // Resumed later: still when it first began.
+        assert!(!db.set_started(id, 20).await.expect("resume"));
+        assert_eq!(started(&db, id).await, Some(10));
+        let mut speeds = SpeedHistory::default();
+        speeds.push(1000.0);
+        db.set_speeds(id, &speeds).await.expect("save speeds");
+        assert_eq!(db.speeds(id).await.expect("speeds"), Some(speeds.clone()));
+
+        // Downloaded again from scratch: begins anew.
+        db.reset(id).await.expect("reset");
+        assert_eq!(started(&db, id).await, None);
+        assert_eq!(db.speeds(id).await.expect("speeds"), None);
+        assert!(db.set_started(id, 30).await.expect("start again"));
+        db.set_speeds(id, &speeds).await.expect("save speeds");
+
+        // A web page instead of the file: the next start is from scratch too.
+        db.fail_from_start(id, "a web page", None)
+            .await
+            .expect("fail");
+        assert_eq!(started(&db, id).await, None);
+        assert_eq!(db.speeds(id).await.expect("speeds"), None);
+
+        // Removed: its speeds go with it.
+        db.set_speeds(id, &speeds).await.expect("save speeds");
+        db.delete(id).await.expect("delete");
+        assert_eq!(db.speeds(id).await.expect("speeds"), None);
+        db.close().await;
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

@@ -107,6 +107,22 @@ fn msg(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
+fn window_event(window: &tauri::Window, event: &WindowEvent) {
+    // Closing to the tray closes the window for real (see `show_main`); the app keeps
+    // running because `RunEvent::ExitRequested` is turned down in `main`.
+    if let WindowEvent::Destroyed = event
+        && window.label() == "main"
+    {
+        lock(&window.app_handle().state::<App>().page).ready = false;
+    }
+    #[cfg(windows)]
+    if let WindowEvent::Resized(_) = event
+        && let Some(w) = window.app_handle().get_webview_window(window.label())
+    {
+        memory_target(&w, w.is_minimized().unwrap_or(false));
+    }
+}
+
 fn main() {
     log_panics();
     let _log = init_logging();
@@ -129,21 +145,7 @@ fn main() {
             Some(vec![HIDDEN_ARG]),
         ))
         .setup(setup)
-        .on_window_event(|window, event| {
-            // Closing to the tray closes the window for real (see `show_main`); the app keeps
-            // running because `RunEvent::ExitRequested` is turned down below.
-            if let WindowEvent::Destroyed = event
-                && window.label() == "main"
-            {
-                lock(&window.app_handle().state::<App>().page).ready = false;
-            }
-            #[cfg(windows)]
-            if let WindowEvent::Resized(_) = event
-                && let Some(w) = window.app_handle().get_webview_window(window.label())
-            {
-                memory_target(&w, w.is_minimized().unwrap_or(false));
-            }
-        })
+        .on_window_event(window_event)
         .invoke_handler(tauri::generate_handler![
             list_tasks,
             disk_needs,
@@ -156,6 +158,7 @@ fn main() {
             pause_tasks,
             remove_tasks,
             restart_task,
+            speed_history,
             rename_task,
             relocate_task,
             start_all,

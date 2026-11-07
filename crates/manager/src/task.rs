@@ -289,6 +289,9 @@ pub struct Task {
     pub checksum_from: Option<String>,
     /// Unix milliseconds.
     pub added_at: i64,
+    /// When it first began downloading; not changed by a resume, cleared when it is
+    /// downloaded again from scratch.
+    pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
     /// Order in the queue: lower starts first.
     pub queue_pos: i64,
@@ -531,6 +534,7 @@ pub(crate) mod tests {
             checksum: None,
             checksum_from: None,
             added_at: 0,
+            started_at: Some(0),
             finished_at: Some(0),
             queue_pos: 0,
             stream: None,

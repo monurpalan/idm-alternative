@@ -29,6 +29,7 @@ impl Manager {
             later: Mutex::new(HashMap::new()),
             net: Mutex::new(net::NetState::default()),
             deadlines: Mutex::new(deadline::DeadlineState::default()),
+            speeds: speeds::Live::default(),
         });
         inner.load_usage().await?;
         inner.watch_network();
@@ -108,6 +109,15 @@ impl Manager {
 
     pub async fn list(&self) -> Result<Vec<Task>> {
         self.inner.db.list().await
+    }
+
+    /// How fast a download went from its first byte on, for a graph; a running one's up to
+    /// now. `None` for one that never began downloading.
+    pub async fn speed_history(&self, id: TaskId) -> Result<Option<SpeedHistory>> {
+        if let Some(h) = lock(&self.inner.speeds).get(&id) {
+            return Ok(Some(h.clone()));
+        }
+        self.inner.db.speeds(id).await
     }
 
     pub async fn get(&self, id: TaskId) -> Result<Task> {

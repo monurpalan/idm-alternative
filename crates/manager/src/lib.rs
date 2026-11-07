@@ -38,6 +38,7 @@ pub mod rescue;
 mod retry;
 mod secret;
 pub mod sites;
+pub mod speeds;
 mod streams;
 mod task;
 pub mod torrent;
@@ -65,6 +66,7 @@ pub(crate) use previous::on_disk;
 pub use previous::{Matched, Previous};
 pub use secret::{open_setting, seal_setting};
 pub use sites::SiteMemory;
+pub use speeds::SpeedHistory;
 pub use task::{
     ArchiveChoice, Category, ErrorKind, Group, HistoryEntry, NewTask, Recording, Status, Stream,
     Structure, Subtitle, Task, TaskId, TaskProgress, TorrentChoice, Warning,
@@ -310,6 +312,8 @@ struct Inner {
     net: Mutex<net::NetState>,
     /// What the deadline watch keeps (see [`deadline`]).
     deadlines: Mutex<deadline::DeadlineState>,
+    /// The speed histories of the downloads running now (see [`speeds`]).
+    speeds: speeds::Live,
 }
 
 struct Retry {
