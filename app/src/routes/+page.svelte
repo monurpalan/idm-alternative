@@ -165,6 +165,9 @@
 			onCapturedMedia((m) => {
 				const item = m.items[0];
 				if (!item) return;
+				// The latest video replaces a video dialog still open.
+				pageMedia = null;
+				streaming = null;
 				if (item.kind === 'video' || item.kind === 'audio') {
 					adding = { url: item.url, name: null, headers: m.headers };
 				} else if (item.kind === 'page') {
@@ -471,6 +474,8 @@
 {/if}
 
 {#if adding}
+	<!-- Keyed: a download handed over while the dialog is open replaces it. -->
+	{#key adding}
 	<AddDialog
 		url={adding.url}
 		name={adding.name}
@@ -480,6 +485,7 @@
 		onclose={() => (adding = null)}
 		onshow={goTo}
 	/>
+	{/key}
 {/if}
 
 {#if tracing}
@@ -511,11 +517,15 @@
 {/if}
 
 {#if pageMedia}
-	<PageDialog media={pageMedia} onclose={() => (pageMedia = null)} onshow={goTo} />
+	{#key pageMedia}
+		<PageDialog media={pageMedia} onclose={() => (pageMedia = null)} onshow={goTo} />
+	{/key}
 {/if}
 
 {#if streaming}
-	<MediaDialog media={streaming} onclose={() => (streaming = null)} />
+	{#key streaming}
+		<MediaDialog media={streaming} onclose={() => (streaming = null)} />
+	{/key}
 {/if}
 
 {#if grabbing}
