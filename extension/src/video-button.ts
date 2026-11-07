@@ -4,6 +4,7 @@
 // app, which opens on it to confirm the name and folder. A plain file, with nothing to pick,
 // goes at once. Drawn in a closed shadow root so the page's styles cannot reach it.
 
+import type { Hints } from './address.ts';
 import { placeButton } from './place.ts';
 
 /** Videos smaller than this are previews, avatars or ads. */
@@ -134,6 +135,26 @@ function srcOf(video: HTMLVideoElement): string {
 	return video.currentSrc || video.src;
 }
 
+/** Links and ids around the video, closest first, for finding its own address (address.ts). */
+function hintsFor(video: HTMLVideoElement): Hints {
+	const around: string[] = [];
+	const near: string[] = [];
+	const ids: string[] = [];
+	const r = video.getBoundingClientRect();
+	const area = Math.max(1, r.width * r.height);
+	let e: Element | null = video;
+	for (let depth = 0; e && depth < 16; depth++, e = e.parentElement) {
+		if (e.id) ids.push(e.id);
+		if (e instanceof HTMLAnchorElement && e.href) around.push(e.href);
+		// Links inside boxes not much larger than the video: its card, not the whole feed.
+		const b = e.getBoundingClientRect();
+		if (near.length < 50 && b.width * b.height <= area * 4) {
+			for (const a of Array.from(e.querySelectorAll('a[href]')).slice(0, 20)) near.push((a as HTMLAnchorElement).href);
+		}
+	}
+	return { page: location.href, around, near, ids };
+}
+
 async function openMenu(video: HTMLVideoElement) {
 	if (!menu || !button) return;
 	menuFor = video;
@@ -142,7 +163,7 @@ async function openMenu(video: HTMLVideoElement) {
 	menu.hidden = false;
 	button.disabled = true;
 	const reply = (await chrome.runtime
-		.sendMessage({ videoQualities: { src: srcOf(video) } })
+		.sendMessage({ videoQualities: { src: srcOf(video), hints: hintsFor(video) } })
 		.catch((err: unknown) => ({ ok: false, error: String(err) }))) as {
 		ok: boolean;
 		error?: string;
@@ -193,7 +214,7 @@ async function send(video: HTMLVideoElement, choice: string | null) {
 	button.disabled = true;
 	button.textContent = 'Sending…';
 	const reply = (await chrome.runtime
-		.sendMessage({ videoButton: { src: srcOf(video), choice } })
+		.sendMessage({ videoButton: { src: srcOf(video), hints: hintsFor(video), choice } })
 		.catch((err: unknown) => ({ ok: false, error: String(err) }))) as { ok: boolean; error?: string };
 	button.textContent = reply?.ok ? 'Sent ✓' : 'Not available';
 	button.title = reply?.ok ? 'Sent to Shardload' : (reply?.error ?? '');

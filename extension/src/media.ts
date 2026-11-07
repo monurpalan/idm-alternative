@@ -2,6 +2,8 @@
 // audio, or HLS/DASH playlists worth offering, and which are only pieces of them. Pure
 // functions, tested with node:test.
 
+import type { Address } from './address.ts';
+
 /** `page`: a site yt-dlp knows, sent as the page address when nothing else was seen. */
 export type MediaKind = 'hls' | 'dash' | 'video' | 'audio' | 'page';
 
@@ -99,13 +101,16 @@ export const PAGE_SITES = [
 /**
  * What the button over a video sends: the video's own file when it plays one; for a stream
  * (a `blob:` source fed by the page), the playlists seen in the tab, newest first, else the
- * files seen; when nothing was seen on a site yt-dlp knows, the page.
+ * files seen; when nothing was seen on a site yt-dlp knows, the page. On a site whose pages
+ * show many videos (`own.known`, see address.ts), the video's own address or nothing: the
+ * page may be a feed, and what the tab fetched may be other videos loaded ahead.
  */
-export function chooseMedia(src: string, seen: MediaItem[], page: string | null): MediaItem[] {
+export function chooseMedia(src: string, seen: MediaItem[], page: string | null, own?: Address): MediaItem[] {
 	if (/^https?:/i.test(src)) {
 		const known = seen.find((m) => m.url === src);
 		return [known ?? { url: src, kind: 'video', size: null, mime: null }];
 	}
+	if (own?.known) return own.url ? [{ url: own.url, kind: 'page', size: null, mime: null }] : [];
 	const newest = [...seen].reverse();
 	const streams = newest.filter((m) => m.kind === 'hls' || m.kind === 'dash');
 	if (streams.length) return streams;
