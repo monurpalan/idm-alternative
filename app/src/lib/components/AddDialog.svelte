@@ -2,12 +2,10 @@
 	// "Add URL": asks the server first, shows name and size, then adds the download.
 
 	import { onMount } from 'svelte';
-	import { open as pickFolder } from '@tauri-apps/plugin-dialog';
 	import {
 		addBatch,
 		addTask,
 		batchPreview,
-		getSettings,
 		inspectArchive,
 		inspectTorrent,
 		isTorrent,
@@ -28,6 +26,7 @@
 		type TaskId,
 		type TorrentInfo
 	} from '../api.ts';
+	import FolderField from './FolderField.svelte';
 	import PreviousNotice from './PreviousNotice.svelte';
 	import { algorithmName, bytes } from '../format.ts';
 	import { t } from '../i18n.svelte.ts';
@@ -60,7 +59,6 @@
 	let name = $state('');
 	/** Empty: the default folder (per type, when the settings say so). */
 	let dir = $state('');
-	let defaultDir = $state('');
 	let info = $state<Probe | null>(null);
 	/** The address has ranges (`photo[001-100].jpg`): it stands for this many downloads. */
 	let batch = $state<Batch | null>(null);
@@ -164,9 +162,6 @@
 	// Once, on opening; an effect would rerun whenever the fields it reads change.
 	onMount(() => {
 		url = initialUrl;
-		getSettings()
-			.then((s) => (defaultDir = s.per_category ? `${s.dir}\\<type>` : s.dir))
-			.catch(() => {});
 		if (initialUrl) check();
 	});
 
@@ -235,11 +230,6 @@
 		} finally {
 			readingArchive = false;
 		}
-	}
-
-	async function browse() {
-		const picked = await pickFolder({ directory: true, defaultPath: dir || undefined });
-		if (typeof picked === 'string') dir = picked;
 	}
 
 	async function add(start: boolean) {
@@ -490,10 +480,7 @@
 		{/if}
 	{/if}
 
-	<Field label={t('Folder')} layout="row">
-		<Input bind:value={dir} placeholder={defaultDir} />
-		<Button onclick={browse}>{t('Browse…')}</Button>
-	</Field>
+	<FolderField bind:dir />
 
 	{#snippet actions()}
 		<Button onclick={() => dialog?.close()}>{t('Cancel')}</Button>
