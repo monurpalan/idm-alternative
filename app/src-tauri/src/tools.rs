@@ -27,8 +27,7 @@ struct Source {
 
 /// Which file of the release is downloaded, and how the program comes out of it.
 enum Files {
-    /// Fixed addresses in the latest release: the file (the program itself, or a zip with
-    /// the program as `zip_member`) and the checksum file that lists it.
+    /// Fixed addresses in the latest release: the file and the checksum file that lists it.
     Fixed {
         url: &'static str,
         sums: &'static str,
@@ -36,7 +35,7 @@ enum Files {
         /// the app (see [`crate::signature`]).
         sig: Option<&'static str>,
         file: &'static str,
-        zip_member: Option<&'static str>,
+        unpack: Unpack,
     },
     /// BtbN's ffmpeg builds (the ones ffmpeg.org links to): the newest release branch,
     /// `ffmpeg-n<X.Y>-latest-<build>-<X.Y><ext>`, listed in `checksums.sha256`. The programs
@@ -47,22 +46,39 @@ enum Files {
     },
 }
 
+/// How the program comes out of a [`Files::Fixed`] file.
+#[derive(Clone, Copy)]
+enum Unpack {
+    /// The file is the program.
+    #[cfg_attr(windows, allow(dead_code))]
+    No,
+    /// A zip with the program as this member.
+    Member(&'static str),
+    /// A zip of a whole folder (the program and what it loads), unpacked as the folder the
+    /// program is in.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Folder,
+}
+
 const FFMPEG_LATEST: &str = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest";
 
 #[cfg(windows)]
 fn source(tool: Tool) -> Source {
     match tool {
+        // The folder build, not the single `yt-dlp.exe`: that one unpacks itself into a temp
+        // folder on every run, which made each run about 0.8 s slower (`--version` 1.17 s
+        // against 0.38 s on 2026-11-07).
         Tool::Ytdlp => Source {
-            exe: "yt-dlp.exe",
+            exe: "yt-dlp/yt-dlp.exe",
             latest: "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
             files: Files::Fixed {
-                url: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
+                url: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_win.zip",
                 sums: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS",
                 sig: Some(
                     "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS.sig",
                 ),
-                file: "yt-dlp.exe",
-                zip_member: None,
+                file: "yt-dlp_win.zip",
+                unpack: Unpack::Folder,
             },
         },
         Tool::Deno => Source {
@@ -73,7 +89,7 @@ fn source(tool: Tool) -> Source {
                 sums: "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip.sha256sum",
                 file: "deno-x86_64-pc-windows-msvc.zip",
                 sig: None,
-                zip_member: Some("deno.exe"),
+                unpack: Unpack::Member("deno.exe"),
             },
         },
         // The shared build: its DLLs are found next to the programs, and it is less than half
@@ -102,7 +118,7 @@ fn source(tool: Tool) -> Source {
                     "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS.sig",
                 ),
                 file: "yt-dlp_linux",
-                zip_member: None,
+                unpack: Unpack::No,
             },
         },
         Tool::Deno => Source {
@@ -113,7 +129,7 @@ fn source(tool: Tool) -> Source {
                 sums: "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip.sha256sum",
                 file: "deno-x86_64-unknown-linux-gnu.zip",
                 sig: None,
-                zip_member: Some("deno"),
+                unpack: Unpack::Member("deno"),
             },
         },
         // The static build: the shared one's programs do not look for their libraries next
@@ -133,10 +149,25 @@ pub fn dir(data: &Path) -> PathBuf {
     data.join("tools")
 }
 
-/// The tool's executable, if it is set up.
+/// Where earlier versions of the app put the tool, relative to the tools folder: still used
+/// until the next setup or update puts it where [`source`] says and removes this one.
+#[cfg(windows)]
+fn legacy(tool: Tool) -> Option<&'static str> {
+    (tool == Tool::Ytdlp).then_some("yt-dlp.exe")
+}
+
+#[cfg(not(windows))]
+fn legacy(_tool: Tool) -> Option<&'static str> {
+    None
+}
+
+/// The tool's executable, if it is set up (where earlier versions of the app put it, too).
 pub fn installed(data: &Path, tool: Tool) -> Option<PathBuf> {
-    let p = dir(data).join(source(tool).exe);
-    p.is_file().then_some(p)
+    let tools = dir(data);
+    std::iter::once(source(tool).exe)
+        .chain(legacy(tool))
+        .map(|exe| tools.join(exe))
+        .find(|p| p.is_file())
 }
 
 /// The SHA-256 a checksum file gives for `file`: from `<hash>  <file>` lines (yt-dlp,
@@ -318,15 +349,21 @@ pub async fn update(data: &Path, tool: Tool, opts: &Options) -> Result<Option<St
     };
     let have = version(&exe).await;
     let latest = latest(tool, opts).await?;
-    let current = match tool {
-        Tool::Ffmpeg => have.as_deref().and_then(branch) == Some(latest),
-        _ => have.as_deref().and_then(version_number) == Some(latest.as_str()),
-    };
-    if current {
+    if is_current(data, tool, &exe, have.as_deref(), &latest) {
         return Ok(None);
     }
     let exe = install(data, tool, opts, None, &CancellationToken::new()).await?;
     Ok(version(&exe).await)
+}
+
+/// Whether the tool set up at `exe`, at version `have`, is the `latest` release and where
+/// this version of the app puts it: one where an earlier version put it is set up anew.
+fn is_current(data: &Path, tool: Tool, exe: &Path, have: Option<&str>, latest: &str) -> bool {
+    let latest_version = match tool {
+        Tool::Ffmpeg => have.and_then(branch).as_deref() == Some(latest),
+        _ => have.and_then(version_number) == Some(latest),
+    };
+    latest_version && exe == dir(data).join(source(tool).exe)
 }
 
 /// Downloads the latest release of `tool` into the tools folder, verified, and returns the
@@ -392,12 +429,19 @@ pub async fn install(
     }
 
     let exe = tools.join(src.exe);
-    match src.files {
-        Files::Fixed { zip_member, .. } => {
+    let unpack_folder: fn(&Path, &Path) -> Result<usize, String> = match src.files {
+        Files::Fixed {
+            unpack: Unpack::Folder,
+            ..
+        } => unpack_all,
+        Files::Ffmpeg { .. } => unpack_bin,
+        Files::Fixed { unpack, .. } => {
             let fresh = tools.join(format!("{}.new", src.exe));
-            match zip_member {
-                None => std::fs::rename(&download, &fresh).map_err(|e| e.to_string())?,
-                Some(member) => {
+            match unpack {
+                Unpack::No | Unpack::Folder => {
+                    std::fs::rename(&download, &fresh).map_err(|e| e.to_string())?
+                }
+                Unpack::Member(member) => {
                     let unzip = || -> Result<(), String> {
                         let file = std::fs::File::open(&download).map_err(|e| e.to_string())?;
                         let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
@@ -417,43 +461,58 @@ pub async fn install(
                 return Err(format!("the downloaded {name} does not run"));
             }
             std::fs::rename(&fresh, &exe).map_err(|e| e.to_string())?;
+            return Ok(exe);
         }
-        Files::Ffmpeg { .. } => {
-            // A folder of programs (and, on Windows, their DLLs): unpacked next to the old one,
-            // tried, then swapped in.
-            let folder = exe.parent().expect("in a folder").to_owned();
-            let fresh = folder.with_extension("new");
-            let old = folder.with_extension("old");
+    };
+
+    // A folder: the program and what it loads (DLLs, yt-dlp's Python), unpacked next to the
+    // old one, tried, then swapped in.
+    let folder = exe.parent().expect("in a folder").to_owned();
+    let fresh = folder.with_extension("new");
+    std::fs::remove_dir_all(&fresh).ok();
+    std::fs::create_dir_all(&fresh).map_err(|e| e.to_string())?;
+    let (archive, into) = (download.clone(), fresh.clone());
+    let unpacked = tokio::task::spawn_blocking(move || unpack_folder(&archive, &into))
+        .await
+        .map_err(|e| e.to_string())
+        .and_then(|r| r);
+    std::fs::remove_file(&download).ok();
+    let fresh_exe = fresh.join(exe.file_name().expect("a file"));
+    let runs = match unpacked {
+        Ok(_) => version(&fresh_exe).await.is_some(),
+        Err(e) => {
             std::fs::remove_dir_all(&fresh).ok();
-            std::fs::create_dir_all(&fresh).map_err(|e| e.to_string())?;
-            let (archive, into) = (download.clone(), fresh.clone());
-            let unpacked = tokio::task::spawn_blocking(move || unpack_bin(&archive, &into))
-                .await
-                .map_err(|e| e.to_string())
-                .and_then(|r| r);
-            std::fs::remove_file(&download).ok();
-            let fresh_exe = fresh.join(exe.file_name().expect("a file"));
-            let runs = match unpacked {
-                Ok(_) => version(&fresh_exe).await.is_some(),
-                Err(e) => {
-                    std::fs::remove_dir_all(&fresh).ok();
-                    return Err(format!("could not unpack {name}: {e}"));
-                }
-            };
-            if !runs {
-                std::fs::remove_dir_all(&fresh).ok();
-                return Err(format!("the downloaded {name} does not run"));
-            }
-            std::fs::remove_dir_all(&old).ok();
-            if folder.exists() {
-                std::fs::rename(&folder, &old)
-                    .map_err(|e| format!("could not replace the old {name} (in use?): {e}"))?;
-            }
-            std::fs::rename(&fresh, &folder).map_err(|e| e.to_string())?;
-            std::fs::remove_dir_all(&old).ok();
+            return Err(format!("could not unpack {name}: {e}"));
         }
+    };
+    if !runs {
+        std::fs::remove_dir_all(&fresh).ok();
+        return Err(format!("the downloaded {name} does not run"));
+    }
+    swap_in(&fresh, &folder).map_err(|e| format!("could not replace the old {name}: {e}"))?;
+    // The copy where an earlier version of the app put it. Left for the next update when it
+    // is running now.
+    if let Some(old) = legacy(tool) {
+        std::fs::remove_file(tools.join(old)).ok();
     }
     Ok(exe)
+}
+
+/// Puts the folder `fresh` in the place of `folder`, which need not exist: the old one is
+/// moved aside first and removed after, so a failed swap leaves it working.
+fn swap_in(fresh: &Path, folder: &Path) -> Result<(), String> {
+    let old = folder.with_extension("old");
+    std::fs::remove_dir_all(&old).ok();
+    if folder.exists() {
+        std::fs::rename(folder, &old).map_err(|e| format!("{e} (in use?)"))?;
+    }
+    if let Err(e) = std::fs::rename(fresh, folder) {
+        std::fs::rename(&old, folder).ok();
+        std::fs::remove_dir_all(fresh).ok();
+        return Err(e.to_string());
+    }
+    std::fs::remove_dir_all(&old).ok();
+    Ok(())
 }
 
 fn make_runnable(_file: &Path) -> Result<(), String> {
@@ -476,6 +535,35 @@ fn wanted(path: &Path) -> Option<&std::ffi::OsStr> {
         .to_ascii_lowercase()
         .starts_with("ffplay");
     (parent == "bin" && !is_player).then_some(name)
+}
+
+/// Unpacks every file of a zip into `to`, keeping its folders, and returns how many there
+/// were. Members whose names would leave `to` are skipped.
+fn unpack_all(archive: &Path, to: &Path) -> Result<usize, String> {
+    let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+    let mut count = 0;
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
+        if !entry.is_file() {
+            continue;
+        }
+        let Some(path) = entry.enclosed_name() else {
+            continue;
+        };
+        let target = to.join(path);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let mut out = std::fs::File::create(&target).map_err(|e| e.to_string())?;
+        std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
+        make_runnable(&target)?;
+        count += 1;
+    }
+    if count == 0 {
+        return Err("the archive is empty".into());
+    }
+    Ok(count)
 }
 
 /// Copies the programs in the `bin` folder of a `.zip` or `.tar.xz` archive into `to`, and
@@ -549,7 +637,7 @@ mod tests {
     /// Against GitHub: the latest yt-dlp release's checksums carry yt-dlp's signature, and
     /// the setup goes through with it into an empty folder.
     #[tokio::test]
-    #[ignore = "downloads yt-dlp from GitHub (about 18 MB)"]
+    #[ignore = "downloads yt-dlp from GitHub (about 24 MB on Windows)"]
     async fn the_latest_ytdlp_is_set_up_with_its_signature_checked() {
         let data = std::env::temp_dir().join(format!("shardload-ytdlp-{}", std::process::id()));
         std::fs::remove_dir_all(&data).ok();
@@ -580,6 +668,13 @@ mod tests {
         let latest = latest(Tool::Ytdlp, &opts).await.expect("latest");
         let updated = update(&data, Tool::Ytdlp, &opts).await.expect("update");
         assert_eq!(updated.as_deref(), Some(latest.as_str()));
+        assert_eq!(
+            installed(&data, Tool::Ytdlp),
+            Some(dir(&data).join(source(Tool::Ytdlp).exe))
+        );
+        if let Some(old) = legacy(Tool::Ytdlp) {
+            assert!(!dir(&data).join(old).exists(), "the single file is gone");
+        }
         assert_eq!(
             update(&data, Tool::Ytdlp, &opts).await.expect("again"),
             None
@@ -814,5 +909,82 @@ mod tests {
         std::fs::write(&archive, b"junk").expect("fixture");
         assert!(unpack_bin(&archive, &dir.join("out")).is_err());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn unpacks_a_whole_folder() {
+        use std::io::Write;
+        let dir = scratch("all");
+        let archive = dir.join("yt-dlp_win.zip.download");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive).expect("fixture"));
+        let opts = zip::write::SimpleFileOptions::default();
+        zip.add_directory("_internal/", opts).expect("fixture");
+        for (name, data) in [
+            ("yt-dlp.exe", &b"exe"[..]),
+            ("_internal/python314.dll", b"python"),
+            ("_internal/yt_dlp_ejs/core.js", b"js"),
+            ("../outside.txt", b"no"),
+        ] {
+            zip.start_file(name, opts).expect("fixture");
+            zip.write_all(data).expect("fixture");
+        }
+        zip.finish().expect("fixture");
+        let out = dir.join("out");
+        assert_eq!(unpack_all(&archive, &out), Ok(3));
+        assert_eq!(std::fs::read(out.join("yt-dlp.exe")).expect("exe"), b"exe");
+        assert_eq!(
+            std::fs::read(out.join("_internal/yt_dlp_ejs/core.js")).expect("nested"),
+            b"js"
+        );
+        assert!(!dir.join("outside.txt").exists());
+        // Not an archive.
+        std::fs::write(&archive, b"junk").expect("fixture");
+        assert!(unpack_all(&archive, &out).is_err());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn swaps_a_folder_in() {
+        let dir = scratch("swap");
+        let (folder, fresh) = (dir.join("yt-dlp"), dir.join("yt-dlp.new"));
+        // Nothing there yet.
+        std::fs::create_dir_all(&fresh).expect("fixture");
+        std::fs::write(fresh.join("a"), b"1").expect("fixture");
+        swap_in(&fresh, &folder).expect("first");
+        assert_eq!(std::fs::read(folder.join("a")).expect("a"), b"1");
+        // An older one, replaced whole: none of its files stay.
+        std::fs::create_dir_all(&fresh).expect("fixture");
+        std::fs::write(fresh.join("b"), b"2").expect("fixture");
+        swap_in(&fresh, &folder).expect("second");
+        assert_eq!(std::fs::read(folder.join("b")).expect("b"), b"2");
+        assert!(!folder.join("a").exists());
+        assert!(!fresh.exists());
+        assert!(!dir.join("yt-dlp.old").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The single `yt-dlp.exe` earlier versions set up is still used, and the next update
+    /// replaces it with the folder build even when it is the latest version.
+    #[cfg(windows)]
+    #[test]
+    fn moves_the_single_file_ytdlp_on_update() {
+        let data = scratch("legacy");
+        let tools = dir(&data);
+        std::fs::create_dir_all(&tools).expect("fixture");
+        assert_eq!(installed(&data, Tool::Ytdlp), None);
+        let single = tools.join("yt-dlp.exe");
+        std::fs::write(&single, b"exe").expect("fixture");
+        assert_eq!(installed(&data, Tool::Ytdlp), Some(single.clone()));
+        let have = Some("2026.10.26");
+        assert!(!is_current(&data, Tool::Ytdlp, &single, have, "2026.10.26"));
+        let folder = tools.join("yt-dlp/yt-dlp.exe");
+        std::fs::create_dir_all(folder.parent().expect("folder")).expect("fixture");
+        std::fs::write(&folder, b"exe").expect("fixture");
+        let found = installed(&data, Tool::Ytdlp).expect("set up");
+        assert_eq!(found, folder);
+        assert!(is_current(&data, Tool::Ytdlp, &found, have, "2026.10.26"));
+        assert!(!is_current(&data, Tool::Ytdlp, &found, have, "2026.11.01"));
+        assert!(!is_current(&data, Tool::Ytdlp, &found, None, "2026.10.26"));
+        std::fs::remove_dir_all(&data).ok();
     }
 }
