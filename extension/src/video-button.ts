@@ -267,9 +267,10 @@ async function openMenu(video: HTMLVideoElement) {
 	}
 	const qualities = reply.qualities ?? [];
 	if (!qualities.length) {
-		// Nothing to choose (a plain file), or the app reads it itself.
+		// Nothing to choose (a plain file, a single quality): sent with what was read, which the
+		// app then does not read again.
 		closeMenu();
-		send(video, null);
+		send(video, null, reply.items);
 		return;
 	}
 	list(video, qualities, reply.items);

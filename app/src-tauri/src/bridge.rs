@@ -51,11 +51,11 @@ pub(crate) async fn bridge_reply(
             Err(e) => Reply::error(e),
         },
         Request::Media(media) => {
-            // Picked on the page: the dialog opens on what was read for the list.
-            let info = media.choice.as_ref().and_then(|_| {
-                let url = &media.items.first()?.url;
+            // Read already for the list on the page (with a quality picked there or none to
+            // pick): the dialog opens on it instead of reading it again.
+            let info = media.items.first().and_then(|first| {
                 lock(&handle.state::<App>().media_info)
-                    .get(url)
+                    .get(&first.url)
                     .map(|(info, _)| info)
             });
             to_page(

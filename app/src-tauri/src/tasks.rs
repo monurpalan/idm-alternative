@@ -309,9 +309,17 @@ pub(crate) async fn inspect_media(
     url: String,
     headers: Option<Vec<(String, String)>>,
 ) -> CmdResult<shardload_media::Streams> {
+    read_stream(&app, &url, &headers.unwrap_or_default()).await
+}
+
+/// `inspect_media`, for the app's own use.
+pub(crate) async fn read_stream(
+    app: &App,
+    url: &str,
+    headers: &[(String, String)],
+) -> CmdResult<shardload_media::Streams> {
     let opts = app.manager.config().engine;
-    let headers = headers.unwrap_or_default();
-    let (text, final_url) = shardload_engine::fetch_text(&url, &headers, &opts, 8 << 20)
+    let (text, final_url) = shardload_engine::fetch_text(url, headers, &opts, 8 << 20)
         .await
         .map_err(msg)?;
     let mut streams = shardload_media::parse(&final_url, &text).map_err(msg)?;
@@ -321,7 +329,7 @@ pub(crate) async fn inspect_media(
         && !streams.live
         && let Some(variant) = streams.video.first()
         && let Ok((text, variant_url)) =
-            shardload_engine::fetch_text(&variant.id, &headers, &opts, 8 << 20).await
+            shardload_engine::fetch_text(&variant.id, headers, &opts, 8 << 20).await
         && let Ok(media) = shardload_media::parse(&variant_url, &text)
     {
         streams.live = media.live;

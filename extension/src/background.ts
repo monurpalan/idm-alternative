@@ -218,21 +218,17 @@ async function videoQualities(tab: chrome.tabs.Tab, src: string, hints: Hints | 
 	const capture = await videoCapture(tab, src, hints);
 	if (!capture) return { ok: false, error: NO_MEDIA };
 	let items = capture.items;
-	// The post the video is in, found on a site handled nowhere else (see `chooseMedia`): yt-dlp
-	// tries it alone first; when it cannot, the media the tab fetched.
-	const post = items.length > 1 && items[0].kind === 'page';
-	let reply = await send({ type: 'media_qualities', ...capture, items: post ? items.slice(0, 1) : items, ahead });
-	if (post && reply.ok) items = items.slice(0, 1);
-	else if (post && !(ahead && /not running/i.test(reply.error ?? ''))) {
-		items = items.slice(1);
-		reply = await send({ type: 'media_qualities', ...capture, items, ahead });
-	}
+	// With the post the video is in first (see `chooseMedia`), the app reads it and the media
+	// the tab fetched at the same time, and answers for the post when yt-dlp knows its site.
+	const reply = await send({ type: 'media_qualities', ...capture, items, ahead });
 	// Asked ahead of a click, an app that is not running says no: nothing is known yet.
 	if (ahead && !reply.ok) return { ok: false, error: reply.error };
 	const data = reply.ok ? (reply.data as { qualities?: unknown; url?: unknown } | undefined) : undefined;
 	// The app answers for the stream with a picture among those sent (not an audio track).
 	const chosen = typeof data?.url === 'string' ? items.findIndex((i) => i.url === data.url) : -1;
-	if (chosen > 0) items = [items[chosen], ...items.filter((_, i) => i !== chosen)];
+	// The post: alone. A stream: first, and no post before it (yt-dlp did not know the site).
+	if (items[chosen]?.kind === 'page') items = [items[chosen]];
+	else if (chosen >= 0) items = [items[chosen], ...items.filter((m, i) => i !== chosen && m.kind !== 'page')];
 	const qualities = data?.qualities;
 	return { ok: true, qualities: Array.isArray(qualities) ? qualities : [], items };
 }

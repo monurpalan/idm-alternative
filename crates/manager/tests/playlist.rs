@@ -32,6 +32,7 @@ async fn a_youtube_channel_lists_its_newest_videos() {
         &[],
         &scratch(),
         false,
+        false,
     )
     .await
     .expect("inspect");
@@ -53,7 +54,7 @@ async fn a_youtube_channel_lists_its_newest_videos() {
 #[ignore = "network: YouTube"]
 async fn a_youtube_playlist_and_a_video_in_it() {
     let playlist = "https://www.youtube.com/playlist?list=PLB29CbKaE2OY";
-    let info = inspect(&tools(), playlist, &[], &scratch(), false)
+    let info = inspect(&tools(), playlist, &[], &scratch(), false, false)
         .await
         .expect("inspect");
     let list = info.playlist.expect("a playlist");
@@ -63,13 +64,13 @@ async fn a_youtube_playlist_and_a_video_in_it() {
 
     // One of its videos with the list in its address: the video, saying it is in a list.
     let video = format!("{first}&list=PLB29CbKaE2OY");
-    let one = inspect(&tools(), &video, &[], &scratch(), false)
+    let one = inspect(&tools(), &video, &[], &scratch(), false, false)
         .await
         .expect("inspect");
     assert!(one.playlist.is_none());
     assert!(one.in_playlist);
     assert!(!one.heights.is_empty());
-    let whole = inspect(&tools(), &video, &[], &scratch(), true)
+    let whole = inspect(&tools(), &video, &[], &scratch(), true, false)
         .await
         .expect("inspect");
     assert_eq!(
@@ -341,4 +342,22 @@ async fn a_streams_fragments_come_over_several_connections() {
     assert!(started.elapsed().as_secs() < 8, "{:?}", started.elapsed());
     assert_eq!(std::fs::metadata(&file).expect("file").len(), 16 << 20);
     std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+#[ignore = "network: a site yt-dlp has no extractor for"]
+async fn an_unknown_site_is_not_searched_when_only_known_sites_are_asked() {
+    let started = std::time::Instant::now();
+    let err = inspect(
+        &tools(),
+        "https://example.com/videos/12345",
+        &[],
+        &scratch(),
+        false,
+        true,
+    )
+    .await
+    .expect_err("no extractor of its own");
+    assert!(err.to_lowercase().contains("suitable extractor"), "{err}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
 }

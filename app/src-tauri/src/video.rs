@@ -10,6 +10,24 @@ pub(crate) async fn inspect_page(
     headers: Option<Vec<(String, String)>>,
     whole_list: Option<bool>,
 ) -> CmdResult<shardload_manager::ytdlp::PageInfo> {
+    read_page(
+        &app,
+        &url,
+        &headers.unwrap_or_default(),
+        whole_list.unwrap_or(false),
+        false,
+    )
+    .await
+}
+
+/// `inspect_page`, and with `known_only` only through an extractor made for the site.
+async fn read_page(
+    app: &App,
+    url: &str,
+    headers: &[(String, String)],
+    whole_list: bool,
+    known_only: bool,
+) -> CmdResult<shardload_manager::ytdlp::PageInfo> {
     let ytdlp = tools::installed(&app.data, tools::Tool::Ytdlp)
         .ok_or_else(|| "yt-dlp is not set up".to_owned())?;
     let tools = shardload_manager::ytdlp::Tools {
@@ -19,10 +37,11 @@ pub(crate) async fn inspect_page(
     };
     shardload_manager::ytdlp::inspect(
         &tools,
-        &url,
-        &headers.unwrap_or_default(),
+        url,
+        headers,
         &app.data.join("tools").join("scratch"),
-        whole_list.unwrap_or(false),
+        whole_list,
+        known_only,
     )
     .await
 }
@@ -187,16 +206,17 @@ pub(crate) struct Quality {
     pub(crate) label: String,
 }
 
-/// How many streams of a page are read for the one listing qualities. A player fetches a list
-/// per quality as it switches, newer than the master that names them all; the extension puts
-/// the masters it recognised first, so the reading mostly stops at the first.
+/// How many streams of a page are read (together) for the one listing qualities. A player
+/// fetches a list per quality as it switches, newer than the master that names them all; the
+/// extension puts the masters it recognised first, and the first with several qualities wins.
 const STREAMS_TRIED: usize = 12;
 
 /// The qualities `media` offers, best first, read the way the dialog reads them (and kept for
-/// it), with the link of the item they are for. A page of a video site (the first item) goes
-/// through yt-dlp. Otherwise the HLS or DASH playlists are read in order, and the first with
-/// several qualities is used, else the first with a picture: a feed's newest playlist may be
-/// audio alone. A plain file or a playlist page offers nothing to choose.
+/// it), with the link of the item they are for. A page (the first item) goes through yt-dlp;
+/// when what the tab fetched follows it (the post a video is in, on a site handled nowhere
+/// else), only a site yt-dlp knows is read, and the streams are read meanwhile: the page's
+/// answer when it has one, else the streams'. A plain file or a playlist page offers nothing
+/// to choose.
 pub(crate) async fn media_qualities(
     handle: &AppHandle,
     media: &shardload_bridge::MediaCapture,
@@ -206,59 +226,86 @@ pub(crate) async fn media_qualities(
     };
     let app = handle.state::<App>();
     let headers = media.request_headers();
-    if first.kind == "page" {
-        if let Some((_, qualities)) = lock(&app.media_info).get(&first.url) {
-            return Ok((first.url.clone(), qualities));
-        }
-        let info = inspect_page(app.clone(), first.url.clone(), Some(headers), None).await?;
-        let qualities = page_qualities(&info);
-        if let Ok(info) = serde_json::to_value(&info) {
-            lock(&app.media_info).put(&first.url, info, &qualities);
-        }
-        return Ok((first.url.clone(), qualities));
+    if first.kind != "page" {
+        return streams_qualities(&app, &media.items, &headers).await;
     }
-    // (url, pictures, qualities) of each stream read, in order.
-    let mut read: Vec<(String, usize, Vec<Quality>)> = Vec::new();
-    let mut error = None;
-    let streams = media
-        .items
+    let rest = &media.items[1..];
+    if rest.is_empty() {
+        return page_qualities_of(&app, &first.url, &headers, false).await;
+    }
+    let (page, streams) = tokio::join!(
+        page_qualities_of(&app, &first.url, &headers, true),
+        streams_qualities(&app, rest, &headers)
+    );
+    match (page, streams) {
+        (Ok(page), _) => Ok(page),
+        (Err(_), Ok(streams)) => Ok(streams),
+        (Err(e), Err(_)) => Err(e),
+    }
+}
+
+/// A page's qualities through yt-dlp, kept for the dialog.
+async fn page_qualities_of(
+    app: &App,
+    url: &str,
+    headers: &[(String, String)],
+    known_only: bool,
+) -> Result<(String, Vec<Quality>), String> {
+    if let Some((_, qualities)) = lock(&app.media_info).get(url) {
+        return Ok((url.to_owned(), qualities));
+    }
+    let info = read_page(app, url, headers, false, known_only).await?;
+    let qualities = page_qualities(&info);
+    if let Ok(info) = serde_json::to_value(&info) {
+        lock(&app.media_info).put(url, info, &qualities);
+    }
+    Ok((url.to_owned(), qualities))
+}
+
+/// The HLS or DASH playlists among `items`, read together and kept for the dialog: the first
+/// (in their order) with several qualities, else the first with a picture: a feed's newest
+/// playlist may be audio alone. Nothing to choose when there are none (plain files).
+async fn streams_qualities(
+    app: &App,
+    items: &[shardload_bridge::MediaItem],
+    headers: &[(String, String)],
+) -> Result<(String, Vec<Quality>), String> {
+    let streams: Vec<&shardload_bridge::MediaItem> = items
         .iter()
         .filter(|i| matches!(i.kind.as_str(), "hls" | "dash"))
-        .take(STREAMS_TRIED);
-    for item in streams {
-        let cached = lock(&app.media_info).get(&item.url);
-        let (pictures, qualities) = match cached {
-            Some((info, qualities)) => (pictures_in(&info), qualities),
-            None => match inspect_media(app.clone(), item.url.clone(), Some(headers.clone())).await
-            {
-                Ok(info) => {
-                    let qualities = stream_qualities(&info);
-                    if let Ok(value) = serde_json::to_value(&info) {
-                        lock(&app.media_info).put(&item.url, value, &qualities);
-                    }
-                    (info.video.len(), qualities)
-                }
-                Err(e) => {
-                    error.get_or_insert(e);
-                    continue;
-                }
-            },
+        .take(STREAMS_TRIED)
+        .collect();
+    let read = futures_util::future::join_all(streams.iter().map(|item| async move {
+        if let Some((info, qualities)) = lock(&app.media_info).get(&item.url) {
+            return Ok((pictures_in(&info), qualities));
+        }
+        let info = read_stream(app, &item.url, headers).await?;
+        let qualities = stream_qualities(&info);
+        if let Ok(value) = serde_json::to_value(&info) {
+            lock(&app.media_info).put(&item.url, value, &qualities);
+        }
+        Ok::<_, String>((info.video.len(), qualities))
+    }))
+    .await;
+    let counts: Vec<usize> = read
+        .iter()
+        .map(|r| r.as_ref().map_or(0, |(n, _)| *n))
+        .collect();
+    if let Some(i) = choose_stream(&counts) {
+        let Ok((_, qualities)) = &read[i] else {
+            unreachable!("a stream that failed counts no pictures")
         };
-        read.push((item.url.clone(), pictures, qualities));
-        if pictures >= 2 {
-            break;
-        }
+        return Ok((streams[i].url.clone(), qualities.clone()));
     }
-    let counts: Vec<usize> = read.iter().map(|(_, n, _)| *n).collect();
-    match choose_stream(&counts) {
-        Some(i) => {
-            let (url, _, qualities) = read.swap_remove(i);
-            Ok((url, qualities))
-        }
-        None => match error {
-            Some(e) if read.is_empty() => Err(e),
-            _ => Ok((first.url.clone(), Vec::new())),
-        },
+    // None read with a picture: why the first failed, when every one did; else nothing to
+    // choose (audio alone).
+    let all_failed = !read.is_empty() && read.iter().all(Result::is_err);
+    match read.into_iter().find_map(Result::err) {
+        Some(e) if all_failed => Err(e),
+        _ => Ok((
+            items.first().map(|i| i.url.clone()).unwrap_or_default(),
+            Vec::new(),
+        )),
     }
 }
 

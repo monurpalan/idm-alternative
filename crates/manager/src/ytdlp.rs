@@ -279,13 +279,16 @@ fn channel_videos(url: &str) -> Option<String> {
 
 /// What `url` offers, read with `yt-dlp -J`: a video's qualities, or a playlist's or a
 /// channel's videos (listed flat, without reading each). With `whole_list`, a video of a
-/// playlist is read as its playlist. `scratch` is a folder for the cookie file.
+/// playlist is read as its playlist. `scratch` is a folder for the cookie file. With
+/// `known_only`, a site yt-dlp has no extractor of its own for fails at once instead of its
+/// page being searched (the generic extractor): for when the page's media is known already.
 pub async fn inspect(
     tools: &Tools,
     url: &str,
     headers: &[(String, String)],
     scratch: &Path,
     whole_list: bool,
+    known_only: bool,
 ) -> Result<PageInfo, String> {
     std::fs::create_dir_all(scratch).ok();
     let channel = channel_videos(url);
@@ -298,6 +301,10 @@ pub async fn inspect(
         "-I".to_owned(),
         format!(":{MAX_ENTRIES}"),
     ];
+    if known_only {
+        args.push("--ies".into());
+        args.push("default,-generic".into());
+    }
     args.extend(list_args(
         tools,
         url,
