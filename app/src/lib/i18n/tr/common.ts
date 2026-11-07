@@ -1,7 +1,6 @@
 // Turkish texts shared across the interface (units, categories, common buttons), keyed by
 // the English text.
 export default {
-	'{size}/s': '{size}/sn',
 	'{p}%': '%{p}',
 	'{s} s': '{s} sn',
 	'{m} min {s} s': '{m} dk {s} sn',

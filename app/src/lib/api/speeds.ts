@@ -36,3 +36,11 @@ export function pushSpeed(h: SpeedHistory, speed: number): SpeedHistory {
 	}
 	return { step, points, count, sum };
 }
+
+/** The average speed over the seconds spent downloading (pauses left out), or 0. */
+export function averageSpeed(h: SpeedHistory | null): number {
+	if (!h) return 0;
+	const seconds = h.points.length * h.step + h.count;
+	if (!seconds) return 0;
+	return (h.points.reduce((a, b) => a + b, 0) * h.step + h.sum) / seconds;
+}

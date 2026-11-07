@@ -68,7 +68,7 @@
 
 	<section class="meter" aria-label={t('Now')}>
 		<Text variant="label">{t('Now')}</Text>
-		<p class="speed">{speed(downloads.speed) || t('{size}/s', { size: '0 B' })}</p>
+		<p class="speed">{speed(downloads.speed) || '0 Mbps'}</p>
 		<Text variant="caption" mono>
 			{t('{n} running', { n: downloads.active })}{limit
 				? ` · ${t('limit {speed}', { speed: speed(limit) })}`

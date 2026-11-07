@@ -145,10 +145,10 @@ pub(crate) fn notify_budget(handle: &AppHandle, b: &shardload_manager::net::Budg
 pub(crate) fn notify_deadline(handle: &AppHandle, r: &shardload_manager::deadline::DeadlineRisk) {
     let lang = lang(handle);
     let name = r.name.clone().unwrap_or_else(|| format!("#{}", r.id));
-    let mbps = |b: f64| i18n::decimal(lang, b / 1e6);
+    let mbps = |b: f64| i18n::decimal(lang, b * 8.0 / 1e6);
     let body = i18n::t(
         lang,
-        "{name} will not be done in time at {speed} MB/s; it needs {needed} MB/s",
+        "{name} will not be done in time at {speed} Mbps; it needs {needed} Mbps",
         &[
             ("name", &name),
             ("speed", &mbps(r.speed)),

@@ -60,6 +60,7 @@ export default {
 	'Speed over the download': 'İndirme boyunca hız',
 	Started: 'Başladı',
 	Completed: 'Tamamlandı',
+	'Average speed': 'Ortalama hız',
 	Segments: 'Parçalar',
 	'{a} of {b} connections': '{a} / {b} bağlantı',
 	Site: 'Site',

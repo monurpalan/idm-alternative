@@ -21,9 +21,21 @@ export function bytes(n: number | null | undefined): string {
 	return i === 0 ? `${v} B` : `${shown} ${UNITS[i]}`;
 }
 
+/** A speed (bytes per second) in bits per second, as a line's speed is sold: Mbps. */
 export function speed(bps: number | null | undefined): string {
-	return bps ? t('{size}/s', { size: bytes(Math.round(bps)) }) : '';
+	if (!bps) return '';
+	let v = bps * 8;
+	let i = 0;
+	while (v >= 1000 && i < BIT_UNITS.length - 1) {
+		v /= 1000;
+		i++;
+	}
+	const digits = i === 0 ? 0 : v < 10 ? 2 : v < 100 ? 1 : 0;
+	const shown = v.toLocaleString(locale(), { minimumFractionDigits: digits, maximumFractionDigits: digits });
+	return `${shown} ${BIT_UNITS[i]}`;
 }
+
+const BIT_UNITS = ['bps', 'kbps', 'Mbps', 'Gbps'];
 
 export function duration(secs: number | null | undefined): string {
 	if (secs === null || secs === undefined || !isFinite(secs)) return '';

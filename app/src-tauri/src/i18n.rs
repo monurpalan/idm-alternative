@@ -73,8 +73,8 @@ fn turkish(text: &str) -> Option<&'static str> {
         "{name} starts over: {why}" => "{name} baştan iniyor: {why}",
         "Data budget" => "Veri bütçesi",
         "A deadline is at risk" => "Bir teslim saati riskte",
-        "{name} will not be done in time at {speed} MB/s; it needs {needed} MB/s" => {
-            "{name} bu hızla ({speed} MB/sn) zamanında bitmeyecek; {needed} MB/sn gerekiyor"
+        "{name} will not be done in time at {speed} Mbps; it needs {needed} Mbps" => {
+            "{name} bu hızla ({speed} Mbps) zamanında bitmeyecek; {needed} Mbps gerekiyor"
         }
         "This month's data budget is used up ({used} of {budget} GB): downloads wait until next month or a larger budget" => {
             "Bu ayın veri bütçesi doldu ({budget} GB'ın {used} GB'ı): indirmeler gelecek aya ya da daha büyük bir bütçeye kadar bekliyor"

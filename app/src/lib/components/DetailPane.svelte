@@ -21,6 +21,7 @@
 		pushSpeed,
 		siteMemory,
 		speedHistory,
+		averageSpeed,
 		startTasks,
 		type SiteMemory,
 		type SpeedHistory,
@@ -310,6 +311,10 @@
 			</dd>
 			<dt>{t('Speed')}</dt>
 			<dd class="num">{speed(r.speed) || '–'}{r.left ? ` · ${t('{time} left', { time: timeLeft(r.left) })}` : r.calculating ? ` · ${t('calculating')}` : ''}</dd>
+			{#if averageSpeed(speeds) > 0}
+				<dt>{t('Average speed')}</dt>
+				<dd class="num">{speed(averageSpeed(speeds))}</dd>
+			{/if}
 			{#if r.live?.hints?.length && task.status === 'downloading'}
 				<SlowHints id={task.id} hints={r.live.hints} {onerror} />
 			{/if}
