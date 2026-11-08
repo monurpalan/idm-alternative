@@ -88,7 +88,7 @@ if (signing && profile === 'release' && process.platform === 'win32') {
 		platforms: {
 			'windows-x86_64': {
 				signature,
-				url: `https://github.com/monurpalan/idm-alternative/releases/download/v${version}/${setup}`
+				url: `https://github.com/monurpalan/Shardload-idm-alternative/releases/download/v${version}/${setup}`
 			}
 		}
 	};

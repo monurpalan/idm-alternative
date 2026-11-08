@@ -7,9 +7,9 @@ Splits every file into parts and downloads them at once, takes over the browser'
 saves videos and torrents. No ads, no trial, no account.</p>
 
 <p align="center">
-<a href="https://github.com/monurpalan/idm-alternative/releases/latest/download/shardload-setup.exe"><b>⬇ Download for Windows</b></a>
+<a href="https://github.com/monurpalan/Shardload-idm-alternative/releases/latest/download/shardload-setup.exe"><b>⬇ Download for Windows</b></a>
 &nbsp;·&nbsp;
-<a href="https://github.com/monurpalan/idm-alternative/releases/latest">Linux (.deb, .rpm, Flatpak, AppImage)</a>
+<a href="https://github.com/monurpalan/Shardload-idm-alternative/releases/latest">Linux (.deb, .rpm, Flatpak, AppImage)</a>
 &nbsp;·&nbsp;
 <a href="README.tr.md">Türkçe</a>
 </p>
@@ -23,7 +23,7 @@ saves videos and torrents. No ads, no trial, no account.</p>
    The installer is not code-signed yet, so Windows may say *"Windows protected your PC"*:
    click **More info → Run anyway**.
 2. **Add the browser extension** from the
-   [latest release](https://github.com/monurpalan/idm-alternative/releases/latest) (not in the
+   [latest release](https://github.com/monurpalan/Shardload-idm-alternative/releases/latest) (not in the
    stores yet):
    - Chrome, Edge, Brave, Vivaldi, Opera: unzip `shardload-extension-chromium.zip`, open
      `chrome://extensions`, turn on *Developer mode*, *Load unpacked* and pick the folder.
@@ -365,7 +365,7 @@ another one. The list and settings live in `%APPDATA%\io.github.monurpalan.shard
 **How do I uninstall it?** Windows Settings → Apps → *Shardload* → Uninstall. Uninstalling
 also removes the browser registration; the download list stays in case you come back.
 
-**Something does not work.** Please [open an issue](https://github.com/monurpalan/idm-alternative/issues)
+**Something does not work.** Please [open an issue](https://github.com/monurpalan/Shardload-idm-alternative/issues)
 with what you did and what happened; *Settings → App → Open the log folder* has the app's log.
 
 ## Building and contributing

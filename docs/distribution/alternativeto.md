@@ -3,7 +3,7 @@
 For a new application on https://alternativeto.net (Suggest an application).
 
 - **Name:** Shardload
-- **Website:** https://github.com/monurpalan/idm-alternative
+- **Website:** https://github.com/monurpalan/Shardload-idm-alternative
 - **License:** Free, Open Source (MIT)
 - **Platforms:** Windows, Linux, Chrome, Firefox, Microsoft Edge (extensions; installed from the
   release until they are in the stores)

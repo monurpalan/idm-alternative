@@ -18,7 +18,7 @@ pub const GRACE_SECS: u64 = 60 * 60;
 pub const FORGET_SECS: u64 = 30 * 24 * 60 * 60;
 
 /// Where the Install button leads, until the extension is in the browsers' stores.
-pub const INSTALL_URL: &str = "https://github.com/monurpalan/idm-alternative#install";
+pub const INSTALL_URL: &str = "https://github.com/monurpalan/Shardload-idm-alternative#install";
 
 /// The store pages, by browser, once there are any: one line each, e.g.
 /// `("chrome", "https://chromewebstore.google.com/detail/…")`. Browsers missing here get

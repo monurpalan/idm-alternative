@@ -4,7 +4,7 @@ Texts for the Chrome Web Store, Microsoft Edge Add-ons and Firefox Add-ons (AMO)
 Turkish. The package is `shardload-extension-chromium.zip` (Chrome, Edge) or
 `shardload-extension-firefox.zip` (Firefox) from the release. Screenshots (1280×800) are in
 [screenshots/](screenshots). Privacy policy URL:
-<https://github.com/monurpalan/idm-alternative/blob/main/docs/PRIVACY.md>.
+<https://github.com/monurpalan/Shardload-idm-alternative/blob/main/docs/PRIVACY.md>.
 
 Before a store version: the Chromium build's manifest carries a `key` (it fixes the extension ID
 for unpacked installs). The Chrome Web Store refuses an upload with a `key`; remove it from the
@@ -32,7 +32,7 @@ Productivity (Chrome, Edge) · Download Management (Firefox)
 Shardload is a free, open-source download manager for Windows and Linux, an alternative to
 Internet Download Manager. This extension connects your browser to it.
 
-**The Shardload app must be installed:** https://github.com/monurpalan/idm-alternative
+**The Shardload app must be installed:** https://github.com/monurpalan/Shardload-idm-alternative
 
 What the extension does:
 
@@ -53,14 +53,14 @@ many other sites (playlists, clips, live streams), torrents and magnet links. No
 no account.
 
 Privacy: the extension talks only to the app on your computer. Nothing is sent to the developer
-or anyone else. https://github.com/monurpalan/idm-alternative/blob/main/docs/PRIVACY.md
+or anyone else. https://github.com/monurpalan/Shardload-idm-alternative/blob/main/docs/PRIVACY.md
 
 ## Açıklama (TR)
 
 Shardload, Windows ve Linux için ücretsiz, açık kaynak bir indirme yöneticisi; Internet Download
 Manager'a bir alternatif. Bu eklenti tarayıcınızı ona bağlar.
 
-**Shardload uygulaması kurulu olmalı:** https://github.com/monurpalan/idm-alternative
+**Shardload uygulaması kurulu olmalı:** https://github.com/monurpalan/Shardload-idm-alternative
 
 Eklentinin yaptıkları:
 
@@ -82,7 +82,7 @@ süresi ya da hesap yok.
 
 Gizlilik: eklenti yalnız bilgisayarınızdaki uygulamayla konuşur. Geliştiriciye ya da başka
 birine hiçbir şey gönderilmez.
-https://github.com/monurpalan/idm-alternative/blob/main/docs/PRIVACY.md
+https://github.com/monurpalan/Shardload-idm-alternative/blob/main/docs/PRIVACY.md
 
 ## Single purpose (Chrome Web Store)
 
@@ -118,7 +118,7 @@ purpose; not used or transferred to determine creditworthiness or for lending.
 ## Notes for reviewers
 
 The extension needs the Shardload app (Windows or Linux) from
-https://github.com/monurpalan/idm-alternative/releases/latest. Install it, open a page with a
+https://github.com/monurpalan/Shardload-idm-alternative/releases/latest. Install it, open a page with a
 link to a `.zip` file, and click the link: the download opens in Shardload. Without the app the
 browser downloads the file itself. The source of the extension is in the same repository, in
 `extension/`; `npm ci && npm run build` builds `dist/chromium` and `dist/firefox`.

@@ -7,9 +7,9 @@ Her dosyayı parçalara bölüp aynı anda indirir, tarayıcının indirmelerini
 torrent indirir. Reklam yok, deneme süresi yok, hesap yok.</p>
 
 <p align="center">
-<a href="https://github.com/monurpalan/idm-alternative/releases/latest/download/shardload-setup.exe"><b>⬇ Windows için indir</b></a>
+<a href="https://github.com/monurpalan/Shardload-idm-alternative/releases/latest/download/shardload-setup.exe"><b>⬇ Windows için indir</b></a>
 &nbsp;·&nbsp;
-<a href="https://github.com/monurpalan/idm-alternative/releases/latest">Linux (.deb, .rpm, Flatpak, AppImage)</a>
+<a href="https://github.com/monurpalan/Shardload-idm-alternative/releases/latest">Linux (.deb, .rpm, Flatpak, AppImage)</a>
 &nbsp;·&nbsp;
 <a href="README.md">English</a>
 </p>
@@ -23,7 +23,7 @@ torrent indirir. Reklam yok, deneme süresi yok, hesap yok.</p>
    Kurulum dosyası henüz kod imzalı olmadığı için Windows *"Bilgisayarınız Windows tarafından
    korundu"* diyebilir: **Ek bilgi → Yine de çalıştır**'a tıklayın.
 2. **Tarayıcı eklentisini ekleyin.** Eklenti henüz mağazalarda değil; dosyaları
-   [son sürüm](https://github.com/monurpalan/idm-alternative/releases/latest) sayfasında:
+   [son sürüm](https://github.com/monurpalan/Shardload-idm-alternative/releases/latest) sayfasında:
    - Chrome, Edge, Brave, Vivaldi, Opera: `shardload-extension-chromium.zip` dosyasını açın,
      `chrome://extensions` sayfasında *Geliştirici modu*nu açın, *Paketlenmemiş öğe yükle* ile
      klasörü seçin.
@@ -148,7 +148,7 @@ klasörüne iner. Liste ve ayarlar `%APPDATA%\io.github.monurpalan.shardload` kl
 tarayıcı kaydını da siler; geri dönerseniz diye indirme listesi kalır.
 
 **Bir şey çalışmıyor.** Lütfen ne yaptığınızı ve ne olduğunu yazarak bir
-[issue açın](https://github.com/monurpalan/idm-alternative/issues); *Ayarlar → Uygulama → Kayıt
+[issue açın](https://github.com/monurpalan/Shardload-idm-alternative/issues); *Ayarlar → Uygulama → Kayıt
 klasörünü aç* uygulamanın kayıtlarını gösterir.
 
 ## Lisans

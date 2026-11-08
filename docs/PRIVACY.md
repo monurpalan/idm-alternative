@@ -48,7 +48,7 @@ address they came from), which you can turn off in the settings.
 The local MCP server, when an AI assistant on your computer starts it, can only reach the app
 on the same computer.
 
-Questions: [open an issue](https://github.com/monurpalan/idm-alternative/issues).
+Questions: [open an issue](https://github.com/monurpalan/Shardload-idm-alternative/issues).
 
 ---
 
@@ -100,4 +100,4 @@ kapatılabilir.
 Yerel MCP sunucusu, bilgisayarınızdaki bir yapay zekâ asistanı onu başlattığında, yalnız aynı
 bilgisayardaki uygulamaya ulaşabilir.
 
-Sorular için: [bir issue açın](https://github.com/monurpalan/idm-alternative/issues).
+Sorular için: [bir issue açın](https://github.com/monurpalan/Shardload-idm-alternative/issues).
