@@ -125,6 +125,8 @@ browser downloads the file itself. The source of the extension is in the same re
 
 ## Firefox (AMO)
 
+- Listed at https://addons.mozilla.org/firefox/addon/shardload/ (first approved with 0.1.6).
+
 - Source code: AMO asks for it because the code is bundled with esbuild. Upload a zip of the
   repository's `extension/` folder (without `node_modules` and `dist`) with the build steps
   above (Node 24).

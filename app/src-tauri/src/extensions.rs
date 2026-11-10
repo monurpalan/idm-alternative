@@ -23,7 +23,7 @@ pub const INSTALL_URL: &str = "https://github.com/monurpalan/Shardload-idm-alter
 /// The store pages, by browser, once there are any: one line each, e.g.
 /// `("chrome", "https://chromewebstore.google.com/detail/…")`. Browsers missing here get
 /// [`INSTALL_URL`].
-const STORE_URLS: &[(&str, &str)] = &[];
+const STORE_URLS: &[(&str, &str)] = &[("firefox", "https://addons.mozilla.org/firefox/addon/shardload/")];
 
 /// Where to get the extension for `browser` (or for any, when `None`).
 pub fn install_url(browser: Option<&str>) -> &'static str {
@@ -298,5 +298,6 @@ mod tests {
     fn install_links() {
         assert_eq!(install_url(None), INSTALL_URL);
         assert_eq!(install_url(Some("chrome")), INSTALL_URL);
+        assert_eq!(install_url(Some("firefox")), "https://addons.mozilla.org/firefox/addon/shardload/");
     }
 }

@@ -22,15 +22,12 @@ torrent indirir. Reklam yok, deneme süresi yok, hesap yok.</p>
    yönetici izni gerekmez; yeni sürümü günde bir kez kendisi denetler (ayarlardan kapatılabilir).
    Kurulum dosyası henüz kod imzalı olmadığı için Windows *"Bilgisayarınız Windows tarafından
    korundu"* diyebilir: **Ek bilgi → Yine de çalıştır**'a tıklayın.
-2. **Tarayıcı eklentisini ekleyin.** Eklenti henüz mağazalarda değil; dosyaları
-   [son sürüm](https://github.com/monurpalan/Shardload-idm-alternative/releases/latest) sayfasında:
-   - Chrome, Edge, Brave, Vivaldi, Opera: `shardload-extension-chromium.zip` dosyasını açın,
-     `chrome://extensions` sayfasında *Geliştirici modu*nu açın, *Paketlenmemiş öğe yükle* ile
-     klasörü seçin.
-   - Firefox: `shardload-extension-firefox.zip` dosyasını açın,
-     `about:debugging#/runtime/this-firefox` sayfasında *Geçici Eklenti Yükle…* ile
-     `manifest.json` dosyasını seçin. Eklenti imzalanana kadar Firefox onu yeniden başlayınca
-     unutur.
+2. **Tarayıcı eklentisini ekleyin:**
+   - Firefox: [Firefox Eklentileri](https://addons.mozilla.org/firefox/addon/shardload/) sayfasından.
+   - Chrome, Edge, Brave, Vivaldi, Opera (henüz mağazalarında değil):
+     [son sürüm](https://github.com/monurpalan/Shardload-idm-alternative/releases/latest) sayfasındaki
+     `shardload-extension-chromium.zip` dosyasını açın, `chrome://extensions` sayfasında
+     *Geliştirici modu*nu açın, *Paketlenmemiş öğe yükle* ile klasörü seçin.
 3. **Bu kadar.** Tarayıcıda başlattığınız indirmeler artık Shardload'da açılır. Bir bağlantıyı
    Ctrl+V ile yapıştırabilir ya da pencereye sürükleyip bırakabilirsiniz.
 

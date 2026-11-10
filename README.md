@@ -22,14 +22,12 @@ saves videos and torrents. No ads, no trial, no account.</p>
    rights, and checks for new versions once a day (it can be turned off in Settings).
    The installer is not code-signed yet, so Windows may say *"Windows protected your PC"*:
    click **More info → Run anyway**.
-2. **Add the browser extension** from the
-   [latest release](https://github.com/monurpalan/Shardload-idm-alternative/releases/latest) (not in the
-   stores yet):
-   - Chrome, Edge, Brave, Vivaldi, Opera: unzip `shardload-extension-chromium.zip`, open
+2. **Add the browser extension:**
+   - Firefox: from [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/shardload/).
+   - Chrome, Edge, Brave, Vivaldi, Opera (not in their stores yet): unzip
+     `shardload-extension-chromium.zip` from the
+     [latest release](https://github.com/monurpalan/Shardload-idm-alternative/releases/latest), open
      `chrome://extensions`, turn on *Developer mode*, *Load unpacked* and pick the folder.
-   - Firefox: unzip `shardload-extension-firefox.zip`, open `about:debugging#/runtime/this-firefox`,
-     *Load Temporary Add-on…* and pick `manifest.json` (until the extension is signed, Firefox
-     forgets it when it restarts).
 3. **That's it.** Downloads you start in the browser now open in Shardload. You can also paste a
    link with Ctrl+V or drop one on the window.
 
