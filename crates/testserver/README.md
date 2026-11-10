@@ -42,6 +42,7 @@ Sizes and rates accept `K`, `M`, `G` suffixes (binary units). Flags accept `1/0`
 | `redirect_unique` | `off` | Each redirect leads to a new URL (adds `hop=n`), like a CDN signing every link; with `ttl`, each one expires on its own |
 | `cd` | — | `Content-Disposition` filename (ASCII fallback + `filename*` UTF-8) |
 | `latency_ms` | `0` | Delay before response headers |
+| `hang_get` | — | The n-th GET to this URL gets no response at all (no headers), the connection kept open |
 | `only_ua` | — | `403` unless the `User-Agent` contains this (a site that only serves some browsers) |
 | `corrupt_at` | — | The first response to send the byte at this offset sends it flipped (later ones are clean) |
 

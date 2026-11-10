@@ -158,6 +158,40 @@ async fn patch_url_checks_the_new_link() {
     assert_eq!(verify_file(&out, 8, SIZE).expect("verify"), Verdict::Ok);
 }
 
+/// Checking a new link reads a sample of the file from it: a link that stops sending in the
+/// middle of it fails as stalled within the read timeout, and one that is merely slow (late
+/// to answer, the sample trickling in for longer than the timeout) still passes.
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_url_gives_up_on_a_stalled_link_but_not_a_slow_one() {
+    let base = start().await;
+    let dir = workdir("patch-stall");
+    let out = dir.join("f.bin");
+    expire(&base, &out).await;
+    let o = Options {
+        read_timeout: Duration::from_millis(500),
+        ..opts()
+    };
+    let stalled = request(
+        format!("{base}/file/new.bin?size={SIZE}&seed=8&stall_after=16K"),
+        &out,
+    );
+    let err = tokio::time::timeout(Duration::from_secs(10), patch_url(&stalled, &o))
+        .await
+        .expect("waited for a link that stopped sending")
+        .expect_err("stalled");
+    assert!(matches!(err, Error::Stalled(_)), "{err}");
+
+    // The 64 KiB sample takes about four seconds.
+    let slow = request(
+        format!("{base}/file/new.bin?size={SIZE}&seed=8&latency_ms=300&rate=16K"),
+        &out,
+    );
+    tokio::time::timeout(LIMIT, patch_url(&slow, &o))
+        .await
+        .expect("patch hung")
+        .expect("slow link is the same file");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn patch_url_without_an_interrupted_download_fails() {
     let base = start().await;

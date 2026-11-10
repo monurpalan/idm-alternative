@@ -581,6 +581,7 @@ pub(crate) fn http_config(headers: &[(String, String)], opts: &Options) -> HttpC
         insecure: opts.insecure,
         http1_only: opts.http1_only,
         headers: headers.to_vec(),
+        read_timeout: Some(opts.read_timeout),
     }
 }
 

@@ -121,6 +121,66 @@ async fn stalled_connection_is_replaced() {
     assert_verified(&out, 7, 8 * MB);
 }
 
+/// The first request is never answered: the download fails as stalled within the read
+/// timeout (to be tried again later) instead of waiting forever.
+#[tokio::test(flavor = "multi_thread")]
+async fn unanswered_first_request_stalls() {
+    let base = start().await;
+    let dir = workdir("hang-probe");
+    let out = dir.join("f.bin");
+    let url = format!("{base}/file/f.bin?size={}&seed=7&hang_get=1", 4 * MB);
+    let o = Options {
+        read_timeout: Duration::from_millis(500),
+        ..opts(4)
+    };
+    let (req, token) = (request(url, &out), CancellationToken::new());
+    let run = download(&req, &o, None, &token);
+    let err = tokio::time::timeout(Duration::from_secs(10), run)
+        .await
+        .expect("waited for an answer that never comes")
+        .expect_err("must fail");
+    assert!(matches!(err, Error::Stalled(_)), "{err}");
+}
+
+/// A request in the middle of the download is never answered: that connection gives up
+/// after the read timeout and its range is downloaded again.
+#[tokio::test(flavor = "multi_thread")]
+async fn unanswered_range_request_is_retried() {
+    let base = start().await;
+    let dir = workdir("hang-range");
+    let out = dir.join("f.bin");
+    let size = 8 * MB;
+    let url = format!("{base}/file/f.bin?size={size}&seed=7&rate=4M&hang_get=2");
+    let o = Options {
+        read_timeout: Duration::from_millis(500),
+        ..opts(4)
+    };
+    let (req, token) = (request(url, &out), CancellationToken::new());
+    let run = download(&req, &o, None, &token);
+    tokio::time::timeout(Duration::from_secs(20), run)
+        .await
+        .expect("waited for an answer that never comes")
+        .expect("download");
+    assert_verified(&out, 7, size);
+}
+
+/// Answers that come late, but within the read timeout, and a body that trickles in small
+/// pieces are not mistaken for a stalled server.
+#[tokio::test(flavor = "multi_thread")]
+async fn slow_but_live_server_is_not_cut_off() {
+    let base = start().await;
+    let dir = workdir("slow-live");
+    let out = dir.join("f.bin");
+    let size = MB;
+    let url = format!("{base}/file/f.bin?size={size}&seed=7&latency_ms=300&rate=256K");
+    let o = Options {
+        read_timeout: Duration::from_millis(500),
+        ..opts(2)
+    };
+    get(&request(url, &out), &o).await.expect("download");
+    assert_verified(&out, 7, size);
+}
+
 /// One connection gets its headers and then nothing, while the others download: it is
 /// replaced after a few seconds, long before the read timeout.
 #[tokio::test(flavor = "multi_thread")]

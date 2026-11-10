@@ -168,7 +168,7 @@ pub(crate) async fn fetch_range(
     let mut stream = resp.bytes_stream();
     loop {
         let next = tokio::select! {
-            n = stream.next() => n,
+            n = http.timed(stream.next()) => n?,
             () = cancel.cancelled() => return Err(Error::Cancelled),
         };
         match next {

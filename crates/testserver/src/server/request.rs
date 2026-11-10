@@ -58,6 +58,21 @@ pub(super) fn count_get(url: &UrlState, method: &Method, headers: &HeaderMap) ->
     }
 }
 
+/// [`count_get`], then for the GET `hang_get` names, holding the request without a word
+/// until the client gives up.
+pub(super) async fn count_get_or_hang(
+    sc: &Scenario,
+    url: &UrlState,
+    method: &Method,
+    headers: &HeaderMap,
+) -> u64 {
+    let nth_get = count_get(url, method, headers);
+    if sc.hang_get == Some(nth_get) && *method == Method::GET {
+        std::future::pending::<()>().await;
+    }
+    nth_get
+}
+
 /// The answer to a connection over the scenario's limit.
 pub(super) fn too_many_connections(sc: &Scenario) -> Response {
     match sc.refuse_status.and_then(|s| StatusCode::from_u16(s).ok()) {

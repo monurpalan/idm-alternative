@@ -250,6 +250,18 @@ async fn drop_after_truncates_body() {
 }
 
 #[tokio::test]
+async fn hang_get_never_answers_that_request() {
+    let base = start().await;
+    let url = format!("{base}/file/a.bin?size=1K&hang_get=2");
+    let first = client().get(&url).send().await.expect("first");
+    assert_eq!(first.status(), StatusCode::OK);
+    let second = tokio::time::timeout(Duration::from_millis(500), client().get(&url).send()).await;
+    assert!(second.is_err(), "the second GET must get no response");
+    let third = client().get(&url).send().await.expect("third");
+    assert_eq!(third.bytes().await.expect("body").len(), 1024);
+}
+
+#[tokio::test]
 async fn stall_after_stops_sending() {
     let base = start().await;
     let r = client()

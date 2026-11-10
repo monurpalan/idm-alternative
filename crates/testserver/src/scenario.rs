@@ -151,6 +151,9 @@ pub struct Scenario {
     pub auth: Option<String>,
     /// Delay before the response headers, in milliseconds.
     pub latency_ms: u64,
+    /// The n-th GET to the URL (from 1) is never answered: no status, no headers, the
+    /// connection held open until the client gives up.
+    pub hang_get: Option<u64>,
     /// Requests whose `User-Agent` does not contain this get `403`, like a site that only
     /// serves some browsers.
     pub only_ua: Option<String>,
@@ -196,6 +199,7 @@ impl Default for Scenario {
             cd: None,
             auth: None,
             latency_ms: 0,
+            hang_get: None,
             only_ua: None,
             corrupt_at: None,
             corrupt_get: None,

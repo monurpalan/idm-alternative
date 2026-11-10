@@ -126,7 +126,7 @@ async fn serve_file(
         return refused;
     }
 
-    let nth_get = count_get(&url, &method, &headers);
+    let nth_get = count_get_or_hang(&sc, &url, &method, &headers).await;
 
     if sc.html_error_after.is_some_and(|n| nth_get > n) {
         return (

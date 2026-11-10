@@ -8,6 +8,7 @@ use wreq::{Response, StatusCode};
 use crate::error::{Error, Result};
 
 mod lang;
+mod read;
 
 /// What identifies one version of the remote file.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -148,12 +149,17 @@ pub struct HttpConfig {
     pub http1_only: bool,
     /// Extra headers for every request, e.g. `Cookie`, `Referer`, `Authorization`.
     pub headers: Vec<(String, String)>,
+    /// How long to wait for an answer, and for each piece of a body read whole; `None`: no
+    /// limit.
+    pub read_timeout: Option<std::time::Duration>,
 }
 
 #[derive(Clone)]
 pub struct Http {
     pub client: wreq::Client,
     pub headers: HeaderMap,
+    /// See [`HttpConfig::read_timeout`].
+    pub(crate) read_timeout: Option<std::time::Duration>,
 }
 
 impl Http {
@@ -203,6 +209,7 @@ impl Http {
         Ok(Self {
             client: builder.build()?,
             headers,
+            read_timeout: cfg.read_timeout,
         })
     }
 
@@ -212,13 +219,13 @@ impl Http {
     async fn get(&self, url: &str, extra: HeaderMap, slot: u64) -> Result<Response> {
         let mut headers = self.headers.clone();
         headers.extend(extra);
-        Ok(self
+        let send = self
             .client
             .get(url)
             .headers(headers)
             .group(wreq::Group::new(slot))
-            .send()
-            .await?)
+            .send();
+        Ok(self.timed(send).await??)
     }
 
     /// First request: asks for `bytes=start-` so one round trip tells us the size, whether
@@ -248,7 +255,7 @@ impl Http {
         if !remote.ranges {
             return Ok((remote, None));
         }
-        let body = resp.bytes().await?.to_vec();
+        let body = self.read_body(resp).await?;
         Ok((remote, Some(body)))
     }
 
@@ -300,7 +307,7 @@ impl Http {
             StatusCode::PARTIAL_CONTENT => {
                 let (first, last, total) = content_range(&resp)?;
                 let remote = Remote::from_response(&resp, url, total, total.is_some());
-                let body = resp.bytes().await?.to_vec();
+                let body = self.read_body(resp).await?;
                 if body.len() as u64 != last - first + 1 {
                     return Err(Error::Truncated);
                 }
@@ -422,7 +429,7 @@ impl Http {
         let final_url = resp.uri().to_string();
         let mut body = Vec::new();
         let mut stream = resp.bytes_stream();
-        while let Some(chunk) = stream.next().await {
+        while let Some(chunk) = self.timed(stream.next()).await? {
             body.extend_from_slice(&chunk?);
             if body.len() > limit {
                 return Err(Error::State(format!("{url} is larger than {limit} bytes")));
@@ -458,9 +465,11 @@ impl Http {
         }
         let mut body = Vec::new();
         let mut stream = resp.bytes_stream();
-        while let Some(chunk) = stream.next().await {
-            let Ok(chunk) = chunk else {
-                return Fetched::Refused;
+        loop {
+            let chunk = match self.timed(stream.next()).await {
+                Ok(None) => break,
+                Ok(Some(Ok(chunk))) => chunk,
+                Ok(Some(Err(_))) | Err(_) => return Fetched::Refused,
             };
             body.extend_from_slice(&chunk);
             if body.len() > limit {
@@ -473,7 +482,7 @@ impl Http {
     /// Downloads `[start, end)` whole; for small checks, not for file data.
     pub async fn fetch(&self, remote: &Remote, start: u64, end: u64, slot: u64) -> Result<Vec<u8>> {
         let resp = self.range(remote, start, Some(end), slot).await?;
-        Ok(resp.bytes().await?.to_vec())
+        self.read_body(resp).await
     }
 }
 
