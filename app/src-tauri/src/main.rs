@@ -299,7 +299,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!("could not read the list: {e}");
         Vec::new()
     });
-    // Managed before anything that reads it can run: the events, the bridge, the tray.
+    // Managed before anything that reads it can run: the events, the bridge, the tray's
+    // menu.
     app.manage(App {
         manager,
         data: data.clone(),
@@ -316,6 +317,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         media_info: Mutex::new(video::MediaCache::default()),
         path_ffmpeg,
     });
+    // The tray is in place before the bridge starts: a request changing the speed limit
+    // or the language finds it and updates its menu, instead of the menu being built
+    // afterwards from the settings as they were.
+    let tray = tray::build(app.handle(), limit, language)?;
+    *lock(&app.state::<App>().tray) = Some(tray);
     tauri::async_runtime::spawn(forward_events(app.handle().clone(), events, known));
 
     // The browser bridge: a pipe only this user and data folder share, and a fresh token
@@ -336,8 +342,6 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             })
             .await;
     });
-    let tray = tray::build(app.handle(), limit, language)?;
-    *lock(&app.state::<App>().tray) = Some(tray);
     tauri::async_runtime::spawn(daily_checks(app.handle().clone()));
     if lock(&app.state::<App>().settings).watch_clipboard {
         watch_clipboard(app.handle(), true);
