@@ -200,8 +200,10 @@ pub fn new_token(data_dir: &Path) -> Result<String> {
 
 /// Takes the channel of this data folder ([`pipe_name`], [`listen`]) and only then writes a
 /// fresh token for it ([`new_token`]): when another app already owns the channel, its token
-/// stays on disk for its clients.
+/// stays on disk for its clients. The folder is made first if missing: outside Windows the
+/// channel is a socket in it.
 pub async fn listen_with_token(data_dir: &Path) -> Result<(Listener, String)> {
+    std::fs::create_dir_all(data_dir)?;
     let listener = listen(&pipe_name(data_dir)).await?;
     let token = new_token(data_dir)?;
     Ok((listener, token))
