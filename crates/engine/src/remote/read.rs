@@ -21,7 +21,8 @@ impl Http {
     pub(crate) async fn answer<T>(&self, send: impl Future<Output = T>) -> Result<T> {
         match self.read_timeout {
             Some(limit) => {
-                let limit = limit * ANSWER_TIMEOUTS;
+                // A read timeout too long to triple (meaning no limit) stays that long.
+                let limit = limit.saturating_mul(ANSWER_TIMEOUTS);
                 tokio::time::timeout(limit, send)
                     .await
                     .map_err(|_| Error::Stalled(limit))
@@ -48,5 +49,23 @@ impl Http {
             body.extend_from_slice(&chunk?);
         }
         Ok(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::remote::HttpConfig;
+
+    #[tokio::test]
+    async fn a_read_timeout_too_long_to_triple_still_waits_for_the_answer() {
+        let http = Http::new(&HttpConfig {
+            read_timeout: Some(Duration::MAX),
+            ..HttpConfig::default()
+        })
+        .expect("client");
+        assert_eq!(http.answer(async { 7 }).await.expect("answered"), 7);
     }
 }
