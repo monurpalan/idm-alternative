@@ -332,6 +332,24 @@ impl Table {
         s.answered = Some((now, s.received));
     }
 
+    /// The owner of segment `idx` sent a new request: until it is answered, the segment is
+    /// waiting, not silent.
+    pub fn asking(&mut self, idx: usize) {
+        self.segs[idx].answered = None;
+    }
+
+    /// Whether the owner of segment `idx` is still waiting for an answer while another
+    /// connection of the download got one: the server is holding that request back.
+    pub fn held_back(&self, idx: usize) -> bool {
+        self.segs[idx].owner.is_some()
+            && self.segs[idx].answered.is_none()
+            && self
+                .segs
+                .iter()
+                .enumerate()
+                .any(|(i, s)| i != idx && s.owner.is_some() && s.answered.is_some())
+    }
+
     /// Segment `idx` is not tried again before `until` (a busy server's `Retry-After`).
     pub fn hold(&mut self, idx: usize, until: Instant) {
         let s = &mut self.segs[idx];
@@ -797,6 +815,27 @@ mod tests {
         t.segs[1].speed = MB as f64;
         t.segs[1].received -= MB;
         assert_eq!(t.laggard(now), Some(1));
+    }
+
+    #[test]
+    fn a_request_is_held_back_only_while_another_is_answered() {
+        let now = Instant::now();
+        let policy = SplitPolicy::default();
+        let mut t = Table::new(100 * MB);
+        for id in 0..3 {
+            t.assign(id, now, &policy, true);
+        }
+        // Nobody answered yet: a slow server, not one holding requests back.
+        assert!(!t.held_back(1));
+        t.answered(0, now);
+        assert!(t.held_back(1) && t.held_back(2) && !t.held_back(0));
+        // A new request of an answered connection waits again.
+        t.asking(0);
+        t.answered(1, now);
+        assert!(t.held_back(0) && !t.held_back(1));
+        // Only a running segment can be held back.
+        t.release(2, false, now);
+        assert!(!t.held_back(2));
     }
 
     #[test]

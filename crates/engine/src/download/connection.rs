@@ -37,6 +37,7 @@ pub(crate) async fn connection(
                     break Ok(());
                 }
                 let asked_end = ctx.window_end(pos, end);
+                ctx.table().asking(idx);
                 match request(ctx, source, pos, asked_end, slot, stop).await {
                     Ok(r) => (r, asked_end),
                     Err(e) => break Err(e),

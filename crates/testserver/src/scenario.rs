@@ -124,6 +124,10 @@ pub struct Scenario {
     pub drop_after: Option<Size>,
     /// Reply `503` when more than this many responses are in flight for the URL.
     pub max_conns: Option<u32>,
+    /// Answer at most this many requests to the URL at a time; the others are held without
+    /// an answer until one of those finishes, like a server that serves each client one
+    /// download at a time (a script holding a session lock).
+    pub answer_at_once: Option<u32>,
     /// The status for connections over `max_conns` (default `503`, with `Retry-After`);
     /// `403` is a server that forbids rather than asks to wait.
     pub refuse_status: Option<u16>,
@@ -192,6 +196,7 @@ impl Default for Scenario {
             stall_after: None,
             drop_after: None,
             max_conns: None,
+            answer_at_once: None,
             refuse_status: None,
             ttl: None,
             status: None,

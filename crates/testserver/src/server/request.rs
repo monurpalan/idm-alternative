@@ -73,6 +73,19 @@ pub(super) async fn count_get_or_hang(
     nth_get
 }
 
+/// Counts one more response in flight for the URL; the count. With `answer_at_once`, first
+/// waits, unanswered, until fewer than that many are in flight.
+pub(super) async fn take_turn(sc: &Scenario, url: &UrlState) -> u32 {
+    if let Some(most) = sc.answer_at_once.filter(|n| *n > 0) {
+        let _turn = url.turn.lock().await;
+        while url.active.load(Ordering::Acquire) >= most {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        return url.active.fetch_add(1, Ordering::AcqRel) + 1;
+    }
+    url.active.fetch_add(1, Ordering::AcqRel) + 1
+}
+
 /// The answer to a connection over the scenario's limit.
 pub(super) fn too_many_connections(sc: &Scenario) -> Response {
     match sc.refuse_status.and_then(|s| StatusCode::from_u16(s).ok()) {

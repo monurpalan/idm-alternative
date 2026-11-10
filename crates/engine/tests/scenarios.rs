@@ -188,6 +188,45 @@ async fn late_answers_are_waited_for() {
     assert_verified(&out, 7, size);
 }
 
+/// A server that answers one request at a time and holds the others unanswered until it is
+/// done (a download script holding a session lock): the connections that only wait are given
+/// up as the server's limit, not as failures, and the one that is answered finishes the file.
+#[tokio::test(flavor = "multi_thread")]
+async fn server_answering_one_request_at_a_time_is_downloaded_from() {
+    let base = start().await;
+    let dir = workdir("one-at-a-time");
+    let out = dir.join("f.bin");
+    let size = 4 * MB;
+    let url = format!("{base}/file/f.bin?size={size}&seed=7&rate=512K&answer_at_once=1");
+    let o = Options {
+        read_timeout: Duration::from_millis(300),
+        max_failures: 2,
+        ..opts(4)
+    };
+    let (tx, mut rx) = tokio::sync::watch::channel(Progress::default());
+    let started = Instant::now();
+    let timeline = tokio::spawn(async move {
+        let mut seen: Vec<(u128, usize)> = Vec::new();
+        while rx.changed().await.is_ok() {
+            let n = rx.borrow().connections;
+            if seen.last().is_none_or(|(_, last)| *last != n) {
+                seen.push((started.elapsed().as_millis(), n));
+            }
+        }
+        seen
+    });
+    let (req, token) = (request(url, &out), CancellationToken::new());
+    let done = tokio::time::timeout(LIMIT, download(&req, &o, Some(&tx), &token))
+        .await
+        .expect("download hung");
+    drop(tx);
+    let timeline = timeline.await.expect("watcher");
+    eprintln!("connections over time (ms, open): {timeline:?}");
+    done.expect("download");
+    assert_verified(&out, 7, size);
+    assert_eq!(o.learn.get().max_connections, Some(1));
+}
+
 /// A request in the middle of the download is never answered: that connection gives up
 /// after the read timeout and its range is downloaded again.
 #[tokio::test(flavor = "multi_thread")]

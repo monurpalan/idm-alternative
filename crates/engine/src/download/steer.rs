@@ -137,6 +137,10 @@ impl Steer<'_> {
     /// unless it has failed too often.
     fn failed(&mut self, t: &mut Table, idx: usize, e: Error, now: Instant) {
         tracing::debug!(segment = idx, "connection failed: {e}");
+        if matches!(e, Error::Stalled(_)) && t.held_back(idx) {
+            self.held_back(t, idx, now);
+            return;
+        }
         let mut wait = None;
         if let Error::Busy(code, retry_after) = e {
             let limit = t.active().saturating_sub(1).max(1);
@@ -163,6 +167,19 @@ impl Steer<'_> {
                 last: e.to_string(),
             });
         }
+    }
+
+    /// Segment `idx` was never answered while another connection is: the server holds back
+    /// requests beyond its limit (one download per client at a time, say). That is its
+    /// limit, not a failure of the segment, which goes back to the table for the connections
+    /// allowed.
+    fn held_back(&mut self, t: &mut Table, idx: usize, now: Instant) {
+        let limit = t.active().saturating_sub(1).max(1);
+        if limit < self.conn_limit {
+            tracing::info!("server leaves requests unanswered; limiting to {limit} connections");
+            self.limit_to(limit);
+        }
+        t.release(idx, false, now);
     }
 
     /// Every tick: the connections steered and new ones started, the progress reported, and

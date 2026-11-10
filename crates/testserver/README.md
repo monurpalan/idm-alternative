@@ -34,6 +34,7 @@ Sizes and rates accept `K`, `M`, `G` suffixes (binary units). Flags accept `1/0`
 | `stall_after` | — | Stop sending after this many bytes, keep the connection open |
 | `drop_after` | — | Reset the connection after this many bytes |
 | `max_conns` | — | `503` + `Retry-After: 1` beyond this many concurrent responses |
+| `answer_at_once` | — | Answer at most this many requests at a time; the rest wait, unanswered, until one finishes |
 | `ttl` | — | `403` from this many seconds after the URL's first request |
 | `etag` | `static` | `static`, `rotate` (new validator every response) or `none` |
 | `html_error_after` | — | GETs after the first n return `200 text/html` |

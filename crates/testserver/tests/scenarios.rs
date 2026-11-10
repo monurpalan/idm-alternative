@@ -262,6 +262,28 @@ async fn hang_get_never_answers_that_request() {
 }
 
 #[tokio::test]
+async fn answer_at_once_holds_the_others_until_one_finishes() {
+    let base = start().await;
+    let url = format!("{base}/file/a.bin?size=64K&rate=128K&answer_at_once=1");
+    let first = client().get(&url).send().await.expect("first");
+    assert_eq!(first.status(), StatusCode::OK);
+    let started = Instant::now();
+    let second = tokio::spawn({
+        let url = url.clone();
+        async move { client().get(&url).send().await.expect("second").status() }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(
+        !second.is_finished(),
+        "answered while the first was running"
+    );
+    assert_eq!(first.bytes().await.expect("body").len(), 64 << 10);
+    assert_eq!(second.await.expect("join"), StatusCode::OK);
+    // The first takes half a second at 128 KiB/s; the second was answered only after it.
+    assert!(started.elapsed() >= Duration::from_millis(400));
+}
+
+#[tokio::test]
 async fn range_416_get_refuses_that_range_only() {
     let base = start().await;
     let url = format!("{base}/file/a.bin?size=1K&range_416_get=1");

@@ -36,6 +36,8 @@ pub(crate) struct UrlState {
     pub(crate) gets: AtomicU64,
     pub(crate) active: AtomicU32,
     pub(crate) peak_active: AtomicU32,
+    /// `answer_at_once`: held by the request waiting for its turn.
+    pub(crate) turn: tokio::sync::Mutex<()>,
     /// Requests turned away by `max_conns`.
     pub(crate) refused: AtomicU64,
     /// `corrupt_at`: a response has been corrupted already.
@@ -137,7 +139,7 @@ async fn serve_file(
             .into_response();
     }
 
-    let active = url.active.fetch_add(1, Ordering::AcqRel) + 1;
+    let active = take_turn(&sc, &url).await;
     if sc.max_conns.is_some_and(|max| active > max) {
         url.active.fetch_sub(1, Ordering::AcqRel);
         url.refused.fetch_add(1, Ordering::Relaxed);
