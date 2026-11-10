@@ -23,66 +23,74 @@ let hideTimer: number | undefined;
 /** The video the open menu is for; the button stays while it is open. */
 let menuFor: HTMLVideoElement | null = null;
 
+/** The app's colors (see ui.css); the page's styles cannot reach a shadow root, so they are
+ * spelled out here. */
+const STYLE = `
+	/* On the button and the menu, not :host: the host's inline "all: initial" wins over it. */
+	.main, .menu { font: 600 12px system-ui, 'Segoe UI', sans-serif; }
+	button {
+		font: inherit;
+		border: 0;
+		cursor: pointer;
+	}
+	.main {
+		display: block;
+		min-height: 24px;
+		padding: 0 10px;
+		border-radius: 4px;
+		background: #2563eb;
+		color: #f3f1ec;
+		box-shadow: 0 2px 10px color-mix(in srgb, #16181d 35%, transparent);
+		opacity: 0.92;
+		white-space: nowrap;
+	}
+	.main:hover { opacity: 1; }
+	.main[disabled] { cursor: default; opacity: 1; }
+	.menu {
+		position: absolute;
+		top: calc(100% + 2px);
+		right: 0;
+		min-width: 160px;
+		max-height: 320px;
+		overflow-y: auto;
+		padding: 4px;
+		border-radius: 6px;
+		background: #1c1f26;
+		color: #f3f1ec;
+		box-shadow: 0 6px 24px color-mix(in srgb, #000 45%, transparent);
+	}
+	.menu[hidden] { display: none; }
+	.menu button {
+		display: block;
+		width: 100%;
+		padding: 6px 10px;
+		border-radius: 4px;
+		background: transparent;
+		color: inherit;
+		text-align: left;
+		white-space: nowrap;
+	}
+	.menu button:hover, .menu button:focus-visible { background: #2563eb; outline: none; }
+	.note { padding: 6px 10px; color: #b9b6ae; font-weight: 400; white-space: nowrap; }
+`;
+
 function build() {
 	host = document.createElement('shardload-video-button');
 	host.style.cssText = 'all: initial; position: fixed; z-index: 2147483647; display: none;';
 	const root = host.attachShadow({ mode: 'closed' });
-	root.innerHTML = `
-		<style>
-			/* The app's colors (see ui.css); the page's styles cannot reach a shadow root, so
-			   they are spelled out here. */
-			/* On the button and the menu, not :host: the host's inline \`all: initial\` wins over it. */
-			.main, .menu { font: 600 12px system-ui, 'Segoe UI', sans-serif; }
-			button {
-				font: inherit;
-				border: 0;
-				cursor: pointer;
-			}
-			.main {
-				display: block;
-				min-height: 24px;
-				padding: 0 10px;
-				border-radius: 4px;
-				background: #2563eb;
-				color: #f3f1ec;
-				box-shadow: 0 2px 10px color-mix(in srgb, #16181d 35%, transparent);
-				opacity: 0.92;
-				white-space: nowrap;
-			}
-			.main:hover { opacity: 1; }
-			.main[disabled] { cursor: default; opacity: 1; }
-			.menu {
-				position: absolute;
-				top: calc(100% + 2px);
-				right: 0;
-				min-width: 160px;
-				max-height: 320px;
-				overflow-y: auto;
-				padding: 4px;
-				border-radius: 6px;
-				background: #1c1f26;
-				color: #f3f1ec;
-				box-shadow: 0 6px 24px color-mix(in srgb, #000 45%, transparent);
-			}
-			.menu[hidden] { display: none; }
-			.menu button {
-				display: block;
-				width: 100%;
-				padding: 6px 10px;
-				border-radius: 4px;
-				background: transparent;
-				color: inherit;
-				text-align: left;
-				white-space: nowrap;
-			}
-			.menu button:hover, .menu button:focus-visible { background: #2563eb; outline: none; }
-			.note { padding: 6px 10px; color: #b9b6ae; font-weight: 400; white-space: nowrap; }
-		</style>
-		<button type="button" class="main" title="Download with Shardload">${LABEL}</button>
-		<div class="menu" role="menu" hidden></div>`;
-	button = root.querySelector('.main');
-	menu = root.querySelector('.menu');
-	button?.addEventListener('click', (e) => {
+	const style = document.createElement('style');
+	style.textContent = STYLE;
+	button = document.createElement('button');
+	button.type = 'button';
+	button.className = 'main';
+	button.title = 'Download with Shardload';
+	button.textContent = LABEL;
+	menu = document.createElement('div');
+	menu.className = 'menu';
+	menu.setAttribute('role', 'menu');
+	menu.hidden = true;
+	root.append(style, button, menu);
+	button.addEventListener('click', (e) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (menuFor) closeMenu();
