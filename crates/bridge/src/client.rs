@@ -51,9 +51,14 @@ impl Client {
     }
 
     async fn send_with(&mut self, frame: &[u8], launch: bool) -> Result<Vec<u8>> {
-        // A connection kept from an earlier message may have closed (the app restarted): one
-        // retry with a fresh connection.
-        for attempt in 0..2 {
+        // A connection kept from an earlier message may have closed (the app restarted):
+        // writing to it fails, so the app never saw the frame, and it goes again on a fresh
+        // connection. Once the frame was written the app may have acted on it, so only a
+        // request that changes nothing is sent again.
+        let repeatable = changes_nothing(frame);
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
             let conn = match self.conn.as_mut() {
                 Some(c) => c,
                 None if launch => self.conn.insert(open(&self.data, &self.pipe).await?),
@@ -63,20 +68,69 @@ impl Client {
                         .map_err(|_| NOT_RUNNING.to_owned())?,
                 ),
             };
-            let sent = write_frame(conn, frame).await;
-            let reply = match sent {
-                Ok(()) => read_frame(conn).await,
-                Err(e) => Err(e),
+            let failed = match exchange(conn, frame).await {
+                Ok(bytes) => return Ok(bytes),
+                Err(failed) => failed,
             };
-            match reply {
-                Ok(Some(bytes)) => return Ok(bytes),
-                Ok(None) | Err(_) if attempt == 0 => self.conn = None,
-                Ok(None) => return Err("the app closed the connection".into()),
-                Err(e) => return Err(e.to_string()),
+            self.conn = None;
+            let delivered = matches!(failed, Failed::AfterWriting(_));
+            if attempt == 2 || (delivered && !repeatable) {
+                return Err(failed.into_message());
             }
         }
-        unreachable!()
     }
+}
+
+/// How an exchange on a connection failed: before the whole frame was written (the app
+/// cannot have acted on it), or after (it may have).
+enum Failed {
+    Writing(String),
+    AfterWriting(String),
+}
+
+impl Failed {
+    fn into_message(self) -> String {
+        match self {
+            Self::Writing(e) | Self::AfterWriting(e) => e,
+        }
+    }
+}
+
+async fn exchange(conn: &mut Conn, frame: &[u8]) -> std::result::Result<Vec<u8>, Failed> {
+    write_frame(conn, frame)
+        .await
+        .map_err(|e| Failed::Writing(e.to_string()))?;
+    match read_frame(conn).await {
+        Ok(Some(bytes)) => Ok(bytes),
+        Ok(None) => Err(Failed::AfterWriting(
+            "the app closed the connection before answering".into(),
+        )),
+        Err(e) => Err(Failed::AfterWriting(e.to_string())),
+    }
+}
+
+/// Whether the app only answers this request, so that it may be sent again without the
+/// app doing something twice. A frame that does not parse is not.
+fn changes_nothing(frame: &[u8]) -> bool {
+    use Request as R;
+    matches!(
+        serde_json::from_slice::<Request>(frame),
+        Ok(R::Ping
+            // Says which extension this is; saying it again records the same.
+            | R::Extension(_)
+            | R::MediaQualities(_)
+            | R::Tasks
+            | R::Grab { .. }
+            | R::InspectVideo { .. }
+            | R::InspectTorrent { .. }
+            | R::InspectArchive { .. }
+            | R::Wait { .. }
+            | R::Sites
+            | R::DiskSpace
+            | R::Network
+            | R::Deadlines
+            | R::FileOrigin { .. })
+    )
 }
 
 /// Connects to the running app, or starts it and waits until it listens.
@@ -184,4 +238,192 @@ fn launch_app() -> Result<()> {
         .or_else(|_| start(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP))
         .map(drop)
         .map_err(|e| format!("could not start the app ({}): {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use tokio::io::{AsyncRead, AsyncWrite};
+
+    use super::*;
+    use crate::{Reply, Request, read_json, write_json};
+
+    const DOWNLOAD: &[u8] = br#"{"type":"download","url":"https://example.com/a.zip"}"#;
+    const PING: &[u8] = br#"{"type":"ping"}"#;
+
+    /// A data folder of its own: the pipe name and token follow from it.
+    struct Profile(PathBuf);
+
+    impl Profile {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir()
+                .join("shardload-client-tests")
+                .join(format!("{name}-{}", std::process::id()));
+            std::fs::remove_dir_all(&dir).ok();
+            std::fs::create_dir_all(&dir).expect("create");
+            Self(dir)
+        }
+    }
+
+    impl Drop for Profile {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).ok();
+        }
+    }
+
+    #[cfg(windows)]
+    struct Listener {
+        name: String,
+        next: tokio::net::windows::named_pipe::NamedPipeServer,
+    }
+
+    #[cfg(windows)]
+    impl Listener {
+        fn bind(name: &str) -> Self {
+            let next = tokio::net::windows::named_pipe::ServerOptions::new()
+                .first_pipe_instance(true)
+                .create(name)
+                .expect("pipe");
+            Self {
+                name: name.to_owned(),
+                next,
+            }
+        }
+
+        async fn accept(&mut self) -> tokio::net::windows::named_pipe::NamedPipeServer {
+            self.next.connect().await.expect("connect");
+            let fresh = tokio::net::windows::named_pipe::ServerOptions::new()
+                .create(&self.name)
+                .expect("pipe");
+            std::mem::replace(&mut self.next, fresh)
+        }
+    }
+
+    #[cfg(unix)]
+    struct Listener(tokio::net::UnixListener);
+
+    #[cfg(unix)]
+    impl Listener {
+        fn bind(name: &str) -> Self {
+            std::fs::remove_file(name).ok();
+            Self(tokio::net::UnixListener::bind(name).expect("socket"))
+        }
+
+        async fn accept(&mut self) -> tokio::net::UnixStream {
+            self.0.accept().await.expect("accept").0
+        }
+    }
+
+    /// Answers `hello`, then counts each request; the first connection is dropped as soon as
+    /// its first request arrived (the app went away before answering), later ones are answered.
+    async fn talk<S: AsyncRead + AsyncWrite + Unpin>(
+        mut conn: S,
+        token: &str,
+        drop_first: bool,
+        received: &AtomicUsize,
+    ) {
+        match read_json::<Request, _>(&mut conn).await {
+            Ok(Some(Request::Hello { token: t })) if t == token => {}
+            _ => return,
+        }
+        write_json(&mut conn, &Reply::ok()).await.ok();
+        while let Ok(Some(_)) = read_frame(&mut conn).await {
+            received.fetch_add(1, Ordering::SeqCst);
+            if drop_first {
+                return;
+            }
+            write_json(&mut conn, &Reply::ok()).await.ok();
+        }
+    }
+
+    /// Stands in for an app that loses the first connection after its first request.
+    fn flaky_app(dir: &Path) -> Arc<AtomicUsize> {
+        let token = crate::new_token(dir).expect("token");
+        let mut listener = Listener::bind(&crate::pipe_name(dir));
+        let received = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&received);
+        tokio::spawn(async move {
+            let mut first = true;
+            loop {
+                let conn = listener.accept().await;
+                let (token, count) = (token.clone(), Arc::clone(&count));
+                let drop_first = std::mem::take(&mut first);
+                tokio::spawn(async move { talk(conn, &token, drop_first, &count).await });
+            }
+        });
+        received
+    }
+
+    async fn in_time<T>(work: impl Future<Output = T>) -> T {
+        tokio::time::timeout(Duration::from_secs(20), work)
+            .await
+            .expect("in time")
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_download_the_app_may_have_received_is_not_sent_again() {
+        let p = Profile::new("once");
+        let received = flaky_app(&p.0);
+        let mut client = Client::new(p.0.clone());
+        let sent = in_time(client.send_if_running(DOWNLOAD)).await;
+        assert!(sent.is_err(), "{sent:?}");
+        assert_eq!(received.load(Ordering::SeqCst), 1, "sent once");
+        // The next request goes out on a fresh connection.
+        in_time(client.send_if_running(PING)).await.expect("ping");
+        assert_eq!(received.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_request_that_changes_nothing_is_asked_again() {
+        let p = Profile::new("ask-again");
+        let received = flaky_app(&p.0);
+        let mut client = Client::new(p.0.clone());
+        in_time(client.send_if_running(PING)).await.expect("ping");
+        assert_eq!(received.load(Ordering::SeqCst), 2);
+    }
+
+    /// The real server in a runtime of its own, which ends (closing every connection) when
+    /// dropped: an app that quits.
+    fn app_in_own_runtime(dir: &Path, downloads: &Arc<AtomicUsize>) -> tokio::runtime::Runtime {
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        serve_counting(&rt, dir, downloads);
+        rt
+    }
+
+    fn serve_counting(rt: &tokio::runtime::Runtime, dir: &Path, downloads: &Arc<AtomicUsize>) {
+        let token = crate::new_token(dir).expect("token");
+        let pipe = crate::pipe_name(dir);
+        let count = Arc::clone(downloads);
+        rt.spawn(async move {
+            crate::serve(&pipe, token, move |request| {
+                if matches!(request, Request::Download(_)) {
+                    count.fetch_add(1, Ordering::SeqCst);
+                }
+                async { Reply::ok() }
+            })
+            .await
+            .ok();
+        });
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_kept_connection_to_an_app_that_restarted_is_replaced() {
+        let p = Profile::new("restart");
+        let downloads = Arc::new(AtomicUsize::new(0));
+        let before = app_in_own_runtime(&p.0, &downloads);
+        let mut client = Client::new(p.0.clone());
+        in_time(client.send_if_running(PING)).await.expect("ping");
+        tokio::task::spawn_blocking(move || drop(before))
+            .await
+            .expect("quit");
+        let after = app_in_own_runtime(&p.0, &downloads);
+        let reply = in_time(client.send_if_running(DOWNLOAD)).await;
+        assert!(reply.is_ok(), "{reply:?}");
+        assert_eq!(downloads.load(Ordering::SeqCst), 1);
+        tokio::task::spawn_blocking(move || drop(after))
+            .await
+            .expect("quit");
+    }
 }
