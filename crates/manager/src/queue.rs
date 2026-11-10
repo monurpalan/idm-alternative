@@ -105,7 +105,7 @@ impl Inner {
     /// Cancels a running download for `why` and waits until it has stopped. `false` if it was
     /// not running.
     pub(crate) async fn stop(&self, id: TaskId, why: Stop) -> bool {
-        let (handle, _seen_it_end) = {
+        let (handle, own, _seen_it_end) = {
             let mut running = lock(&self.running);
             let Some(r) = running.get_mut(&id) else {
                 return false;
@@ -123,10 +123,19 @@ impl Inner {
             let next = tokio::spawn(async move {
                 wait.await.ok();
             });
-            (r.handle.replace(next), seen)
+            (r.handle.replace(next), Arc::clone(&r.stop), seen)
         };
         if let Some(h) = handle {
             h.await.ok();
+        }
+        // Its run is over and no other stop waits for it (only the entry and this hold its
+        // reason): a run that panicked never took its entry out.
+        let mut running = lock(&self.running);
+        if running
+            .get(&id)
+            .is_some_and(|r| Arc::ptr_eq(&r.stop, &own) && Arc::strong_count(&own) == 2)
+        {
+            running.remove(&id);
         }
         true
     }
@@ -168,6 +177,9 @@ impl Inner {
         if self.closed.load(Ordering::SeqCst) {
             return Ok(());
         }
+        // A run that panicked is gone without taking its entry out: only the entry holds its
+        // reason then, while a run or a stop waiting for it holds it too.
+        lock(&self.running).retain(|_, r| Arc::strong_count(&r.stop) > 1);
         let max = lock(&self.config).max_active.max(1);
         let free = max.saturating_sub(lock(&self.running).len());
         if free == 0 {
@@ -565,6 +577,15 @@ mod tests {
     /// A download, queued and held as it starts. Its manager and id, the notice that it is
     /// held, and the go-ahead.
     async fn held_start(name: &str) -> (Manager, TaskId, Arc<Notify>, Arc<Notify>) {
+        let (m, id, url) = queued(name).await;
+        let reached = Arc::new(Notify::new());
+        let go = Arc::new(Notify::new());
+        lock(&HELD).push((url, Arc::clone(&reached), Arc::clone(&go)));
+        (m, id, reached, go)
+    }
+
+    /// A slow download, queued but not started: its manager, id and URL.
+    async fn queued(name: &str) -> (Manager, TaskId, String) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind");
@@ -609,10 +630,71 @@ mod tests {
             .set_status(task.id, Status::Queued, None)
             .await
             .expect("queue");
-        let reached = Arc::new(Notify::new());
-        let go = Arc::new(Notify::new());
-        lock(&HELD).push((url, Arc::clone(&reached), Arc::clone(&go)));
-        (m, task.id, reached, go)
+        (m, task.id, url)
+    }
+
+    /// Leaves an entry in the running downloads as a download that panicked would: its task
+    /// over, not cancelled, never taken out.
+    async fn leak_entry(m: &Manager, id: TaskId) {
+        let handle = tokio::spawn(async {});
+        while !handle.is_finished() {
+            tokio::task::yield_now().await;
+        }
+        lock(&m.inner.running).insert(
+            id,
+            Running {
+                cancel: CancellationToken::new(),
+                stop: Arc::new(Mutex::new(None)),
+                limiter: Limiter::new(None),
+                handle: Some(handle),
+            },
+        );
+    }
+
+    /// Waits until the download is running for real (not the entry left behind).
+    async fn wait_started(m: &Manager, id: TaskId) {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let started = lock(&m.inner.running)
+                    .get(&id)
+                    .and_then(|r| r.handle.as_ref())
+                    .is_some_and(|h| !h.is_finished());
+                if started && m.get(id).await.expect("get").received > 0 {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("it never started");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_download_whose_run_was_lost_starts_again() {
+        let (m, id, _) = queued("leaked-start").await;
+        leak_entry(&m, id).await;
+        m.inner.fill().await.expect("fill");
+        wait_started(&m, id).await;
+        m.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_download_whose_run_was_lost_can_be_paused_and_removed() {
+        let (m, id, _) = queued("leaked-stop").await;
+        leak_entry(&m, id).await;
+        tokio::time::timeout(Duration::from_secs(10), m.pause(id))
+            .await
+            .expect("the pause hangs")
+            .expect("pause");
+        assert_eq!(m.get(id).await.expect("get").status, Status::Paused);
+        assert!(!lock(&m.inner.running).contains_key(&id));
+        leak_entry(&m, id).await;
+        tokio::time::timeout(Duration::from_secs(10), m.remove(id, true))
+            .await
+            .expect("the removal hangs")
+            .expect("remove");
+        assert!(m.get(id).await.is_err());
+        m.close().await;
     }
 
     /// Starts the held download, does `what` while it is held, lets it go, and waits for
