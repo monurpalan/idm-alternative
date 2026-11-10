@@ -159,8 +159,8 @@ async fn patch_url_checks_the_new_link() {
 }
 
 /// Checking a new link reads a sample of the file from it: a link that stops sending in the
-/// middle of it fails as stalled within the read timeout, and one that is merely slow (late
-/// to answer, the sample trickling in for longer than the timeout) still passes.
+/// middle of it fails as stalled within the read timeout, and one that is merely slow (a
+/// little late to answer, the sample trickling in for longer than the timeout) still passes.
 #[tokio::test(flavor = "multi_thread")]
 async fn patch_url_gives_up_on_a_stalled_link_but_not_a_slow_one() {
     let base = start().await;
@@ -168,7 +168,7 @@ async fn patch_url_gives_up_on_a_stalled_link_but_not_a_slow_one() {
     let out = dir.join("f.bin");
     expire(&base, &out).await;
     let o = Options {
-        read_timeout: Duration::from_millis(500),
+        read_timeout: Duration::from_secs(1),
         ..opts()
     };
     let stalled = request(
@@ -181,7 +181,8 @@ async fn patch_url_gives_up_on_a_stalled_link_but_not_a_slow_one() {
         .expect_err("stalled");
     assert!(matches!(err, Error::Stalled(_)), "{err}");
 
-    // The 64 KiB sample takes about four seconds.
+    // Answered after 0.3 s (the wait for an answer is 3 s); the 64 KiB sample comes in 1 KiB
+    // pieces every 60 ms or so, about four seconds in all.
     let slow = request(
         format!("{base}/file/new.bin?size={SIZE}&seed=8&latency_ms=300&rate=16K"),
         &out,

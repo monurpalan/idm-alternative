@@ -210,20 +210,22 @@ async fn unanswered_range_request_is_retried() {
     assert_verified(&out, 7, size);
 }
 
-/// Answers that come late, but within the read timeout, and a body that trickles in small
-/// pieces are not mistaken for a stalled server.
+/// Answers that come a little late and a body that trickles in small pieces are not mistaken
+/// for a stalled server: the download finishes with no connection failed on the way.
 #[tokio::test(flavor = "multi_thread")]
 async fn slow_but_live_server_is_not_cut_off() {
     let base = start().await;
     let dir = workdir("slow-live");
     let out = dir.join("f.bin");
     let size = MB;
+    // Answers after 0.3 s (the wait for one is 3 s); pieces of about 13 KiB every 50 ms.
     let url = format!("{base}/file/f.bin?size={size}&seed=7&latency_ms=300&rate=256K");
     let o = Options {
-        read_timeout: Duration::from_millis(500),
+        read_timeout: Duration::from_secs(1),
         ..opts(2)
     };
-    get(&request(url, &out), &o).await.expect("download");
+    let (_, reconnects) = counting_reconnects(url, &out, &o).await;
+    assert_eq!(reconnects, 0);
     assert_verified(&out, 7, size);
 }
 
