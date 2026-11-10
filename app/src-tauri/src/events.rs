@@ -95,7 +95,12 @@ pub(crate) async fn forward_events(
 
 /// The last status seen of each download, to notice the moment one starts or finishes.
 #[derive(Debug, Default)]
-pub(crate) struct Statuses(HashMap<TaskId, Status>);
+pub(crate) struct Statuses {
+    last: HashMap<TaskId, Status>,
+    /// Listed as downloading, and not heard of since: the first "downloading" heard for one
+    /// is still its start (its progress window opens then).
+    listed_running: std::collections::HashSet<TaskId>,
+}
 
 /// What a download's new status means.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,17 +116,28 @@ impl Statuses {
     /// Starts from the list as it is: the manager resumes downloads as it opens, before
     /// anyone listens, and those are already downloading.
     pub(crate) fn from_list(list: impl IntoIterator<Item = (TaskId, Status)>) -> Self {
-        Self(list.into_iter().collect())
+        let last: HashMap<TaskId, Status> = list.into_iter().collect();
+        let listed_running = last
+            .iter()
+            .filter(|(_, s)| **s == Status::Downloading)
+            .map(|(id, _)| *id)
+            .collect();
+        Self {
+            last,
+            listed_running,
+        }
     }
 
     pub(crate) fn seen(&mut self, id: TaskId, status: Status) {
-        self.0.insert(id, status);
+        self.listed_running.remove(&id);
+        self.last.insert(id, status);
     }
 
     pub(crate) fn updated(&mut self, id: TaskId, status: Status) -> Change {
-        let before = self.0.insert(id, status);
+        let unheard = self.listed_running.remove(&id);
+        let before = self.last.insert(id, status);
         match (before, status) {
-            (Some(Status::Downloading), Status::Downloading) => Change::Other,
+            (Some(Status::Downloading), Status::Downloading) if !unheard => Change::Other,
             (_, Status::Downloading) => Change::Started,
             (Some(Status::Downloading), Status::Done) => Change::Finished,
             _ => Change::Other,
@@ -129,7 +145,8 @@ impl Statuses {
     }
 
     pub(crate) fn removed(&mut self, id: TaskId) {
-        self.0.remove(&id);
+        self.listed_running.remove(&id);
+        self.last.remove(&id);
     }
 }
 
@@ -371,6 +388,18 @@ mod tests {
         let mut statuses = Statuses::from_list([(1, Status::Downloading), (2, Status::Done)]);
         assert_eq!(statuses.updated(1, Status::Done), Change::Finished);
         // One finished long ago and changed again (renamed, say) is not announced again.
+        assert_eq!(statuses.updated(2, Status::Done), Change::Other);
+    }
+
+    #[test]
+    fn a_download_listed_as_downloading_starts_when_first_heard_downloading() {
+        // Resumed as the manager opened, or started by the queue between subscribing and
+        // reading the list: its first "downloading" heard is its start, once.
+        let mut statuses = Statuses::from_list([(1, Status::Downloading), (2, Status::Done)]);
+        assert_eq!(statuses.updated(1, Status::Downloading), Change::Started);
+        assert_eq!(statuses.updated(1, Status::Downloading), Change::Other);
+        assert_eq!(statuses.updated(1, Status::Done), Change::Finished);
+        // One listed as done is never announced, whatever comes next.
         assert_eq!(statuses.updated(2, Status::Done), Change::Other);
     }
 
