@@ -712,7 +712,9 @@ async fn a_torrents_piece_hashes_check_an_http_download() {
 }
 
 /// With free slots, a download retried with the saved login is one download: pausing it
-/// stops it.
+/// stops it. This guards the whole retry end to end; it does not by itself hit the moment a
+/// fill from elsewhere comes between the retry being queued and the first run being gone
+/// (`queue::tests::a_retry_with_the_saved_login_runs_once` holds the run there for that).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_retry_with_the_saved_login_is_one_download_that_stops() {
     let base = start_server().await;

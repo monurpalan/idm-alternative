@@ -357,6 +357,8 @@ impl Inner {
         why: Option<Stop>,
         finished: bool,
     ) {
+        #[cfg(test)]
+        tests::ending(self, id).await;
         if why != Some(Stop::Remove)
             && let Ok(Some(task)) = self.db.get(id).await
         {
@@ -555,7 +557,8 @@ mod tests {
     use std::task::Poll;
     use tokio::sync::Notify;
 
-    /// Downloads held between being marked as started and being running: their URL, a
+    /// Downloads held between being marked as started and being running (their URL), or
+    /// between their end being recorded and their entry going (`end ` and their URL): a
     /// notice that one got there, and the go-ahead.
     static HELD: Mutex<Vec<Held>> = Mutex::new(Vec::new());
 
@@ -563,6 +566,17 @@ mod tests {
 
     /// Waits for the go-ahead when the download of `url` is held there.
     pub(super) async fn starting(url: &str) {
+        held_at(url).await;
+    }
+
+    /// Waits for the go-ahead when the end of download `id` is held.
+    pub(super) async fn ending(inner: &Inner, id: TaskId) {
+        if let Ok(Some(task)) = inner.db.get(id).await {
+            held_at(&format!("end {}", task.url)).await;
+        }
+    }
+
+    async fn held_at(url: &str) {
         let held = {
             let mut held = lock(&HELD);
             let i = held.iter().position(|(u, ..)| u == url);
@@ -586,6 +600,11 @@ mod tests {
 
     /// A slow download, queued but not started: its manager, id and URL.
     async fn queued(name: &str) -> (Manager, TaskId, String) {
+        queued_with(name, "").await
+    }
+
+    /// [`queued`], with `more` added to the test server's query.
+    async fn queued_with(name: &str, more: &str) -> (Manager, TaskId, String) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind");
@@ -616,7 +635,7 @@ mod tests {
         let m = Manager::open(&dir.join("list.db"), config)
             .await
             .expect("open");
-        let url = format!("{base}/file/{name}.bin?size=8M&seed=7&rate=1M");
+        let url = format!("{base}/file/{name}.bin?size=8M&seed=7&rate=1M{more}");
         let task = m
             .add(NewTask {
                 url: url.clone(),
@@ -760,6 +779,31 @@ mod tests {
         m.close().await;
     }
 
+    /// A fill from elsewhere (the deadline watch, another download ending) comes after the
+    /// download is queued again with the saved login and before its first run is gone.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_retry_with_the_saved_login_runs_once() {
+        let (m, id, url) = queued_with("login-once", "&auth=ali:s3cret").await;
+        let site = site_of(&url).expect("site");
+        m.save_login(&site, "ali", "s3cret").await.expect("save");
+        let reached = Arc::new(Notify::new());
+        let go = Arc::new(Notify::new());
+        lock(&HELD).push((format!("end {url}"), Arc::clone(&reached), Arc::clone(&go)));
+        m.inner.fill().await.expect("fill");
+        reached.notified().await;
+        assert_eq!(m.get(id).await.expect("get").status, Status::Queued);
+        m.inner.fill().await.expect("fill");
+        go.notify_one();
+        wait_started(&m, id).await;
+        tokio::time::timeout(Duration::from_secs(10), m.pause(id))
+            .await
+            .expect("the pause hangs")
+            .expect("pause");
+        assert_eq!(m.get(id).await.expect("get").status, Status::Paused);
+        assert!(!lock(&m.inner.running).contains_key(&id));
+        m.close().await;
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn closing_as_a_download_starts_stops_it() {
         let (m, id, reached, go) = held_start("start-close").await;
@@ -778,9 +822,13 @@ mod tests {
         let (m, id, _reached, go) = held_start("stop-twice").await;
         go.notify_one();
         m.inner.fill().await.expect("fill");
-        while m.get(id).await.expect("get").received == 0 {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while m.get(id).await.expect("get").received == 0 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("no progress");
         let inner = Arc::clone(&m.inner);
         let mut removing = Box::pin(inner.stop(id, Stop::Remove));
         let first = std::future::poll_fn(|cx| Poll::Ready(removing.as_mut().poll(cx))).await;
