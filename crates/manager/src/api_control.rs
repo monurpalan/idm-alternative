@@ -31,12 +31,15 @@ impl Manager {
     /// Removes a download from the list, stopping it first. With `delete_files`, the file
     /// and any partial data go too; otherwise files stay where they are.
     pub async fn remove(&self, id: TaskId, delete_files: bool) -> Result<()> {
-        let task = self.get(id).await?;
+        self.get(id).await?;
         lock(&self.inner.retries).remove(&id);
-        {
+        let task = {
             let (_, _no_start) = self.inner.stop_held(id, Stop::Remove).await;
+            // Read once stopped: a download that was starting has its path only now.
+            let task = self.get(id).await?;
             self.inner.db.delete(id).await?;
-        }
+            task
+        };
         if delete_files && let Some(path) = &task.path {
             delete_files_of(path);
             // A torrent with several files, or files out of an archive: the folder chosen
@@ -54,18 +57,22 @@ impl Manager {
     /// Downloads again from scratch (IDM's "Redownload"): the file and any partial data are
     /// deleted and the download is queued.
     pub async fn restart(&self, id: TaskId) -> Result<()> {
-        let task = self.get(id).await?;
+        self.get(id).await?;
         lock(&self.inner.retries).remove(&id);
-        // Stopped like a removal: the download's own end is not recorded.
-        self.inner.stop(id, Stop::Remove).await;
-        if let Some(path) = &task.path {
-            delete_files_of(path);
-            // Files out of an archive: their folder, or they would count as done.
-            if task.stream.as_ref().is_some_and(|s| s.archive.is_some()) && path.is_dir() {
-                std::fs::remove_dir_all(path).ok();
+        {
+            // Stopped like a removal: the download's own end is not recorded. Nothing starts
+            // it again until it is reset.
+            let (_, _no_start) = self.inner.stop_held(id, Stop::Remove).await;
+            let task = self.get(id).await?;
+            if let Some(path) = &task.path {
+                delete_files_of(path);
+                // Files out of an archive: their folder, or they would count as done.
+                if task.stream.as_ref().is_some_and(|s| s.archive.is_some()) && path.is_dir() {
+                    std::fs::remove_dir_all(path).ok();
+                }
             }
+            self.inner.db.reset(id).await?;
         }
-        self.inner.db.reset(id).await?;
         let task = self.get(id).await?;
         self.inner.emit(Event::Updated(task));
         self.inner.fill().await

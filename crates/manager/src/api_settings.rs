@@ -122,7 +122,8 @@ impl Manager {
             Some(fresh) => merge_headers(&task.headers, fresh),
             None => task.headers.clone(),
         };
-        let was_running = self.inner.stop(id, Stop::Pause).await;
+        // Not held while the new link is checked: that asks the server.
+        let (was_running, _) = self.inner.stop_held(id, Stop::Pause).await;
         if let Some(path) = &task.path {
             let mut state = path.as_os_str().to_owned();
             state.push(".shardload-state");
@@ -155,16 +156,18 @@ impl Manager {
     /// replacing earlier ones, and queues it: for a server that asked for a login.
     pub async fn set_login(&self, id: TaskId, user: &str, password: &str) -> Result<()> {
         let task = self.get(id).await?;
-        let was_running = self.inner.stop(id, Stop::Pause).await;
-        let mut headers: Vec<(String, String)> = task
-            .headers
-            .into_iter()
-            .filter(|(k, _)| !k.eq_ignore_ascii_case("authorization"))
-            .collect();
-        headers.push(shardload_engine::basic_auth(user, password));
-        self.inner.db.set_headers(id, &headers).await?;
-        if was_running || task.status != Status::Done {
-            self.inner.set_status(id, Status::Queued, None).await?;
+        {
+            let (was_running, _no_start) = self.inner.stop_held(id, Stop::Pause).await;
+            let mut headers: Vec<(String, String)> = task
+                .headers
+                .into_iter()
+                .filter(|(k, _)| !k.eq_ignore_ascii_case("authorization"))
+                .collect();
+            headers.push(shardload_engine::basic_auth(user, password));
+            self.inner.db.set_headers(id, &headers).await?;
+            if was_running || task.status != Status::Done {
+                self.inner.set_status(id, Status::Queued, None).await?;
+            }
         }
         self.inner.fill().await
     }
@@ -175,11 +178,13 @@ impl Manager {
     pub async fn set_headers(&self, id: TaskId, headers: &[(String, String)]) -> Result<Task> {
         command::check_headers(headers).map_err(Error::BadHeaders)?;
         let task = self.get(id).await?;
-        let was_running = self.inner.stop(id, Stop::Pause).await;
-        self.inner.db.set_headers(id, headers).await?;
-        if was_running || task.status == Status::Error {
-            lock(&self.inner.retries).remove(&id);
-            self.inner.set_status(id, Status::Queued, None).await?;
+        {
+            let (was_running, _no_start) = self.inner.stop_held(id, Stop::Pause).await;
+            self.inner.db.set_headers(id, headers).await?;
+            if was_running || task.status == Status::Error {
+                lock(&self.inner.retries).remove(&id);
+                self.inner.set_status(id, Status::Queued, None).await?;
+            }
         }
         let task = self.get(id).await?;
         self.inner.emit(Event::Updated(task.clone()));

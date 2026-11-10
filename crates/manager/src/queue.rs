@@ -747,6 +747,20 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn downloading_again_as_a_download_starts_starts_it_afresh() {
+        let (m, id, reached, go) = held_start("start-restart").await;
+        let restarting = m.clone();
+        while_starting(&m, &reached, &go, async move {
+            restarting.restart(id).await.expect("restart");
+        })
+        .await;
+        // Started again from the reset row, not left queued behind the run it missed.
+        assert_eq!(m.get(id).await.expect("get").status, Status::Downloading);
+        assert!(lock(&m.inner.running).contains_key(&id));
+        m.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn closing_as_a_download_starts_stops_it() {
         let (m, id, reached, go) = held_start("start-close").await;
         let closing = m.clone();
