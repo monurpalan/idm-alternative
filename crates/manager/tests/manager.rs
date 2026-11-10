@@ -710,3 +710,33 @@ async fn a_torrents_piece_hashes_check_an_http_download() {
     );
     m.close().await;
 }
+
+/// With free slots, a download retried with the saved login is one download: pausing it
+/// stops it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_retry_with_the_saved_login_is_one_download_that_stops() {
+    let base = start_server().await;
+    let w = WorkDir::new("saved-login-once");
+    let m = Manager::open(&w.db(), w.config(3)).await.expect("open");
+    let site = shardload_manager::site_of(&base).expect("site");
+    m.save_login(&site, "ali", "s3cret").await.expect("save");
+    let task = m
+        .add(new_task(format!(
+            "{base}/file/locked.bin?size=8M&seed=33&rate=1M&auth=ali:s3cret"
+        )))
+        .await
+        .expect("add");
+    wait_for(&m, task.id, 30, |t| {
+        t.status == Status::Downloading
+            && t.headers
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case("authorization"))
+            && t.received > 0
+    })
+    .await;
+    m.pause(task.id).await.expect("pause");
+    assert_eq!(m.get(task.id).await.expect("get").status, Status::Paused);
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(m.get(task.id).await.expect("get").status, Status::Paused);
+    m.close().await;
+}

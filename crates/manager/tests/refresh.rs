@@ -74,3 +74,43 @@ async fn a_link_on_the_page_to_another_file_is_not_taken() {
     assert!(ended.url.contains("ttl=1"), "{}", ended.url);
     m.close().await;
 }
+
+/// With a free slot the refreshed link goes on as the same one download: pausing it stops
+/// it, and removing it takes it away for good.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refreshed_link_with_free_slots_is_one_download_that_stops() {
+    let fresh_path = "/file/f.bin?size=8M&seed=51&rate=1M&k=fresh";
+    let base = site(fresh_path.to_owned()).await;
+    let w = WorkDir::new("refresh-free-slots");
+    let config = shardload_manager::Config {
+        connections: 1,
+        ..w.config(3)
+    };
+    let m = Manager::open(&w.db(), config).await.expect("open");
+    let task = m
+        .add(NewTask {
+            headers: vec![("Referer".into(), format!("{base}/page.html"))],
+            ..new_task(format!("{base}/file/f.bin?{EXPIRING}"))
+        })
+        .await
+        .expect("add");
+    let fresh = format!("{base}{fresh_path}");
+    wait_for(&m, task.id, 60, |t| {
+        t.url == fresh && t.status == Status::Downloading
+    })
+    .await;
+    m.pause(task.id).await.expect("pause");
+    assert_eq!(m.get(task.id).await.expect("get").status, Status::Paused);
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let t = m.get(task.id).await.expect("get");
+    assert_eq!(t.status, Status::Paused, "{:?}", t.error);
+
+    m.start(task.id).await.expect("start");
+    wait_for(&m, task.id, 30, |t| t.status == Status::Downloading).await;
+    let path = m.get(task.id).await.expect("get").path.expect("path");
+    m.remove(task.id, true).await.expect("remove");
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    assert!(m.get(task.id).await.is_err());
+    assert!(!path.exists(), "{}", path.display());
+    m.close().await;
+}

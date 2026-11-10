@@ -148,6 +148,9 @@ impl Inner {
                 .map(|(id, _)| *id)
                 .chain(lock(&self.moving).iter().copied())
                 .chain(later.keys().copied())
+                // Queued again by its own run before that run has ended (a fresh link, a
+                // saved login): it starts once that run is gone.
+                .chain(lock(&self.running).keys().copied())
                 .collect()
         };
         // Some may be held by the network rules: enough are read to skip them, and each
@@ -279,7 +282,7 @@ impl Inner {
         if let Err(e) = recorded {
             tracing::error!(id, "could not record the end of a download: {e}");
         }
-        self.ended(id, why, result.is_ok()).await;
+        self.ended(id, &stop, why, result.is_ok()).await;
     }
 
     /// The server asked to log in (or for an SSH key's passphrase) and a login is saved for
@@ -296,13 +299,25 @@ impl Inner {
 
     /// After a download's end is recorded: the list told, the next queued downloads started,
     /// and (when it finished) what comes after it.
-    async fn ended(self: &Arc<Self>, id: TaskId, why: Option<Stop>, finished: bool) {
+    async fn ended(
+        self: &Arc<Self>,
+        id: TaskId,
+        stop: &Arc<Mutex<Option<Stop>>>,
+        why: Option<Stop>,
+        finished: bool,
+    ) {
         if why != Some(Stop::Remove)
             && let Ok(Some(task)) = self.db.get(id).await
         {
             self.emit(Event::Updated(task));
         }
-        lock(&self.running).remove(&id);
+        {
+            // Only its own entry: never one of a later run of the same download.
+            let mut running = lock(&self.running);
+            if running.get(&id).is_some_and(|r| Arc::ptr_eq(&r.stop, stop)) {
+                running.remove(&id);
+            }
+        }
         if let Err(e) = self.fill().await {
             tracing::error!("could not start queued downloads: {e}");
         }
