@@ -9,11 +9,15 @@ pub(crate) const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from
 /// Sends manager events to the UI. List changes go out at once; progress is collected and
 /// sent for all downloads together a few times a second, so the UI handles one message per
 /// tick instead of one per download (with hundreds of rows, one each could outpace it).
-/// Also shows a notification when a download finishes.
-pub(crate) async fn forward_events(handle: AppHandle, mut events: broadcast::Receiver<Event>) {
+/// Also shows a notification when a download finishes. `known` is the list as it was when
+/// `events` was subscribed to.
+pub(crate) async fn forward_events(
+    handle: AppHandle,
+    mut events: broadcast::Receiver<Event>,
+    known: Vec<Task>,
+) {
     let mut pending: HashMap<TaskId, TaskProgress> = HashMap::new();
-    // Last status seen per download, to notice the moment one finishes.
-    let mut statuses: HashMap<TaskId, Status> = HashMap::new();
+    let mut statuses = Statuses::from_list(known.iter().map(|t| (t.id, t.status)));
     let mut tick = tokio::time::interval(PROGRESS_EVERY);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut ticks: u64 = 0;
@@ -35,23 +39,20 @@ pub(crate) async fn forward_events(handle: AppHandle, mut events: broadcast::Rec
                 }
                 Ok(e) => {
                     match &e {
-                        Event::Added(t) => {
-                            statuses.insert(t.id, t.status);
-                        }
+                        Event::Added(t) => statuses.seen(t.id, t.status),
                         Event::Updated(t) => {
                             // A download that stopped must not get a stale progress afterwards.
                             if t.status != Status::Downloading {
                                 pending.remove(&t.id);
                                 lock(&handle.state::<App>().live).remove(&t.id);
                             }
-                            let before = statuses.insert(t.id, t.status);
-                            if t.status == Status::Downloading
-                                && before != Some(Status::Downloading)
+                            let change = statuses.updated(t.id, t.status);
+                            if change == Change::Started
                                 && lock(&handle.state::<App>().settings).progress_windows
                             {
                                 open_progress(&handle, t.id, false);
                             }
-                            if t.status == Status::Done && before == Some(Status::Downloading) {
+                            if change == Change::Finished {
                                 notify_done(&handle, t);
                                 scan_done(&handle, t);
                             }
@@ -59,7 +60,7 @@ pub(crate) async fn forward_events(handle: AppHandle, mut events: broadcast::Rec
                         Event::Removed(id) => {
                             pending.remove(id);
                             lock(&handle.state::<App>().live).remove(id);
-                            statuses.remove(id);
+                            statuses.removed(*id);
                         }
                         Event::DiskLow(low) => notify_disk_low(&handle, low),
                         Event::Budget(b) => notify_budget(&handle, b),
@@ -89,6 +90,46 @@ pub(crate) async fn forward_events(handle: AppHandle, mut events: broadcast::Rec
                 }
             }
         }
+    }
+}
+
+/// The last status seen of each download, to notice the moment one starts or finishes.
+#[derive(Debug, Default)]
+pub(crate) struct Statuses(HashMap<TaskId, Status>);
+
+/// What a download's new status means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Change {
+    /// It began downloading.
+    Started,
+    /// It went from downloading to done.
+    Finished,
+    Other,
+}
+
+impl Statuses {
+    /// Starts from the list as it is: the manager resumes downloads as it opens, before
+    /// anyone listens, and those are already downloading.
+    pub(crate) fn from_list(list: impl IntoIterator<Item = (TaskId, Status)>) -> Self {
+        Self(list.into_iter().collect())
+    }
+
+    pub(crate) fn seen(&mut self, id: TaskId, status: Status) {
+        self.0.insert(id, status);
+    }
+
+    pub(crate) fn updated(&mut self, id: TaskId, status: Status) -> Change {
+        let before = self.0.insert(id, status);
+        match (before, status) {
+            (Some(Status::Downloading), Status::Downloading) => Change::Other,
+            (_, Status::Downloading) => Change::Started,
+            (Some(Status::Downloading), Status::Done) => Change::Finished,
+            _ => Change::Other,
+        }
+    }
+
+    pub(crate) fn removed(&mut self, id: TaskId) {
+        self.0.remove(&id);
     }
 }
 
@@ -317,4 +358,33 @@ pub(crate) fn tray_tooltip(handle: &AppHandle) -> String {
         None => i18n::t(lang, "{n} downloading", &[("n", &n)]),
     };
     format!("Shardload\n{line}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_download_resumed_before_the_events_were_heard_is_seen_finishing() {
+        // The manager resumed download 1 as it opened; its "downloading" went out before
+        // anyone listened, and the list says so.
+        let mut statuses = Statuses::from_list([(1, Status::Downloading), (2, Status::Done)]);
+        assert_eq!(statuses.updated(1, Status::Done), Change::Finished);
+        // One finished long ago and changed again (renamed, say) is not announced again.
+        assert_eq!(statuses.updated(2, Status::Done), Change::Other);
+    }
+
+    #[test]
+    fn starts_and_finishes() {
+        let mut statuses = Statuses::default();
+        statuses.seen(1, Status::Queued);
+        assert_eq!(statuses.updated(1, Status::Downloading), Change::Started);
+        assert_eq!(statuses.updated(1, Status::Downloading), Change::Other);
+        assert_eq!(statuses.updated(1, Status::Done), Change::Finished);
+        assert_eq!(statuses.updated(1, Status::Downloading), Change::Started);
+        assert_eq!(statuses.updated(1, Status::Paused), Change::Other);
+        assert_eq!(statuses.updated(1, Status::Done), Change::Other);
+        statuses.removed(1);
+        assert_eq!(statuses.updated(1, Status::Done), Change::Other);
+    }
 }

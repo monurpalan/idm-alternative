@@ -289,15 +289,40 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!("could not save the extensions heard from: {e}");
     }
     manager.set_global_limit(settings.speed_limit);
+    let limit = settings.speed_limit;
+    let language = i18n::resolve(&settings.language);
 
-    tauri::async_runtime::spawn(forward_events(app.handle().clone(), manager.subscribe()));
+    // Subscribed before the list is read, so nothing in between is missed; the list says
+    // which downloads the manager already resumed as it opened.
+    let events = manager.subscribe();
+    let known = tauri::async_runtime::block_on(manager.list()).unwrap_or_else(|e| {
+        tracing::warn!("could not read the list: {e}");
+        Vec::new()
+    });
+    // Managed before anything that reads it can run: the events, the bridge, the tray.
+    app.manage(App {
+        manager,
+        data: data.clone(),
+        settings: Mutex::new(settings),
+        tray: Mutex::new(None),
+        awaiting_link: Mutex::new(None),
+        grabbing: Mutex::new(None),
+        when_done: Mutex::new(schedule::Armed::default()),
+        page: Mutex::new(Page::default()),
+        live: Mutex::new(HashMap::new()),
+        #[cfg(windows)]
+        clipboard: Mutex::new(None),
+        extensions: Mutex::new(seen),
+        media_info: Mutex::new(video::MediaCache::default()),
+        path_ffmpeg,
+    });
+    tauri::async_runtime::spawn(forward_events(app.handle().clone(), events, known));
 
     // The browser bridge: a pipe only this user and data folder share, and a fresh token
     // per start, written once the pipe is ours.
     let handle = app.handle().clone();
-    let bridge_data = data.clone();
     tauri::async_runtime::spawn(async move {
-        let (listener, token) = match shardload_bridge::listen_with_token(&bridge_data).await {
+        let (listener, token) = match shardload_bridge::listen_with_token(&data).await {
             Ok(taken) => taken,
             Err(e) => {
                 tracing::error!("browser bridge did not start: {e}");
@@ -311,27 +336,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             })
             .await;
     });
-    let tray = tray::build(
-        app.handle(),
-        settings.speed_limit,
-        i18n::resolve(&settings.language),
-    )?;
-    app.manage(App {
-        manager,
-        data: data.clone(),
-        settings: Mutex::new(settings),
-        tray: Mutex::new(Some(tray)),
-        awaiting_link: Mutex::new(None),
-        grabbing: Mutex::new(None),
-        when_done: Mutex::new(schedule::Armed::default()),
-        page: Mutex::new(Page::default()),
-        live: Mutex::new(HashMap::new()),
-        #[cfg(windows)]
-        clipboard: Mutex::new(None),
-        extensions: Mutex::new(seen),
-        media_info: Mutex::new(video::MediaCache::default()),
-        path_ffmpeg,
-    });
+    let tray = tray::build(app.handle(), limit, language)?;
+    *lock(&app.state::<App>().tray) = Some(tray);
     tauri::async_runtime::spawn(daily_checks(app.handle().clone()));
     if lock(&app.state::<App>().settings).watch_clipboard {
         watch_clipboard(app.handle(), true);
