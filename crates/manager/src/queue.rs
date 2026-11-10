@@ -765,6 +765,22 @@ mod tests {
         m.close().await;
     }
 
+    /// Two removals of one download at once (a double click, two clients): both succeed.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn removing_a_download_twice_at_once_succeeds() {
+        let (m, id, reached, go) = held_start("remove-twice").await;
+        let removing = m.clone();
+        while_starting(&m, &reached, &go, async move {
+            let (a, b) = tokio::join!(removing.remove(id, true), removing.remove(id, true));
+            a.expect("first removal");
+            b.expect("second removal");
+        })
+        .await;
+        assert!(m.get(id).await.is_err());
+        assert!(!lock(&m.inner.running).contains_key(&id));
+        m.close().await;
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn downloading_again_as_a_download_starts_starts_it_afresh() {
         let (m, id, reached, go) = held_start("start-restart").await;

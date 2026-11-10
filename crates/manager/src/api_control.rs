@@ -22,7 +22,9 @@ impl Manager {
         self.get(id).await?;
         lock(&self.inner.retries).remove(&id);
         let (_, _no_start) = self.inner.stop_held(id, Stop::Pause).await;
-        if self.get(id).await?.status == Status::Queued {
+        // Gone meanwhile (removed): nothing to pause.
+        let task = self.inner.db.get(id).await?;
+        if task.is_some_and(|t| t.status == Status::Queued) {
             self.inner.set_status(id, Status::Paused, None).await?;
         }
         Ok(())
@@ -35,8 +37,11 @@ impl Manager {
         lock(&self.inner.retries).remove(&id);
         let task = {
             let (_, _no_start) = self.inner.stop_held(id, Stop::Remove).await;
-            // Read once stopped: a download that was starting has its path only now.
-            let task = self.get(id).await?;
+            // Read once stopped: a download that was starting has its path only now. Gone
+            // already: another removal of it came first.
+            let Some(task) = self.inner.db.get(id).await? else {
+                return Ok(());
+            };
             self.inner.db.delete(id).await?;
             task
         };
