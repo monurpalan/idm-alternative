@@ -19,9 +19,10 @@ impl Manager {
     /// Stops a running download (keeping its progress) or takes a queued one out of the
     /// queue. Returns once the download has stopped.
     pub async fn pause(&self, id: TaskId) -> Result<()> {
-        let task = self.get(id).await?;
+        self.get(id).await?;
         lock(&self.inner.retries).remove(&id);
-        if !self.inner.stop(id, Stop::Pause).await && task.status == Status::Queued {
+        let (_, _no_start) = self.inner.stop_held(id, Stop::Pause).await;
+        if self.get(id).await?.status == Status::Queued {
             self.inner.set_status(id, Status::Paused, None).await?;
         }
         Ok(())
@@ -32,8 +33,10 @@ impl Manager {
     pub async fn remove(&self, id: TaskId, delete_files: bool) -> Result<()> {
         let task = self.get(id).await?;
         lock(&self.inner.retries).remove(&id);
-        self.inner.stop(id, Stop::Remove).await;
-        self.inner.db.delete(id).await?;
+        {
+            let (_, _no_start) = self.inner.stop_held(id, Stop::Remove).await;
+            self.inner.db.delete(id).await?;
+        }
         if delete_files && let Some(path) = &task.path {
             delete_files_of(path);
             // A torrent with several files, or files out of an archive: the folder chosen

@@ -277,6 +277,8 @@ impl Manager {
     /// the database.
     pub async fn close(&self) {
         self.inner.closed.store(true, Ordering::SeqCst);
+        // A fill already starting downloads has them running once it is over.
+        drop(self.inner.scheduling.lock().await);
         let ids: Vec<TaskId> = lock(&self.inner.running).keys().copied().collect();
         for id in ids {
             self.inner.stop(id, Stop::Shutdown).await;

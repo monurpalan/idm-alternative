@@ -105,19 +105,50 @@ impl Inner {
     /// Cancels a running download for `why` and waits until it has stopped. `false` if it was
     /// not running.
     pub(crate) async fn stop(&self, id: TaskId, why: Stop) -> bool {
-        let handle = {
+        let (handle, _seen_it_end) = {
             let mut running = lock(&self.running);
             let Some(r) = running.get_mut(&id) else {
                 return false;
             };
-            *lock(&r.stop) = Some(why);
+            {
+                // A removal stays one: a removed download's end is not recorded.
+                let mut reason = lock(&r.stop);
+                if *reason != Some(Stop::Remove) {
+                    *reason = Some(why);
+                }
+            }
             r.cancel.cancel();
-            r.handle.take()
+            // A stop that comes meanwhile waits for this one to see it end.
+            let (seen, wait) = tokio::sync::oneshot::channel::<()>();
+            let next = tokio::spawn(async move {
+                wait.await.ok();
+            });
+            (r.handle.replace(next), seen)
         };
         if let Some(h) = handle {
             h.await.ok();
         }
         true
+    }
+
+    /// Stops the download for `why` if it runs, and keeps the queue from starting anything
+    /// while the guard is held: what is done to it next is not raced by a start. Whether it
+    /// was running.
+    pub(crate) async fn stop_held(
+        &self,
+        id: TaskId,
+        why: Stop,
+    ) -> (bool, tokio::sync::MutexGuard<'_, ()>) {
+        let mut stopped = false;
+        loop {
+            // A fill that is starting it has it running once this is held.
+            let guard = self.scheduling.lock().await;
+            if !lock(&self.running).contains_key(&id) {
+                return (stopped, guard);
+            }
+            drop(guard);
+            stopped |= self.stop(id, why).await;
+        }
     }
 
     /// Starts queued downloads while there are free slots.
@@ -133,6 +164,10 @@ impl Inner {
             return Ok(());
         }
         let _one_at_a_time = self.scheduling.lock().await;
+        // Closed while this waited: `close` has stopped what runs, and nothing starts now.
+        if self.closed.load(Ordering::SeqCst) {
+            return Ok(());
+        }
         let max = lock(&self.config).max_active.max(1);
         let free = max.saturating_sub(lock(&self.running).len());
         if free == 0 {
@@ -196,6 +231,8 @@ impl Inner {
             task.status = Status::Downloading;
             task.error = None;
             self.emit(Event::Updated(task.clone()));
+            #[cfg(test)]
+            tests::starting(&task.url).await;
 
             let cancel = CancellationToken::new();
             let stop = Arc::new(Mutex::new(None));
@@ -494,5 +531,171 @@ impl Inner {
             )
             .await?;
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::future::Future as _;
+    use std::task::Poll;
+    use tokio::sync::Notify;
+
+    /// Downloads held between being marked as started and being running: their URL, a
+    /// notice that one got there, and the go-ahead.
+    static HELD: Mutex<Vec<Held>> = Mutex::new(Vec::new());
+
+    type Held = (String, Arc<Notify>, Arc<Notify>);
+
+    /// Waits for the go-ahead when the download of `url` is held there.
+    pub(super) async fn starting(url: &str) {
+        let held = {
+            let mut held = lock(&HELD);
+            let i = held.iter().position(|(u, ..)| u == url);
+            i.map(|i| held.swap_remove(i))
+        };
+        if let Some((_, reached, go)) = held {
+            reached.notify_one();
+            go.notified().await;
+        }
+    }
+
+    /// A download, queued and held as it starts. Its manager and id, the notice that it is
+    /// held, and the go-ahead.
+    async fn held_start(name: &str) -> (Manager, TaskId, Arc<Notify>, Arc<Notify>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let base = format!("http://{}", listener.local_addr().expect("addr"));
+        let app = shardload_testserver::router();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+        });
+        let dir = std::env::temp_dir()
+            .join("shardload-manager-unit")
+            .join(format!("{name}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).expect("dir");
+        let config = Config {
+            dir: dir.join("downloads"),
+            max_active: 2,
+            connections: 1,
+            engine: shardload_engine::Options {
+                find_checksum: false,
+                ..shardload_engine::Options::default()
+            },
+            ..Config::default()
+        };
+        let m = Manager::open(&dir.join("list.db"), config)
+            .await
+            .expect("open");
+        let url = format!("{base}/file/{name}.bin?size=8M&seed=7&rate=1M");
+        let task = m
+            .add(NewTask {
+                url: url.clone(),
+                start: false,
+                ..NewTask::default()
+            })
+            .await
+            .expect("add");
+        m.inner
+            .db
+            .set_status(task.id, Status::Queued, None)
+            .await
+            .expect("queue");
+        let reached = Arc::new(Notify::new());
+        let go = Arc::new(Notify::new());
+        lock(&HELD).push((url, Arc::clone(&reached), Arc::clone(&go)));
+        (m, task.id, reached, go)
+    }
+
+    /// Starts the held download, does `what` while it is held, lets it go, and waits for
+    /// both. `what` is given a while to finish before the download goes on: done right, it
+    /// waits for the start instead.
+    async fn while_starting<F>(m: &Manager, reached: &Notify, go: &Notify, what: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let inner = Arc::clone(&m.inner);
+        let fill = tokio::spawn(async move { inner.fill().await });
+        reached.notified().await;
+        let mut what = tokio::spawn(what);
+        let done_early = tokio::select! {
+            biased;
+            r = &mut what => { r.expect("join"); true }
+            () = tokio::time::sleep(Duration::from_millis(500)) => false,
+        };
+        go.notify_one();
+        fill.await.expect("join").expect("fill");
+        if !done_early {
+            what.await.expect("join");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_pause_as_a_download_starts_stops_it() {
+        let (m, id, reached, go) = held_start("start-pause").await;
+        let pausing = m.clone();
+        while_starting(&m, &reached, &go, async move {
+            pausing.pause(id).await.expect("pause");
+        })
+        .await;
+        assert_eq!(m.get(id).await.expect("get").status, Status::Paused);
+        assert!(!lock(&m.inner.running).contains_key(&id));
+        m.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_removal_as_a_download_starts_stops_it() {
+        let (m, id, reached, go) = held_start("start-remove").await;
+        let removing = m.clone();
+        while_starting(&m, &reached, &go, async move {
+            removing.remove(id, true).await.expect("remove");
+        })
+        .await;
+        assert!(m.get(id).await.is_err());
+        assert!(!lock(&m.inner.running).contains_key(&id));
+        m.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn closing_as_a_download_starts_stops_it() {
+        let (m, id, reached, go) = held_start("start-close").await;
+        let closing = m.clone();
+        while_starting(&m, &reached, &go, async move {
+            closing.close().await;
+        })
+        .await;
+        assert!(!lock(&m.inner.running).contains_key(&id));
+    }
+
+    /// A second stop of the same download waits for it too, and a removal is not turned
+    /// into a pause by a stop that comes after it.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_second_stop_waits_and_keeps_a_removal() {
+        let (m, id, _reached, go) = held_start("stop-twice").await;
+        go.notify_one();
+        m.inner.fill().await.expect("fill");
+        while m.get(id).await.expect("get").received == 0 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let inner = Arc::clone(&m.inner);
+        let mut removing = Box::pin(inner.stop(id, Stop::Remove));
+        let first = std::future::poll_fn(|cx| Poll::Ready(removing.as_mut().poll(cx))).await;
+        assert!(first.is_pending());
+        let pausing = async {
+            assert!(inner.stop(id, Stop::Pause).await);
+            lock(&inner.running).contains_key(&id)
+        };
+        let (removed, still_running) = tokio::join!(removing, pausing);
+        assert!(removed);
+        assert!(!still_running, "the second stop returned before it stopped");
+        // Not recorded as paused: a removed download's end is not recorded.
+        assert_eq!(m.get(id).await.expect("get").status, Status::Downloading);
+        m.close().await;
     }
 }
