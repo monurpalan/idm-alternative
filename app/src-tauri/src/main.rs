@@ -292,19 +292,24 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     tauri::async_runtime::spawn(forward_events(app.handle().clone(), manager.subscribe()));
 
-    // The browser bridge: a fresh token per start, a pipe only this user and data
-    // folder share.
-    let token = shardload_bridge::new_token(&data)?;
-    let pipe = shardload_bridge::pipe_name(&data);
+    // The browser bridge: a pipe only this user and data folder share, and a fresh token
+    // per start, written once the pipe is ours.
     let handle = app.handle().clone();
+    let bridge_data = data.clone();
     tauri::async_runtime::spawn(async move {
-        let serving = shardload_bridge::serve(&pipe, token, move |request| {
-            let handle = handle.clone();
-            async move { bridge_reply(&handle, request).await }
-        });
-        if let Err(e) = serving.await {
-            tracing::error!("browser bridge stopped: {e}");
-        }
+        let (listener, token) = match shardload_bridge::listen_with_token(&bridge_data).await {
+            Ok(taken) => taken,
+            Err(e) => {
+                tracing::error!("browser bridge did not start: {e}");
+                return;
+            }
+        };
+        listener
+            .serve(token, move |request| {
+                let handle = handle.clone();
+                async move { bridge_reply(&handle, request).await }
+            })
+            .await;
     });
     let tray = tray::build(
         app.handle(),

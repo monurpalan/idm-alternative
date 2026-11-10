@@ -31,7 +31,7 @@ pub use message::{
     AddDownload, Capture, ExtensionHello, Link, MIN_EXTENSION_PROTOCOL, MediaCapture, MediaItem,
     PROTOCOL, Reply, Request, Rescue,
 };
-pub use pipe::{Conn, connect, serve};
+pub use pipe::{Conn, Listener, connect, listen, serve};
 pub use register::{installed_browsers, manifest_dir, register, registered_manifest, unregister};
 pub use torrent_links::{
     CLASSES, register_torrent_links, torrent_links_registered, unregister_torrent_links,
@@ -196,6 +196,15 @@ pub fn new_token(data_dir: &Path) -> Result<String> {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     }
     Ok(token)
+}
+
+/// Takes the channel of this data folder ([`pipe_name`], [`listen`]) and only then writes a
+/// fresh token for it ([`new_token`]): when another app already owns the channel, its token
+/// stays on disk for its clients.
+pub async fn listen_with_token(data_dir: &Path) -> Result<(Listener, String)> {
+    let listener = listen(&pipe_name(data_dir)).await?;
+    let token = new_token(data_dir)?;
+    Ok((listener, token))
 }
 
 /// The token the running app wrote, for connecting to it.
