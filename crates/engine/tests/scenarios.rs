@@ -9,7 +9,27 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use common::*;
-use shardload_engine::{CancellationToken, Error, Options, Outcome, download};
+use shardload_engine::{CancellationToken, Error, Options, Outcome, Progress, download};
+
+/// Downloads `url`, also saying how many connections failed and were opened again on the way.
+async fn counting_reconnects(url: String, out: &Path, o: &Options) -> (Outcome, u64) {
+    let (tx, mut rx) = tokio::sync::watch::channel(Progress::default());
+    let most = tokio::spawn(async move {
+        let mut most = 0;
+        while rx.changed().await.is_ok() {
+            most = most.max(rx.borrow().health.reconnects);
+        }
+        most
+    });
+    let req = request(url, out);
+    let token = CancellationToken::new();
+    let done = tokio::time::timeout(LIMIT, download(&req, o, Some(&tx), &token))
+        .await
+        .expect("download hung")
+        .expect("download");
+    drop(tx);
+    (done, most.await.expect("progress watcher"))
+}
 
 /// Downloads `query` (appended to the URL) and checks the file.
 async fn ok(name: &str, size: u64, query: &str, connections: usize) -> Outcome {
@@ -121,8 +141,8 @@ async fn stalled_connection_is_replaced() {
     assert_verified(&out, 7, 8 * MB);
 }
 
-/// The first request is never answered: the download fails as stalled within the read
-/// timeout (to be tried again later) instead of waiting forever.
+/// The first request is never answered: the download fails as stalled once the wait for an
+/// answer (three read timeouts) is over, to be tried again later, instead of waiting forever.
 #[tokio::test(flavor = "multi_thread")]
 async fn unanswered_first_request_stalls() {
     let base = start().await;
@@ -134,12 +154,38 @@ async fn unanswered_first_request_stalls() {
         ..opts(4)
     };
     let (req, token) = (request(url, &out), CancellationToken::new());
+    let started = Instant::now();
     let run = download(&req, &o, None, &token);
     let err = tokio::time::timeout(Duration::from_secs(10), run)
         .await
         .expect("waited for an answer that never comes")
         .expect_err("must fail");
     assert!(matches!(err, Error::Stalled(_)), "{err}");
+    let waited = started.elapsed();
+    assert!(waited >= Duration::from_millis(1500), "{waited:?}");
+}
+
+/// A server that takes longer than the read timeout to answer each request, but less than
+/// the wait for an answer, is waited for: no request fails, the first or a later one.
+#[tokio::test(flavor = "multi_thread")]
+async fn late_answers_are_waited_for() {
+    let base = start().await;
+    let dir = workdir("late-answer");
+    let out = dir.join("f.bin");
+    let size = 2 * MB;
+    let url = format!("{base}/file/f.bin?size={size}&seed=7&latency_ms=2000");
+    let o = Options {
+        read_timeout: Duration::from_secs(1),
+        max_request: Some(MB / 2),
+        ..opts(2)
+    };
+    let (_, reconnects) = counting_reconnects(url, &out, &o).await;
+    assert_eq!(reconnects, 0);
+    assert!(
+        ranges_asked(&base).await.len() >= 3,
+        "requests after the first"
+    );
+    assert_verified(&out, 7, size);
 }
 
 /// A request in the middle of the download is never answered: that connection gives up

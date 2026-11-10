@@ -91,6 +91,7 @@ pub struct Options {
     /// Maximum simultaneous connections.
     pub connections: usize,
     /// A connection that receives nothing for this long is dropped and its range reassigned.
+    /// A server's answer to a request (status and headers) is waited for three times as long.
     pub read_timeout: Duration,
     /// How often durable progress is written to the state file.
     pub checkpoint_every: Duration,

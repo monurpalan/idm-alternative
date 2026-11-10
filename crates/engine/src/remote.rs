@@ -149,8 +149,8 @@ pub struct HttpConfig {
     pub http1_only: bool,
     /// Extra headers for every request, e.g. `Cookie`, `Referer`, `Authorization`.
     pub headers: Vec<(String, String)>,
-    /// How long to wait for an answer, and for each piece of a body read whole; `None`: no
-    /// limit.
+    /// How long to wait for each piece of a body read whole; an answer may take three times
+    /// as long (see `remote/read.rs`). `None`: no limit.
     pub read_timeout: Option<std::time::Duration>,
 }
 
@@ -225,7 +225,7 @@ impl Http {
             .headers(headers)
             .group(wreq::Group::new(slot))
             .send();
-        Ok(self.timed(send).await??)
+        Ok(self.answer(send).await??)
     }
 
     /// First request: asks for `bytes=start-` so one round trip tells us the size, whether
