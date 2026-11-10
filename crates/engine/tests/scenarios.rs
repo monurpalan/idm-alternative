@@ -308,9 +308,20 @@ fn saved(out: &Path) -> u64 {
 /// cancels it or drops it like a killed process. Waiting for the checkpoint instead of a fixed
 /// time keeps a slow CI machine from interrupting before anything was saved.
 async fn interrupt(url: &str, out: &Path, saved_at_least: u64, cancel: bool) -> u64 {
+    interrupt_with(url, out, saved_at_least, cancel, 4).await
+}
+
+/// [`interrupt`] with this many connections.
+async fn interrupt_with(
+    url: &str,
+    out: &Path,
+    saved_at_least: u64,
+    cancel: bool,
+    connections: usize,
+) -> u64 {
     let o = Options {
         checkpoint_every: Duration::from_millis(200),
-        ..opts(4)
+        ..opts(connections)
     };
     let token = CancellationToken::new();
     let req = request(url.to_owned(), out);
@@ -413,6 +424,37 @@ async fn bytes_lost_with_the_power_are_downloaded_again() {
     drop(part);
     get(&request(url, &out), &opts(4)).await.expect("resume");
     assert_verified(&out, 5, size);
+}
+
+/// The file on the server got shorter than what an interrupted download already has, so
+/// asking for the rest is refused (416): the download starts over, from the same address and
+/// from a new link alike, like any other change of the file.
+#[tokio::test(flavor = "multi_thread")]
+async fn resume_past_the_end_of_a_shrunk_file_starts_over() {
+    let base = start().await;
+    for same_address in [true, false] {
+        let dir = workdir(&format!("shrunk-{same_address}"));
+        let out = dir.join("f.bin");
+        // Without an ETag the validator sent along (Last-Modified) still matches, so the
+        // server answers the range itself instead of sending the whole new file.
+        let long = format!("{base}/file/f.bin?size={}&seed=3&etag=none&rate=1M", 8 * MB);
+        interrupt_with(&long, &out, 2 * MB, true, 1).await;
+        let short = format!("{base}/file/f.bin?size={MB}&seed=3&etag=none");
+        if same_address {
+            // The address the download used now serves the shorter file.
+            let path = format!("{}.shardload-state", out.display());
+            let mut state: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).expect("state"))
+                    .expect("json");
+            state["url"] = short.clone().into();
+            std::fs::write(&path, state.to_string()).expect("write state");
+        }
+        let done = get(&request(short, &out), &opts(4))
+            .await
+            .unwrap_or_else(|e| panic!("same address {same_address}: {e}"));
+        assert_eq!((done.size, done.resumed_from), (MB, 0));
+        assert_verified(&out, 3, MB);
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]

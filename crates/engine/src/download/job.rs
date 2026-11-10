@@ -175,10 +175,12 @@ impl Job<'_> {
             return Ok(Some(Resume::Complete(state.size)));
         };
         let start = table.segs[idx].written;
-        let (remote, resp) = self
-            .http
-            .probe(&self.req.url, start, state.validators.if_range(), 0)
-            .await?;
+        let Some((remote, resp)) = self
+            .probe_resume(start, state.validators.if_range())
+            .await?
+        else {
+            return Ok(None);
+        };
         if remote.ranges
             && remote.size == Some(state.size)
             && state.validators.same_file(&remote.validators)
@@ -202,7 +204,9 @@ impl Job<'_> {
     pub(crate) async fn adopt_link(&self, state: &State, table: Table) -> Result<Option<Resume>> {
         let idx = table.segs.iter().position(|s| !s.is_done());
         let start = idx.map_or(0, |i| table.segs[i].written);
-        let (remote, resp) = self.http.probe(&self.req.url, start, None, 0).await?;
+        let Some((remote, resp)) = self.probe_resume(start, None).await? else {
+            return Ok(None);
+        };
         let sample = crate::relink::read_sample(self.part, &state.segments)?;
         if !crate::relink::same_content(self.http, &remote, state.size, &sample, 1).await? {
             tracing::info!("the new link serves a different file; starting over");
@@ -222,6 +226,22 @@ impl Job<'_> {
             table,
             resumed,
         )))))
+    }
+
+    /// The first request when resuming at `start`; `None` when the server's file now ends
+    /// before that (416), so it is not the one partly downloaded.
+    async fn probe_resume(
+        &self,
+        start: u64,
+        if_range: Option<&str>,
+    ) -> Result<Option<(Remote, Response)>> {
+        match self.http.probe(&self.req.url, start, if_range, 0).await {
+            Err(Error::Status(416)) => {
+                tracing::info!("remote file is shorter than what was downloaded; starting over");
+                Ok(None)
+            }
+            r => r.map(Some),
+        }
     }
 
     /// Saves progress. Positions are captured before the state is written, so the state
