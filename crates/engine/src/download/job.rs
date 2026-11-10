@@ -2,6 +2,7 @@
 //! (or adopting a new link for it), checkpoints, and the free-space check.
 
 use super::*;
+use crate::remote::Probed;
 
 pub(crate) struct Job<'a> {
     pub(crate) req: &'a Request,
@@ -176,7 +177,7 @@ impl Job<'_> {
         };
         let start = table.segs[idx].written;
         let Some((remote, resp)) = self
-            .probe_resume(start, state.validators.if_range())
+            .probe_resume(start, state.validators.if_range(), state.size)
             .await?
         else {
             return Ok(None);
@@ -204,7 +205,7 @@ impl Job<'_> {
     pub(crate) async fn adopt_link(&self, state: &State, table: Table) -> Result<Option<Resume>> {
         let idx = table.segs.iter().position(|s| !s.is_done());
         let start = idx.map_or(0, |i| table.segs[i].written);
-        let Some((remote, resp)) = self.probe_resume(start, None).await? else {
+        let Some((remote, resp)) = self.probe_resume(start, None, state.size).await? else {
             return Ok(None);
         };
         let sample = crate::relink::read_sample(self.part, &state.segments)?;
@@ -228,19 +229,27 @@ impl Job<'_> {
         )))))
     }
 
-    /// The first request when resuming at `start`; `None` when the server's file now ends
-    /// before that (416), so it is not the one partly downloaded.
+    /// The first request when resuming at `start` a file of `size` bytes; `None` when the
+    /// server refuses the range (416) saying its file now has another size, or ends before
+    /// `start`, so it is not the one partly downloaded. A refusal that does not say so fails
+    /// as it is, and the partial download is kept.
     async fn probe_resume(
         &self,
         start: u64,
         if_range: Option<&str>,
+        size: u64,
     ) -> Result<Option<(Remote, Response)>> {
-        match self.http.probe(&self.req.url, start, if_range, 0).await {
-            Err(Error::Status(416)) => {
-                tracing::info!("remote file is shorter than what was downloaded; starting over");
+        match self
+            .http
+            .probe_from(&self.req.url, start, None, if_range, 0)
+            .await?
+        {
+            Probed::Answer(remote, resp) => Ok(Some((remote, *resp))),
+            Probed::PastEnd(Some(now), _) if now != size || now <= start => {
+                tracing::info!(now, "remote file has another size now; starting over");
                 Ok(None)
             }
-            r => r.map(Some),
+            Probed::PastEnd(_, e) => Err(e),
         }
     }
 

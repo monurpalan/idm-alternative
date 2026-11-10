@@ -88,12 +88,13 @@ pub(super) fn too_many_connections(sc: &Scenario) -> Response {
     }
 }
 
-/// The status and the bytes (`start..end`) to answer with, by the range asked for; `None`
-/// for a range outside the file.
+/// The status and the bytes (`start..end`) to answer with, by the range asked for (for the
+/// `nth_get` GET of the URL, when the server honours `ranges`); `None` for a range outside
+/// the file, or one `range_416_get` refuses.
 pub(super) fn requested(
     sc: &Scenario,
     headers: &HeaderMap,
-    ranges: bool,
+    (ranges, nth_get): (bool, u64),
     etag: Option<&str>,
     last_modified: &str,
 ) -> Option<(StatusCode, u64, u64)> {
@@ -107,6 +108,7 @@ pub(super) fn requested(
         && if_range_matches(headers, etag, last_modified)
     {
         match parse_range(range, size) {
+            RangeResult::Satisfiable(..) if sc.range_416_get == Some(nth_get) => return None,
             RangeResult::Satisfiable(s, e) => {
                 status = StatusCode::PARTIAL_CONTENT;
                 (start, end) = (s, e);

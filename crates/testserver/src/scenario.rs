@@ -154,6 +154,10 @@ pub struct Scenario {
     /// The n-th GET to the URL (from 1) is never answered: no status, no headers, the
     /// connection held open until the client gives up.
     pub hang_get: Option<u64>,
+    /// The n-th GET to the URL (from 1), when it asks for a range, gets `416` although the
+    /// range is in the file, with the file's true size, like an edge cache that refuses ranges
+    /// for a while.
+    pub range_416_get: Option<u64>,
     /// Requests whose `User-Agent` does not contain this get `403`, like a site that only
     /// serves some browsers.
     pub only_ua: Option<String>,
@@ -200,6 +204,7 @@ impl Default for Scenario {
             auth: None,
             latency_ms: 0,
             hang_get: None,
+            range_416_get: None,
             only_ua: None,
             corrupt_at: None,
             corrupt_get: None,

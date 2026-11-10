@@ -262,6 +262,23 @@ async fn hang_get_never_answers_that_request() {
 }
 
 #[tokio::test]
+async fn range_416_get_refuses_that_range_only() {
+    let base = start().await;
+    let url = format!("{base}/file/a.bin?size=1K&range_416_get=1");
+    let ask = || {
+        client()
+            .get(&url)
+            .header(header::RANGE, "bytes=100-")
+            .send()
+    };
+    let first = ask().await.expect("first");
+    assert_eq!(first.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+    assert_eq!(first.headers()[header::CONTENT_RANGE], "bytes */1024");
+    let second = ask().await.expect("second");
+    assert_eq!(second.status(), StatusCode::PARTIAL_CONTENT);
+}
+
+#[tokio::test]
 async fn stall_after_stops_sending() {
     let base = start().await;
     let r = client()

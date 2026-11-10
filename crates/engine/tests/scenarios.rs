@@ -488,18 +488,62 @@ async fn resume_past_the_end_of_a_shrunk_file_starts_over() {
         let short = format!("{base}/file/f.bin?size={MB}&seed=3&etag=none");
         if same_address {
             // The address the download used now serves the shorter file.
-            let path = format!("{}.shardload-state", out.display());
-            let mut state: serde_json::Value =
-                serde_json::from_str(&std::fs::read_to_string(&path).expect("state"))
-                    .expect("json");
-            state["url"] = short.clone().into();
-            std::fs::write(&path, state.to_string()).expect("write state");
+            point_state_at(&out, &short);
         }
         let done = get(&request(short, &out), &opts(4))
             .await
             .unwrap_or_else(|e| panic!("same address {same_address}: {e}"));
         assert_eq!((done.size, done.resumed_from), (MB, 0));
         assert_verified(&out, 3, MB);
+    }
+}
+
+/// Makes the interrupted download of `out` look as if it had used `url` all along.
+fn point_state_at(out: &Path, url: &str) {
+    let path = format!("{}.shardload-state", out.display());
+    let mut state: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).expect("state")).expect("json");
+    state["url"] = url.into();
+    std::fs::write(&path, state.to_string()).expect("write state");
+}
+
+/// A server refuses the rest of an interrupted download (416) while saying the file still has
+/// the size the download knows, like an edge cache that refuses ranges for a while: nothing
+/// says the file changed, so the partial download is kept for a later attempt, from the same
+/// address and from a new link alike.
+#[tokio::test(flavor = "multi_thread")]
+async fn refused_resume_of_an_unchanged_file_keeps_the_partial_download() {
+    let base = start().await;
+    for same_address in [true, false] {
+        let dir = workdir(&format!("refused-{same_address}"));
+        let out = dir.join("f.bin");
+        // Its own URLs each time: the server counts the GETs per URL.
+        let query = format!("size={}&seed=3&case={same_address}", 8 * MB);
+        interrupt_with(
+            &format!("{base}/file/f.bin?{query}&rate=1M"),
+            &out,
+            2 * MB,
+            true,
+            1,
+        )
+        .await;
+        let refusing = format!("{base}/file/f.bin?{query}&range_416_get=1");
+        if same_address {
+            point_state_at(&out, &refusing);
+        }
+        let err = get(&request(refusing.clone(), &out), &opts(4))
+            .await
+            .expect_err("refused");
+        assert!(matches!(err, Error::Status(416)), "{same_address}: {err}");
+        for kept in [".shardload-part", ".shardload-state"] {
+            assert!(PathBuf::from(format!("{}{kept}", out.display())).exists());
+        }
+        // The next attempt is not refused, and goes on from there.
+        let done = get(&request(refusing, &out), &opts(4))
+            .await
+            .expect("resume");
+        assert!(done.resumed_from >= 2 * MB, "{}", done.resumed_from);
+        assert_verified(&out, 3, 8 * MB);
     }
 }
 

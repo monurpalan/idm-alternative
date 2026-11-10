@@ -166,7 +166,7 @@ async fn serve_file(
         SystemTime::UNIX_EPOCH + Duration::from_secs(LAST_MODIFIED_BASE + generation),
     );
 
-    let ranges = sc.ranges && !sc.no_length;
+    let ranges = (sc.ranges && !sc.no_length, nth_get);
     let Some((status, start, end)) =
         requested(&sc, &headers, ranges, etag.as_deref(), &last_modified)
     else {
@@ -176,7 +176,7 @@ async fn serve_file(
 
     let resp_headers = response_headers(
         &sc,
-        ranges,
+        ranges.0,
         etag.as_deref(),
         &last_modified,
         (status, start, end),

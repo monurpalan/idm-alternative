@@ -9,6 +9,9 @@ use crate::error::{Error, Result};
 
 mod lang;
 mod read;
+mod small;
+
+pub(crate) use small::Fetched;
 
 /// What identifies one version of the remote file.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -267,6 +270,22 @@ impl Http {
         if_range: Option<&str>,
         slot: u64,
     ) -> Result<(Remote, Response)> {
+        match self.probe_from(url, start, end, if_range, slot).await? {
+            Probed::Answer(remote, resp) => Ok((remote, *resp)),
+            Probed::PastEnd(_, e) => Err(e),
+        }
+    }
+
+    /// Like [`Http::probe`] from `start` (up to `end`), telling a refusal of the range (416)
+    /// apart.
+    pub(crate) async fn probe_from(
+        &self,
+        url: &str,
+        start: u64,
+        end: Option<u64>,
+        if_range: Option<&str>,
+        slot: u64,
+    ) -> Result<Probed> {
         let mut h = HeaderMap::new();
         h.insert(header::RANGE, range_value(start, end));
         if let Some(v) = if_range.and_then(|v| HeaderValue::from_str(v).ok()) {
@@ -284,9 +303,16 @@ impl Http {
             StatusCode::OK => (resp.content_length(), false),
             // Only an empty file makes `bytes=0-` unsatisfiable.
             StatusCode::RANGE_NOT_SATISFIABLE if start == 0 => (Some(0), false),
+            StatusCode::RANGE_NOT_SATISFIABLE => {
+                return Ok(Probed::PastEnd(
+                    unsatisfied_size(&resp),
+                    status_error(&resp),
+                ));
+            }
             _ => return Err(status_error(&resp)),
         };
-        Ok((Remote::from_response(&resp, url, size, ranges), resp))
+        let remote = Remote::from_response(&resp, url, size, ranges);
+        Ok(Probed::Answer(remote, Box::new(resp)))
     }
 
     /// First request for the end of a file: asks for its last `len` bytes (`bytes=-len`), so
@@ -438,62 +464,11 @@ impl Http {
         Ok((body, final_url))
     }
 
-    /// A small text file such as a checksum list: [`Fetched::Text`] when the server answers
-    /// with success and at most `limit` bytes that are not an HTML page (says no early, from
-    /// the headers, when it can); [`Fetched::Refused`] when it cannot be reached or turns
-    /// clients away (403, 429, 503).
-    pub(crate) async fn small_text(&self, url: &str, limit: usize) -> Fetched {
-        use futures_util::StreamExt;
-        let Ok(resp) = self.get(url, HeaderMap::new(), 0).await else {
-            return Fetched::Refused;
-        };
-        if matches!(
-            resp.status(),
-            StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS | StatusCode::SERVICE_UNAVAILABLE
-        ) {
-            return Fetched::Refused;
-        }
-        if !resp.status().is_success()
-            || resp.content_length().is_some_and(|n| n > limit as u64)
-            || resp
-                .headers()
-                .get(header::CONTENT_TYPE)
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|t| t.to_ascii_lowercase().contains("html"))
-        {
-            return Fetched::Absent;
-        }
-        let mut body = Vec::new();
-        let mut stream = resp.bytes_stream();
-        loop {
-            let chunk = match self.timed(stream.next()).await {
-                Ok(None) => break,
-                Ok(Some(Ok(chunk))) => chunk,
-                Ok(Some(Err(_))) | Err(_) => return Fetched::Refused,
-            };
-            body.extend_from_slice(&chunk);
-            if body.len() > limit {
-                return Fetched::Absent;
-            }
-        }
-        String::from_utf8(body).map_or(Fetched::Absent, Fetched::Text)
-    }
-
     /// Downloads `[start, end)` whole; for small checks, not for file data.
     pub async fn fetch(&self, remote: &Remote, start: u64, end: u64, slot: u64) -> Result<Vec<u8>> {
         let resp = self.range(remote, start, Some(end), slot).await?;
         self.read_body(resp).await
     }
-}
-
-/// What [`Http::small_text`] got.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Fetched {
-    Text(String),
-    /// Missing, too large or not text.
-    Absent,
-    /// Unreachable, or the server turns clients away: better not to ask it again soon.
-    Refused,
 }
 
 fn status_error(resp: &Response) -> Error {
@@ -565,6 +540,26 @@ fn is_html(resp: &Response) -> bool {
                 .to_ascii_lowercase()
                 .starts_with("text/html")
         })
+}
+
+/// What [`Http::probe_from`] got.
+pub(crate) enum Probed {
+    /// The file from the start asked for, or the whole of it.
+    Answer(Remote, Box<Response>),
+    /// The range was refused (416): the size the server says the file has now
+    /// (`Content-Range: bytes */size`), if it says, and the error that is otherwise.
+    PastEnd(Option<u64>, Error),
+}
+
+/// The size in a 416's `Content-Range: bytes */size`.
+fn unsatisfied_size(resp: &Response) -> Option<u64> {
+    let raw = resp.headers().get(header::CONTENT_RANGE)?.to_str().ok()?;
+    let size = raw
+        .trim()
+        .strip_prefix("bytes")?
+        .trim_start()
+        .strip_prefix("*/")?;
+    size.trim().parse().ok()
 }
 
 /// Parses `Content-Range: bytes first-last/total` (total may be `*`).
