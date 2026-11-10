@@ -11,24 +11,55 @@ use std::time::{Duration, Instant};
 use common::*;
 use shardload_engine::{CancellationToken, Error, Options, Outcome, Progress, download};
 
-/// Downloads `url`, also saying how many connections failed and were opened again on the way.
-async fn counting_reconnects(url: String, out: &Path, o: &Options) -> (Outcome, u64) {
+/// What a download's progress showed along the way.
+#[derive(Debug, Default)]
+struct Seen {
+    /// Connections open, each time the number changed: (ms from the start, open).
+    connections: Vec<(u128, usize)>,
+    /// The most connections failed and opened again.
+    reconnects: u64,
+    /// A connection limit the download took the server to have, if any.
+    server_limit: Option<usize>,
+}
+
+/// Downloads `url` (within [`LIMIT`]), watching its progress.
+async fn watched(
+    url: String,
+    out: &Path,
+    o: &Options,
+) -> (shardload_engine::Result<Outcome>, Seen) {
     let (tx, mut rx) = tokio::sync::watch::channel(Progress::default());
-    let most = tokio::spawn(async move {
-        let mut most = 0;
+    let started = Instant::now();
+    let seen = tokio::spawn(async move {
+        let mut seen = Seen::default();
         while rx.changed().await.is_ok() {
-            most = most.max(rx.borrow().health.reconnects);
+            let p = rx.borrow().clone();
+            if seen
+                .connections
+                .last()
+                .is_none_or(|(_, n)| *n != p.connections)
+            {
+                seen.connections
+                    .push((started.elapsed().as_millis(), p.connections));
+            }
+            seen.reconnects = seen.reconnects.max(p.health.reconnects);
+            seen.server_limit = seen.server_limit.or(p.health.server_limit);
         }
-        most
+        seen
     });
     let req = request(url, out);
     let token = CancellationToken::new();
     let done = tokio::time::timeout(LIMIT, download(&req, o, Some(&tx), &token))
         .await
-        .expect("download hung")
-        .expect("download");
+        .expect("download hung");
     drop(tx);
-    (done, most.await.expect("progress watcher"))
+    (done, seen.await.expect("progress watcher"))
+}
+
+/// Downloads `url`, also saying how many connections failed and were opened again on the way.
+async fn counting_reconnects(url: String, out: &Path, o: &Options) -> (Outcome, u64) {
+    let (done, seen) = watched(url, out, o).await;
+    (done.expect("download"), seen.reconnects)
 }
 
 /// Downloads `query` (appended to the URL) and checks the file.
@@ -189,13 +220,15 @@ async fn late_answers_are_waited_for() {
 }
 
 /// A server that answers one request at a time and holds the others unanswered until it is
-/// done (a download script holding a session lock): the connections that only wait are given
-/// up as the server's limit, not as failures, and the one that is answered finishes the file.
+/// done (a download script holding a session lock): the requests that only wait are asked
+/// again, counted neither as failures nor as a limit of the server, and the one that is
+/// answered finishes the file.
 #[tokio::test(flavor = "multi_thread")]
 async fn server_answering_one_request_at_a_time_is_downloaded_from() {
     let base = start().await;
     let dir = workdir("one-at-a-time");
     let out = dir.join("f.bin");
+    // About 8 s at one connection; each waiting request gives up after 0.9 s.
     let size = 4 * MB;
     let url = format!("{base}/file/f.bin?size={size}&seed=7&rate=512K&answer_at_once=1");
     let o = Options {
@@ -203,50 +236,62 @@ async fn server_answering_one_request_at_a_time_is_downloaded_from() {
         max_failures: 2,
         ..opts(4)
     };
-    let (tx, mut rx) = tokio::sync::watch::channel(Progress::default());
-    let started = Instant::now();
-    let timeline = tokio::spawn(async move {
-        let mut seen: Vec<(u128, usize)> = Vec::new();
-        while rx.changed().await.is_ok() {
-            let n = rx.borrow().connections;
-            if seen.last().is_none_or(|(_, last)| *last != n) {
-                seen.push((started.elapsed().as_millis(), n));
-            }
-        }
-        seen
-    });
-    let (req, token) = (request(url, &out), CancellationToken::new());
-    let done = tokio::time::timeout(LIMIT, download(&req, &o, Some(&tx), &token))
-        .await
-        .expect("download hung");
-    drop(tx);
-    let timeline = timeline.await.expect("watcher");
-    eprintln!("connections over time (ms, open): {timeline:?}");
+    let (done, seen) = watched(url, &out, &o).await;
+    eprintln!("connections over time (ms, open): {:?}", seen.connections);
     done.expect("download");
     assert_verified(&out, 7, size);
-    assert_eq!(o.learn.get().max_connections, Some(1));
+    assert_eq!((seen.reconnects, seen.server_limit), (0, None));
+    assert_eq!(o.learn.get().max_connections, None);
 }
 
-/// A request in the middle of the download is never answered: that connection gives up
-/// after the read timeout and its range is downloaded again.
+/// A request in the middle of the download is never answered while the others are: that
+/// connection gives up after the wait for an answer and its range is downloaded again. One
+/// such request says nothing about how many connections the server allows.
 #[tokio::test(flavor = "multi_thread")]
 async fn unanswered_range_request_is_retried() {
     let base = start().await;
     let dir = workdir("hang-range");
     let out = dir.join("f.bin");
     let size = 8 * MB;
-    let url = format!("{base}/file/f.bin?size={size}&seed=7&rate=4M&hang_get=2");
+    // About 2.7 s on the three other connections; the unanswered request gives up at 0.9 s,
+    // while they are still downloading.
+    let url = format!("{base}/file/f.bin?size={size}&seed=7&rate=1M&hang_get=2");
     let o = Options {
-        read_timeout: Duration::from_millis(500),
+        read_timeout: Duration::from_millis(300),
         ..opts(4)
     };
-    let (req, token) = (request(url, &out), CancellationToken::new());
-    let run = download(&req, &o, None, &token);
-    tokio::time::timeout(Duration::from_secs(20), run)
-        .await
-        .expect("waited for an answer that never comes")
-        .expect("download");
+    let (done, seen) = watched(url, &out, &o).await;
+    done.expect("download");
     assert_verified(&out, 7, size);
+    assert_eq!(seen.server_limit, None);
+    assert_eq!(o.learn.get().max_connections, None);
+    assert!(
+        seen.connections.iter().any(|(_, n)| *n == 4),
+        "{:?}",
+        seen.connections
+    );
+}
+
+/// A server that stops answering new requests once its one flowing response ends: no
+/// connection is answered any more, so the waits count as failures and the download ends with
+/// an error instead of asking forever.
+#[tokio::test(flavor = "multi_thread")]
+async fn server_that_stops_answering_ends_the_download() {
+    let base = start().await;
+    let dir = workdir("stops-answering");
+    let out = dir.join("f.bin");
+    let url = format!(
+        "{base}/file/f.bin?size={}&seed=7&rate=1M&hang_from=2",
+        2 * MB
+    );
+    let o = Options {
+        read_timeout: Duration::from_millis(300),
+        max_failures: 2,
+        ..opts(4)
+    };
+    let (done, _) = watched(url, &out, &o).await;
+    let err = done.expect_err("must fail");
+    assert!(matches!(err, Error::TooManyFailures { .. }), "{err}");
 }
 
 /// Answers that come a little late and a body that trickles in small pieces are not mistaken

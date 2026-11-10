@@ -158,6 +158,8 @@ pub struct Scenario {
     /// The n-th GET to the URL (from 1) is never answered: no status, no headers, the
     /// connection held open until the client gives up.
     pub hang_get: Option<u64>,
+    /// Like `hang_get`, for the n-th GET and every one after it.
+    pub hang_from: Option<u64>,
     /// The n-th GET to the URL (from 1), when it asks for a range, gets `416` although the
     /// range is in the file, with the file's true size, like an edge cache that refuses ranges
     /// for a while.
@@ -209,6 +211,7 @@ impl Default for Scenario {
             auth: None,
             latency_ms: 0,
             hang_get: None,
+            hang_from: None,
             range_416_get: None,
             only_ua: None,
             corrupt_at: None,

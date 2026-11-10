@@ -262,6 +262,18 @@ async fn hang_get_never_answers_that_request() {
 }
 
 #[tokio::test]
+async fn hang_from_never_answers_that_request_or_any_after() {
+    let base = start().await;
+    let url = format!("{base}/file/a.bin?size=1K&hang_from=2");
+    let first = client().get(&url).send().await.expect("first");
+    assert_eq!(first.status(), StatusCode::OK);
+    for _ in 0..2 {
+        let later = tokio::time::timeout(Duration::from_millis(300), client().get(&url).send());
+        assert!(later.await.is_err(), "a later GET must get no response");
+    }
+}
+
+#[tokio::test]
 async fn answer_at_once_holds_the_others_until_one_finishes() {
     let base = start().await;
     let url = format!("{base}/file/a.bin?size=64K&rate=128K&answer_at_once=1");

@@ -58,8 +58,8 @@ pub(super) fn count_get(url: &UrlState, method: &Method, headers: &HeaderMap) ->
     }
 }
 
-/// [`count_get`], then for the GET `hang_get` names, holding the request without a word
-/// until the client gives up.
+/// [`count_get`], then for the GETs `hang_get` and `hang_from` name, holding the request
+/// without a word until the client gives up.
 pub(super) async fn count_get_or_hang(
     sc: &Scenario,
     url: &UrlState,
@@ -67,7 +67,8 @@ pub(super) async fn count_get_or_hang(
     headers: &HeaderMap,
 ) -> u64 {
     let nth_get = count_get(url, method, headers);
-    if sc.hang_get == Some(nth_get) && *method == Method::GET {
+    let hang = sc.hang_get == Some(nth_get) || sc.hang_from.is_some_and(|n| nth_get >= n);
+    if hang && *method == Method::GET {
         std::future::pending::<()>().await;
     }
     nth_get
