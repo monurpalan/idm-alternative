@@ -293,15 +293,16 @@ mod windows {
                 Some(s) => s,
                 None => self.instance()?,
             };
-            server.connect().await?;
-            // The next client gets a fresh instance, made before this one is handed over so
-            // that the name always has one; when it cannot be made now, the next accept
-            // tries again.
+            let connected = server.connect().await;
+            // The next client gets a fresh instance, made before this one is handed over (or
+            // dropped, when connecting failed) so that the name always has one, and clients
+            // find it during the pause before the next try; when it cannot be made now, the
+            // next accept tries again.
             self.listening = self
                 .instance()
                 .inspect_err(|e| tracing::warn!("bridge: no pipe for the next client yet: {e}"))
                 .ok();
-            Ok(server)
+            connected.map(|()| server)
         }
     }
 
