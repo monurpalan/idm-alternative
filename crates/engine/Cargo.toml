@@ -30,7 +30,7 @@ url = "2"
 crc32fast = "1.5"
 flate2 = "1.1"
 lzma-rust2 = { version = "0.25", default-features = false, features = ["std", "xz"] }
-shardload-media = { version = "0.1.6", path = "../media" }
+shardload-media = { version = "0.1.7", path = "../media" }
 # FTP and FTPS, and SFTP (see `protocol`).
 suppaftp = { version = "12.2", features = ["tokio-rustls-ring", "deprecated"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
