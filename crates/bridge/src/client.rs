@@ -392,6 +392,18 @@ mod tests {
         rt
     }
 
+    /// Waits until the server started for `dir` has taken the pipe and accepts its token.
+    async fn answering(dir: &Path) {
+        let pipe = crate::pipe_name(dir);
+        let token = crate::read_token(dir).expect("token");
+        in_time(async {
+            while crate::connect(&pipe, &token).await.is_err() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+    }
+
     fn serve_counting(rt: &tokio::runtime::Runtime, dir: &Path, downloads: &Arc<AtomicUsize>) {
         let token = crate::new_token(dir).expect("token");
         let pipe = crate::pipe_name(dir);
@@ -413,12 +425,14 @@ mod tests {
         let p = Profile::new("restart");
         let downloads = Arc::new(AtomicUsize::new(0));
         let before = app_in_own_runtime(&p.0, &downloads);
+        answering(&p.0).await;
         let mut client = Client::new(p.0.clone());
         in_time(client.send_if_running(PING)).await.expect("ping");
         tokio::task::spawn_blocking(move || drop(before))
             .await
             .expect("quit");
         let after = app_in_own_runtime(&p.0, &downloads);
+        answering(&p.0).await;
         let reply = in_time(client.send_if_running(DOWNLOAD)).await;
         assert!(reply.is_ok(), "{reply:?}");
         assert_eq!(downloads.load(Ordering::SeqCst), 1);
