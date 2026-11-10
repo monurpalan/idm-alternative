@@ -148,12 +148,14 @@ impl Steer<'_> {
         } else {
             self.health.reconnects += 1;
         }
+        // With one connection the next attempt starts from the first byte again, so what
+        // this one received is no progress: rewound first, the failure always counts.
+        if self.single {
+            t.rewind(idx);
+        }
         t.release(idx, true, now);
         if let Some(wait) = wait {
             t.hold(idx, now + wait.min(MAX_RETRY_AFTER));
-        }
-        if self.single {
-            t.rewind(idx);
         }
         if t.segs[idx].failures > self.job.opts.max_failures {
             self.fatal.get_or_insert(Error::TooManyFailures {

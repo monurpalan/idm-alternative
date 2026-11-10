@@ -151,6 +151,36 @@ async fn no_range_support_uses_one_connection() {
     ok("no-ranges", 8 * MB, "&ranges=off", 16).await;
 }
 
+/// Without ranges every attempt starts from the first byte, so one that delivers part of the
+/// file before the server cuts it is no progress: a server that always cuts gives up after
+/// `max_failures` attempts instead of being asked again forever.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_range_server_that_always_drops_gives_up() {
+    let base = start().await;
+    let dir = workdir("no-ranges-drop");
+    let out = dir.join("f.bin");
+    let url = format!(
+        "{base}/file/f.bin?size={}&seed=7&ranges=off&drop_after=256K",
+        2 * MB
+    );
+    let o = Options {
+        max_failures: 2,
+        ..opts(4)
+    };
+    let (req, token) = (request(url, &out), CancellationToken::new());
+    let run = download(&req, &o, None, &token);
+    let err = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("kept retrying")
+        .expect_err("must fail");
+    assert!(
+        matches!(err, Error::TooManyFailures { attempts: 3, .. }),
+        "{err}"
+    );
+    // The probe and one request per retry: max_failures + 1 attempts in all.
+    assert_eq!(ranges_asked(&base).await.len(), 3);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn fake_range_support_falls_back_to_one_connection() {
     ok("fake-ranges", 8 * MB, "&range_as_200=1&rate=16M", 16).await;
