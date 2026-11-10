@@ -305,6 +305,8 @@ impl Inner {
                 tracing::info!(id, "trying the saved login");
                 self.db.set_status(id, Status::Queued, None).await
             }
+            // A recording stopped ends well; removed (or downloaded again), it is not done.
+            (Ok(_), Some(Stop::Remove)) => Ok(()),
             (Ok(outcome), _) => self.record_done(id, outcome, note).await,
             (Err(Error::Engine(shardload_engine::Error::Cancelled)), Some(Stop::Pause)) => {
                 self.db.set_status(id, Status::Paused, None).await

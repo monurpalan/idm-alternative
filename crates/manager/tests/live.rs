@@ -200,3 +200,31 @@ async fn a_recording_waits_for_its_start_time_and_keeps_to_its_limit() {
     assert!((5..=15).contains(&segments), "{segments}");
     m.close().await;
 }
+
+/// Removing a recording, or downloading it again, leaves nothing finished behind: no
+/// entry in the history.
+#[tokio::test(flavor = "multi_thread")]
+async fn removing_or_restarting_a_recording_does_not_finish_it() {
+    let base = start_server().await;
+    let w = WorkDir::new("remove");
+    let m = w.manager().await;
+    let url = format!("{base}/hls/v720.m3u8?live=1&seg_ms=200&window=4&seed=44&seg_size=16K");
+    let removed = m
+        .add(recording(url.clone(), Recording::default()))
+        .await
+        .expect("add");
+    wait_for(&m, removed.id, 10, |t| t.received >= 2 * (16 << 10)).await;
+    m.remove(removed.id, true).await.expect("remove");
+    assert!(m.get(removed.id).await.is_err());
+    assert!(m.history().await.expect("history").is_empty());
+
+    let restarted = m
+        .add(recording(url, Recording::default()))
+        .await
+        .expect("add");
+    wait_for(&m, restarted.id, 10, |t| t.received >= 2 * (16 << 10)).await;
+    m.restart(restarted.id).await.expect("restart");
+    assert_ne!(m.get(restarted.id).await.expect("get").status, Status::Done);
+    assert!(m.history().await.expect("history").is_empty());
+    m.close().await;
+}
