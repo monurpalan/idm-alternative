@@ -17,8 +17,8 @@ The manifests are for the version named in their folder; `InstallerSha256` is th
 install from them, on Windows:
 
 ```
-winget validate docs\distribution\winget\manifests\m\monurpalan\Shardload\0.1.6
-winget install --manifest docs\distribution\winget\manifests\m\monurpalan\Shardload\0.1.6
+winget validate docs\distribution\winget\manifests\m\monurpalan\Shardload\0.1.7
+winget install --manifest docs\distribution\winget\manifests\m\monurpalan\Shardload\0.1.7
 ```
 
 (`winget settings --enable LocalManifestFiles` once, as administrator, allows the second.)
